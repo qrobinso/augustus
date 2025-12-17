@@ -1,0 +1,35 @@
+version: '3.8'
+
+# Development docker-compose with hot reload
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: augustus-backend-dev
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:///./data/augustus.db
+      - AUDIO_STORAGE_PATH=/app/audio
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - OPENROUTER_MODEL=${OPENROUTER_MODEL:-anthropic/claude-3.5-sonnet}
+      - TTS_PROVIDER=${TTS_PROVIDER:-piper}
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY:-}
+      - API_KEY=${API_KEY:-dev-api-key}
+      - DEBUG=true
+    volumes:
+      - ./backend:/app
+      - ./data:/app/data
+      - ./audio:/app/audio
+      - ./models:/app/models
+    ports:
+      - "8000:8000"
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Frontend runs locally with npm run dev for hot reload
+  # Just start the backend with: docker-compose -f docker-compose.dev.yml up
+
+volumes:
+  data:
+  audio:
+  models:
+

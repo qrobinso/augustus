@@ -1,0 +1,31 @@
+# FastAPI and server
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+python-multipart>=0.0.12
+
+# Database
+sqlalchemy[asyncio]>=2.0.36
+aiosqlite>=0.20.0
+
+# Settings and validation
+pydantic>=2.10.0
+pydantic-settings>=2.6.0
+
+# HTTP client
+httpx>=0.28.0
+aiohttp>=3.11.0
+
+# Scheduling
+apscheduler>=3.10.4
+
+# RSS and news
+feedparser>=6.0.11
+beautifulsoup4>=4.12.3
+lxml>=5.3.0
+
+# Audio processing
+pydub>=0.25.1
+mutagen>=1.47.0
+
+# Utilities
+python-dotenv>=1.0.1
