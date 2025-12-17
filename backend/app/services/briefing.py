@@ -188,19 +188,45 @@ class BriefingService:
                 }
                 await self.db.commit()
             
-            # Look up topic names from IDs
-            topic_names = await self._get_topic_names(briefing.user_id, topic_ids)
+            # Look up topic names from IDs and check use_newsapi settings
+            topics_data = await self._get_topics_data(briefing.user_id, topic_ids)
+            topic_names = [t.name for t in topics_data]
+            # Only include topic names for topics that have use_newsapi=True
+            newsapi_topic_names = [t.name for t in topics_data if t.use_newsapi]
+            # Check if any topic has use_newsapi enabled
+            any_use_newsapi = any(t.use_newsapi for t in topics_data) if topics_data else True
             print(f"[Briefing] Topics: {topic_names}")
+            print(f"[Briefing] Topics with NewsAPI enabled: {newsapi_topic_names}")
             
-            # Step 1: Fetch news from RSS feeds
-            await update_progress(1, "Fetching RSS feeds", 5)
-            print("[Briefing] Fetching news from RSS feeds...")
-            rss_items = await self.news.fetch_all_feeds()
+            # Step 1: Fetch news from RSS feeds (only if at least one topic has use_newsapi=True)
+            # RSS feeds are external sources like NewsAPI, so they should be excluded when user wants only custom sites
+            rss_items = []
+            if any_use_newsapi:
+                await update_progress(1, "Fetching RSS feeds", 5)
+                print("[Briefing] Fetching news from RSS feeds...")
+                rss_items = await self.news.fetch_all_feeds()
+            else:
+                await update_progress(1, "Skipping RSS feeds (only using custom sites)", 5)
+                print("[Briefing] Skipping RSS feeds - all topics have use_newsapi=False (using custom sites only)")
             
-            # Step 2: Fetch from NewsAPI
-            await update_progress(2, "Fetching news from NewsAPI", 20)
-            print("[Briefing] Fetching news from NewsAPI...")
-            newsapi_items = await self.news.fetch_newsapi(topics=topic_names if topic_names else None)
+            # Step 2: Fetch from NewsAPI (only if at least one topic has use_newsapi=True)
+            newsapi_items = []
+            if newsapi_topic_names:
+                await update_progress(2, "Fetching news from NewsAPI", 20)
+                print("[Briefing] Fetching news from NewsAPI...")
+                fetched_newsapi_items = await self.news.fetch_newsapi(topics=newsapi_topic_names)
+                
+                # Filter NewsAPI items to ensure they only match topics with use_newsapi=True
+                # NewsAPI items have category set to topic name (lowercase)
+                allowed_categories = {t.name.lower() for t in topics_data if t.use_newsapi}
+                newsapi_items = [
+                    item for item in fetched_newsapi_items
+                    if item.category and item.category.lower() in allowed_categories
+                ]
+                print(f"[Briefing] Filtered NewsAPI items: {len(fetched_newsapi_items)} fetched, {len(newsapi_items)} allowed")
+            else:
+                await update_progress(2, "Skipping NewsAPI (disabled for all topics)", 20)
+                print("[Briefing] Skipping NewsAPI - all topics have use_newsapi=False")
             
             # Step 3: Fetch from custom sites
             await update_progress(3, "Fetching custom sites", 35)
@@ -211,7 +237,11 @@ class BriefingService:
             )
             print(f"[Briefing] Found {len(custom_site_items)} articles from custom sites")
             
-            # Combine and deduplicate (custom sites first so they get priority)
+            # Combine articles from all sources
+            # Note: 
+            # - custom_site_items: Already filtered by topic_ids (only includes sites for selected topics)
+            # - newsapi_items: Filtered to only include topics with use_newsapi=True (empty if all topics have use_newsapi=False)
+            # - rss_items: Global RSS feeds (only included if at least one topic has use_newsapi=True)
             all_items = custom_site_items + newsapi_items + rss_items
             seen_titles = set()
             news_items = []
@@ -224,33 +254,38 @@ class BriefingService:
             
             print(f"[Briefing] Total unique news items: {len(news_items)}")
             
-            # Calculate max stories based on duration
-            # Roughly 2-3 stories per minute of content gives good depth
-            max_stories = max(5, min(30, max_duration_minutes * 3))
-            print(f"[Briefing] Target: {max_stories} stories for {max_duration_minutes} minute briefing")
+            # News editor should narrow down to 3-5 articles, stack-ranked in priority order
+            # Weather stories are always top priority
+            target_story_count = 5  # Aim for 5, but allow 3-5 range
+            print(f"[Briefing] Target: 3-5 stories (stack-ranked in priority order, weather stories top priority)")
             
-            # Step 4: Analyze and rank stories with LLM
+            # Step 4: Analyze and rank stories with LLM to narrow down to 3-5 top stories
             await update_progress(4, "Analyzing and ranking stories", 50)
-            if len(news_items) > max_stories:
-                print(f"[Briefing] Stage 1: Analyzing {len(news_items)} stories to find top {max_stories}...")
+            if len(news_items) > 3:
+                # Always use story analysis when we have more than 3 articles to narrow down to 3-5
+                print(f"[Briefing] Analyzing {len(news_items)} stories to narrow down to 3-5 top stories...")
                 ranked_items, analysis_summary = await self._analyze_and_rank_stories(
                     news_items=news_items,
                     topics=topic_names if topic_names else ["technology", "business", "science"],
-                    max_stories=max_stories,
+                    max_stories=target_story_count,
                 )
-                print(f"[Briefing] Selected {len(ranked_items)} top stories")
+                # Ensure we have 3-5 stories (take top 5 max)
+                ranked_items = ranked_items[:5]
+                print(f"[Briefing] Selected {len(ranked_items)} top stories (stack-ranked in priority order)")
                 if analysis_summary:
                     print(f"[Briefing] Analysis: {analysis_summary}")
             else:
-                # Not enough stories to need ranking
+                # If 3 or fewer stories, use them all (no need to narrow down)
                 ranked_items = news_items
                 analysis_summary = None
+                print(f"[Briefing] Using all {len(ranked_items)} stories (no narrowing needed)")
             
             # Format the prioritized stories for the podcast prompt
-            news_content = self.news.format_news_for_briefing(ranked_items, max_stories=max_stories)
+            # Use all ranked items (should be 3-5 stories)
+            news_content = self.news.format_news_for_briefing(ranked_items, max_stories=len(ranked_items))
             
-            # Store sources (the ranked/prioritized stories)
-            briefing.sources = [item.to_dict() for item in ranked_items[:max_stories]]
+            # Store sources (the ranked/prioritized stories - should be 3-5)
+            briefing.sources = [item.to_dict() for item in ranked_items]
             
             # Step 5: Generate podcast script with LLM
             await update_progress(5, "Writing podcast script", 65)
@@ -269,7 +304,35 @@ class BriefingService:
                 temperature=0.7,
             )
             
-            script = response.content
+            # Extract title and script from response
+            content = response.content.strip()
+            script = content
+            title_match = None
+            
+            # Look for title in format "TITLE: [title]" (case-insensitive)
+            # Try multiple patterns to be robust
+            title_patterns = [
+                r"^TITLE:\s*(.+?)(?:\n|$)",  # At start of content
+                r"TITLE:\s*(.+?)(?:\n|$)",   # Anywhere in content
+            ]
+            
+            for pattern in title_patterns:
+                match = re.search(pattern, content, re.IGNORECASE | re.MULTILINE)
+                if match:
+                    title_match = match.group(1).strip()
+                    # Remove title line from script
+                    script = re.sub(pattern, "", content, flags=re.IGNORECASE | re.MULTILINE).strip()
+                    break
+            
+            # Update briefing title if found, otherwise keep the existing one
+            if title_match and len(title_match) > 0:
+                # Ensure title is not too long (max 60 chars for glanceability)
+                title = title_match[:60] if len(title_match) > 60 else title_match
+                briefing.title = title
+                print(f"[Briefing] Updated title from LLM: {title}")
+            else:
+                print(f"[Briefing] No valid title found in LLM response, keeping existing title: {briefing.title}")
+            
             briefing.transcript = script
             
             # Parse script into segments
@@ -372,18 +435,30 @@ class BriefingService:
         user_id: str,
         limit: int = 10,
         offset: int = 0,
+        listened: Optional[bool] = None,
     ) -> tuple[list[Briefing], int]:
-        """List briefings for a user."""
+        """List briefings for a user.
+        
+        Args:
+            user_id: User ID
+            limit: Maximum number of results
+            offset: Number of results to skip
+            listened: Optional filter by listened status
+        """
+        # Build query
+        query = select(Briefing).where(Briefing.user_id == user_id)
+        
+        # Apply listened filter if provided
+        if listened is not None:
+            query = query.where(Briefing.listened == listened)
+        
         # Get total count
-        count_result = await self.db.execute(
-            select(Briefing).where(Briefing.user_id == user_id)
-        )
+        count_result = await self.db.execute(query)
         total = len(count_result.scalars().all())
         
         # Get paginated results
         result = await self.db.execute(
-            select(Briefing)
-            .where(Briefing.user_id == user_id)
+            query
             .order_by(Briefing.created_at.desc())
             .limit(limit)
             .offset(offset)
@@ -488,6 +563,40 @@ class BriefingService:
         
         return briefing
     
+    async def _get_topics_data(
+        self,
+        user_id: str,
+        topic_ids: list[str],
+    ) -> list[Topic]:
+        """Look up topic data from topic IDs.
+        
+        Args:
+            user_id: The user ID
+            topic_ids: List of topic IDs
+            
+        Returns:
+            List of Topic objects
+        """
+        if not topic_ids:
+            # If no topic IDs provided, get all active topics for the user
+            result = await self.db.execute(
+                select(Topic).where(
+                    Topic.user_id == user_id,
+                    Topic.is_active == True,
+                )
+            )
+            topics = result.scalars().all()
+            return list(topics)
+        
+        result = await self.db.execute(
+            select(Topic).where(
+                Topic.id.in_(topic_ids),
+                Topic.user_id == user_id,
+            )
+        )
+        topics = result.scalars().all()
+        return list(topics)
+    
     async def _get_topic_names(
         self,
         user_id: str,
@@ -502,24 +611,7 @@ class BriefingService:
         Returns:
             List of topic names
         """
-        if not topic_ids:
-            # If no topic IDs provided, get all active topics for the user
-            result = await self.db.execute(
-                select(Topic).where(
-                    Topic.user_id == user_id,
-                    Topic.is_active == True,
-                )
-            )
-            topics = result.scalars().all()
-            return [t.name for t in topics]
-        
-        result = await self.db.execute(
-            select(Topic).where(
-                Topic.id.in_(topic_ids),
-                Topic.user_id == user_id,
-            )
-        )
-        topics = result.scalars().all()
+        topics = await self._get_topics_data(user_id, topic_ids)
         return [t.name for t in topics]
     
     async def _fetch_custom_site_articles(

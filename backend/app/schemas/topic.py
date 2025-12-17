@@ -23,6 +23,10 @@ class TopicCreate(BaseModel):
         pattern=r'^#[0-9A-Fa-f]{6}$',
         description="Hex color for UI (e.g., '#3B82F6')",
     )
+    use_newsapi: Optional[bool] = Field(
+        default=True,
+        description="Whether to include NewsAPI results for this topic",
+    )
 
 
 class TopicUpdate(BaseModel):
@@ -34,6 +38,10 @@ class TopicUpdate(BaseModel):
         pattern=r'^#[0-9A-Fa-f]{6}$',
     )
     is_active: Optional[bool] = None
+    use_newsapi: Optional[bool] = Field(
+        default=None,
+        description="Whether to include NewsAPI results for this topic",
+    )
 
 
 class TopicResponse(BaseModel):
@@ -45,6 +53,7 @@ class TopicResponse(BaseModel):
     description: Optional[str] = None
     color: Optional[str] = None
     is_active: bool
+    use_newsapi: bool
     created_at: datetime
     site_count: int = 0  # Count of linked custom sites
     

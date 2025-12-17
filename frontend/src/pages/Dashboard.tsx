@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { 
@@ -14,12 +14,19 @@ import {
   ChevronRight,
   CheckCircle,
   Circle,
-  XCircle
+  XCircle,
+  Plus,
+  Pencil,
+  Mail,
+  Webhook,
+  Power,
+  Tag
 } from 'lucide-react'
 import clsx from 'clsx'
-import { briefingsApi, settingsApi, topicsApi, Briefing } from '../api/client'
+import { briefingsApi, settingsApi, topicsApi, scheduledBriefingsApi, Briefing, ScheduledBriefing } from '../api/client'
 import { useStore } from '../store/useStore'
 import { formatCompactDate } from '../utils/timezone'
+import ScheduledBriefingForm from '../components/ScheduledBriefingForm'
 
 export default function Dashboard() {
   const navigate = useNavigate()
@@ -30,19 +37,29 @@ export default function Dashboard() {
   const setIsPlaying = useStore((s) => s.setIsPlaying)
   
   const [selectedTopicIds, setSelectedTopicIds] = useState<string[]>([])
+  const [showScheduleForm, setShowScheduleForm] = useState(false)
+  const [editingSchedule, setEditingSchedule] = useState<ScheduledBriefing | null>(null)
+  const [listenedFilter, setListenedFilter] = useState<boolean | undefined>(undefined)
+  const [currentPage, setCurrentPage] = useState(0)
+  const pageSize = 10
   
   // Check if there's a briefing in progress to determine poll interval
   const hasBriefingInProgress = (briefings: Briefing[] | undefined) => 
     briefings?.some((b) => b.status === 'pending' || b.status === 'generating')
   
   const { data, isLoading, error } = useQuery({
-    queryKey: ['briefings'],
-    queryFn: () => briefingsApi.list(),
+    queryKey: ['briefings', listenedFilter, currentPage],
+    queryFn: () => briefingsApi.list(pageSize, currentPage * pageSize, listenedFilter),
     refetchInterval: (query) => {
       // Poll more frequently (2s) when a briefing is in progress, otherwise every 10s
       return hasBriefingInProgress(query.state.data?.briefings) ? 2000 : 10000
     },
   })
+  
+  // Reset to first page when filter changes
+  useEffect(() => {
+    setCurrentPage(0)
+  }, [listenedFilter])
   
   // Fetch settings for timezone
   const { data: settings } = useQuery({
@@ -56,7 +73,15 @@ export default function Dashboard() {
     queryFn: () => topicsApi.list(),
   })
   
+  // Fetch scheduled briefings
+  const { data: scheduledData, isLoading: scheduledLoading } = useQuery({
+    queryKey: ['scheduled-briefings'],
+    queryFn: () => scheduledBriefingsApi.list(),
+  })
+  
   const topics = topicsData?.topics || []
+  const scheduledBriefings = scheduledData?.scheduled_briefings || []
+  // Use customer's timezone from settings for all displays
   const timezone = settings?.timezone || 'UTC'
   
   // Check if there's a briefing currently in progress
@@ -91,6 +116,20 @@ export default function Dashboard() {
     mutationFn: (id: string) => briefingsApi.cancel(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['briefings'] })
+    },
+  })
+  
+  const deleteScheduleMutation = useMutation({
+    mutationFn: (id: string) => scheduledBriefingsApi.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['scheduled-briefings'] })
+    },
+  })
+  
+  const toggleScheduleMutation = useMutation({
+    mutationFn: (id: string) => scheduledBriefingsApi.toggle(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['scheduled-briefings'] })
     },
   })
   
@@ -258,28 +297,249 @@ export default function Dashboard() {
             </div>
           </div>
         ) : (
-          <button
-            onClick={handleGenerate}
-            disabled={generateMutation.isPending}
-            className="btn btn-primary flex items-center gap-2"
-          >
-            {generateMutation.isPending ? (
-              <>
-                <Loader2 className="w-5 h-5 animate-spin" />
-                Starting...
-              </>
-            ) : (
-              <>
-                <Sparkles className="w-5 h-5" />
-                Generate Briefing
-              </>
-            )}
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleGenerate}
+              disabled={generateMutation.isPending}
+              className="btn btn-primary flex items-center gap-2"
+            >
+              {generateMutation.isPending ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  Starting...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-5 h-5" />
+                  Create Briefing Now
+                </>
+              )}
+            </button>
+            <button
+              onClick={() => {
+                setEditingSchedule(null)
+                setShowScheduleForm(true)
+              }}
+              className="btn btn-primary flex items-center gap-2"
+            >
+              <Plus className="w-4 h-4" />
+              Add to Schedule
+            </button>
+          </div>
+        )}
+      </div>
+      
+      {/* Scheduled Briefings Section */}
+      <div className="card mb-8">
+        <div className="mb-4">
+          <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+            <Calendar className="w-5 h-5 text-accent" />
+            Scheduled Briefings
+          </h2>
+        </div>
+        
+        {scheduledLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="w-6 h-6 animate-spin text-accent" />
+          </div>
+        ) : scheduledBriefings.length === 0 ? (
+          <div className="text-center py-8">
+            <Calendar className="w-12 h-12 text-augustus-600 mx-auto mb-4" />
+            <p className="text-augustus-400 mb-4">No scheduled briefings yet.</p>
+            <button
+              onClick={() => {
+                setEditingSchedule(null)
+                setShowScheduleForm(true)
+              }}
+              className="btn btn-primary"
+            >
+              Add to Schedule
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {scheduledBriefings.map((schedule) => {
+              const daysLabels = schedule.schedule_days
+                .sort()
+                .map((d) => {
+                  const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+                  return dayNames[d]
+                })
+                .join(', ')
+              
+              return (
+                <div
+                  key={schedule.id}
+                  className="p-4 bg-augustus-900 rounded-lg border border-augustus-800 hover:border-augustus-700 transition-colors"
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-2">
+                        <h3 className="font-semibold text-white">{schedule.name}</h3>
+                        <span
+                          className={clsx(
+                            'px-2 py-0.5 rounded-full text-xs font-medium',
+                            schedule.is_active
+                              ? 'bg-green-500/20 text-green-400'
+                              : 'bg-augustus-700 text-augustus-500'
+                          )}
+                        >
+                          {schedule.is_active ? 'Active' : 'Inactive'}
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-4 text-sm text-augustus-400">
+                        <span className="flex items-center gap-1">
+                          <Clock className="w-4 h-4" />
+                          {schedule.schedule_time} ({timezone})
+                        </span>
+                        <span>{daysLabels}</span>
+                        <span className="flex items-center gap-1">
+                          {schedule.notification_methods.length > 0 ? (
+                            <>
+                              {schedule.notification_methods.includes('email') && (
+                                <Mail className="w-4 h-4" />
+                              )}
+                              {schedule.notification_methods.includes('webhook') && (
+                                <Webhook className="w-4 h-4" />
+                              )}
+                              {schedule.notification_methods.join(', ')}
+                            </>
+                          ) : (
+                            <span className="text-augustus-500">No notifications (dashboard only)</span>
+                          )}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <Calendar className="w-4 h-4" />
+                          <span className="text-augustus-400">
+                            Last generated:{' '}
+                            {schedule.last_generated_at ? (
+                              <span className="text-augustus-300">
+                                {formatCompactDate(schedule.last_generated_at, timezone)}
+                              </span>
+                            ) : (
+                              <span className="text-augustus-500 italic">Never</span>
+                            )}
+                          </span>
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => {
+                          setEditingSchedule(schedule)
+                          setShowScheduleForm(true)
+                        }}
+                        className="btn btn-ghost p-2 text-augustus-500 hover:text-accent"
+                        title="Edit"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => toggleScheduleMutation.mutate(schedule.id)}
+                        disabled={toggleScheduleMutation.isPending}
+                        className={clsx(
+                          'btn btn-ghost p-2',
+                          schedule.is_active
+                            ? 'text-augustus-500 hover:text-yellow-400'
+                            : 'text-augustus-500 hover:text-green-400'
+                        )}
+                        title={schedule.is_active ? 'Disable' : 'Enable'}
+                      >
+                        {toggleScheduleMutation.isPending ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Power className="w-4 h-4" />
+                        )}
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (confirm('Are you sure you want to delete this schedule?')) {
+                            deleteScheduleMutation.mutate(schedule.id)
+                          }
+                        }}
+                        className="btn btn-ghost p-2 text-augustus-500 hover:text-red-400"
+                        title="Delete"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
         )}
       </div>
       
       {/* Briefings list */}
       <div className="space-y-4">
+        {/* Filter and pagination controls */}
+        <div className="card mb-4">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-augustus-400">Filter:</span>
+              <button
+                onClick={() => setListenedFilter(undefined)}
+                className={clsx(
+                  'px-3 py-1.5 rounded-full text-sm font-medium transition-all',
+                  listenedFilter === undefined
+                    ? 'bg-accent text-white'
+                    : 'bg-augustus-800 text-augustus-300 hover:bg-augustus-700'
+                )}
+              >
+                All
+              </button>
+              <button
+                onClick={() => setListenedFilter(true)}
+                className={clsx(
+                  'px-3 py-1.5 rounded-full text-sm font-medium transition-all flex items-center gap-1.5',
+                  listenedFilter === true
+                    ? 'bg-accent text-white'
+                    : 'bg-augustus-800 text-augustus-300 hover:bg-augustus-700'
+                )}
+              >
+                <CheckCircle className="w-3 h-3" />
+                Listened
+              </button>
+              <button
+                onClick={() => setListenedFilter(false)}
+                className={clsx(
+                  'px-3 py-1.5 rounded-full text-sm font-medium transition-all flex items-center gap-1.5',
+                  listenedFilter === false
+                    ? 'bg-accent text-white'
+                    : 'bg-augustus-800 text-augustus-300 hover:bg-augustus-700'
+                )}
+              >
+                <Circle className="w-3 h-3" />
+                Unlistened
+              </button>
+            </div>
+            
+            {/* Pagination */}
+            {data && data.total > pageSize && (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setCurrentPage((p) => Math.max(0, p - 1))}
+                  disabled={currentPage === 0}
+                  className="btn btn-ghost px-3 py-1.5 text-sm disabled:opacity-50"
+                >
+                  Previous
+                </button>
+                <span className="text-sm text-augustus-400">
+                  Page {currentPage + 1} of {Math.ceil(data.total / pageSize)}
+                </span>
+                <button
+                  onClick={() => setCurrentPage((p) => p + 1)}
+                  disabled={(currentPage + 1) * pageSize >= data.total}
+                  className="btn btn-ghost px-3 py-1.5 text-sm disabled:opacity-50"
+                >
+                  Next
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+        
         {isLoading ? (
           <div className="card flex items-center justify-center py-12">
             <Loader2 className="w-8 h-8 animate-spin text-accent" />
@@ -292,11 +552,21 @@ export default function Dashboard() {
         ) : data?.briefings.length === 0 ? (
           <div className="card text-center py-12">
             <Calendar className="w-12 h-12 text-augustus-600 mx-auto mb-4" />
-            <p className="text-augustus-400">No briefings yet. Generate your first one!</p>
+            <p className="text-augustus-400">
+              {listenedFilter === true
+                ? 'No listened briefings found.'
+                : listenedFilter === false
+                ? 'No unlistened briefings found.'
+                : 'No briefings yet. Generate your first one!'}
+            </p>
           </div>
         ) : (
           data?.briefings.map((briefing) => {
             const isCurrentlyPlaying = currentAudio?.id === briefing.id && isPlaying
+            // Get topic IDs from extra_data
+            const briefingTopicIds = (briefing.extra_data?.topic_ids as string[]) || []
+            // Match with topics data
+            const briefingTopics = topics.filter((t) => briefingTopicIds.includes(t.id))
             
             return (
               <div
@@ -332,7 +602,7 @@ export default function Dashboard() {
                     <h3 className="font-semibold text-white truncate group-hover:text-accent transition-colors">
                       {briefing.title}
                     </h3>
-                    <div className="flex items-center gap-4 text-sm text-augustus-500">
+                    <div className="flex flex-wrap items-center gap-2 text-sm text-augustus-500 mb-2">
                       <span className="flex items-center gap-1">
                         <Clock className="w-4 h-4" />
                         {formatDuration(briefing.duration_seconds)}
@@ -373,6 +643,24 @@ export default function Dashboard() {
                         </span>
                       )}
                     </div>
+                    {/* Topics */}
+                    {briefingTopics.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mt-2">
+                        {briefingTopics.map((topic) => (
+                          <span
+                            key={topic.id}
+                            className="px-2 py-0.5 rounded-full text-xs font-medium flex items-center gap-1"
+                            style={{ backgroundColor: `${topic.color || '#3B82F6'}20`, color: topic.color || '#3B82F6' }}
+                          >
+                            <span
+                              className="w-1.5 h-1.5 rounded-full"
+                              style={{ backgroundColor: topic.color || '#3B82F6' }}
+                            />
+                            {topic.name}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                     {briefing.error_message && (
                       <p className="text-sm text-red-400 mt-1">{briefing.error_message}</p>
                     )}
@@ -409,7 +697,51 @@ export default function Dashboard() {
             )
           })
         )}
+        
+        {/* Pagination footer */}
+        {data && data.total > pageSize && (
+          <div className="card mt-4">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-augustus-400">
+                Showing {currentPage * pageSize + 1} to {Math.min((currentPage + 1) * pageSize, data.total)} of {data.total} briefings
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setCurrentPage((p) => Math.max(0, p - 1))}
+                  disabled={currentPage === 0}
+                  className="btn btn-ghost px-3 py-1.5 text-sm disabled:opacity-50"
+                >
+                  Previous
+                </button>
+                <span className="text-sm text-augustus-400 px-2">
+                  Page {currentPage + 1} of {Math.ceil(data.total / pageSize)}
+                </span>
+                <button
+                  onClick={() => setCurrentPage((p) => p + 1)}
+                  disabled={(currentPage + 1) * pageSize >= data.total}
+                  className="btn btn-ghost px-3 py-1.5 text-sm disabled:opacity-50"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
+      
+      {/* Scheduled Briefing Form Modal */}
+      <ScheduledBriefingForm
+        isOpen={showScheduleForm}
+        onClose={() => {
+          setShowScheduleForm(false)
+          setEditingSchedule(null)
+        }}
+        onSuccess={() => {
+          queryClient.invalidateQueries({ queryKey: ['scheduled-briefings'] })
+        }}
+        editingSchedule={editingSchedule}
+        initialTopicIds={selectedTopicIds}
+      />
     </div>
   )
 }

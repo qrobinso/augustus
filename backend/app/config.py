@@ -70,6 +70,9 @@ class Settings(BaseSettings):
     news_api_key: Optional[str] = None
     rss_feeds: str = "https://feeds.bbci.co.uk/news/technology/rss.xml,https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml"
     
+    # Resend Email
+    resend_api_key: Optional[str] = None
+    
     # Scheduler
     briefing_schedule_hour: int = 7
     briefing_schedule_minute: int = 0

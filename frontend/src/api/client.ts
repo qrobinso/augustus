@@ -114,6 +114,7 @@ export interface Topic {
   description?: string
   color?: string
   is_active: boolean
+  use_newsapi: boolean
   created_at: string
   site_count: number
 }
@@ -158,10 +159,12 @@ export interface AppSettings {
   timezone: string
   news_api_key?: string
   rss_feeds: string
+  resend_api_key?: string
   user_name?: string
   openrouter_configured: boolean
   elevenlabs_configured: boolean
   news_api_configured: boolean
+  resend_configured: boolean
 }
 
 export interface TimezoneOption {
@@ -172,6 +175,24 @@ export interface TimezoneOption {
 
 export interface TimezoneGroups {
   [region: string]: TimezoneOption[]
+}
+
+export interface ScheduledBriefing {
+  id: string
+  user_id: string
+  name: string
+  topic_ids: string[]
+  schedule_time: string
+  schedule_days: number[]
+  notification_methods: string[]
+  email_recipients: string[]
+  webhook_url?: string
+  is_active: boolean
+  max_duration_minutes: number
+  resend_api_key?: string
+  last_generated_at?: string
+  created_at: string
+  updated_at: string
 }
 
 export interface ModelOption {
@@ -188,9 +209,16 @@ export interface ModelOption {
 
 // API functions
 export const briefingsApi = {
-  list: async (limit = 10, offset = 0) => {
+  list: async (limit = 10, offset = 0, listened?: boolean) => {
+    const params = new URLSearchParams({
+      limit: String(limit),
+      offset: String(offset),
+    })
+    if (listened !== undefined) {
+      params.set('listened', String(listened))
+    }
     const { data } = await api.get<{ briefings: Briefing[]; total: number }>(
-      `/api/briefings?limit=${limit}&offset=${offset}`
+      `/api/briefings?${params}`
     )
     return data
   },
@@ -362,6 +390,7 @@ export const topicsApi = {
     name: string
     description?: string
     color?: string
+    use_newsapi?: boolean
   }) => {
     const { data } = await api.post<Topic>('/api/topics', options)
     return data
@@ -372,6 +401,7 @@ export const topicsApi = {
     description: string
     color: string
     is_active: boolean
+    use_newsapi: boolean
   }>) => {
     const { data } = await api.put<Topic>(`/api/topics/${id}`, options)
     return data
@@ -402,6 +432,7 @@ export const settingsApi = {
     timezone: string
     news_api_key: string
     rss_feeds: string
+    resend_api_key: string
     user_name: string
   }>) => {
     const { data } = await api.put<AppSettings>('/api/settings', settings)
@@ -416,6 +447,61 @@ export const settingsApi = {
   getTimezones: async () => {
     const { data } = await api.get<{ timezones: TimezoneGroups }>('/api/settings/timezones')
     return data.timezones
+  },
+}
+
+export const scheduledBriefingsApi = {
+  list: async (limit = 50, offset = 0) => {
+    const { data } = await api.get<{ scheduled_briefings: ScheduledBriefing[]; total: number }>(
+      `/api/scheduled-briefings?limit=${limit}&offset=${offset}`
+    )
+    return data
+  },
+  
+  get: async (id: string) => {
+    const { data } = await api.get<ScheduledBriefing>(`/api/scheduled-briefings/${id}`)
+    return data
+  },
+  
+  create: async (options: {
+    name: string
+    topic_ids?: string[]
+    schedule_time: string
+    schedule_days: number[]
+    notification_methods: string[]
+    email_recipients?: string[]
+    webhook_url?: string
+    is_active?: boolean
+    max_duration_minutes?: number
+    resend_api_key?: string
+  }) => {
+    const { data } = await api.post<ScheduledBriefing>('/api/scheduled-briefings', options)
+    return data
+  },
+  
+  update: async (id: string, options: Partial<{
+    name: string
+    topic_ids: string[]
+    schedule_time: string
+    schedule_days: number[]
+    notification_methods: string[]
+    email_recipients: string[]
+    webhook_url: string
+    is_active: boolean
+    max_duration_minutes: number
+    resend_api_key: string
+  }>) => {
+    const { data } = await api.put<ScheduledBriefing>(`/api/scheduled-briefings/${id}`, options)
+    return data
+  },
+  
+  delete: async (id: string) => {
+    await api.delete(`/api/scheduled-briefings/${id}`)
+  },
+  
+  toggle: async (id: string) => {
+    const { data } = await api.patch<ScheduledBriefing>(`/api/scheduled-briefings/${id}/toggle`)
+    return data
   },
 }
 

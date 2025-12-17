@@ -1,4 +1,5 @@
 import { useRef, useEffect, useState } from 'react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { 
   Play, 
   Pause, 
@@ -12,6 +13,7 @@ import {
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useStore } from '../store/useStore'
+import { briefingsApi } from '../api/client'
 
 export default function AudioPlayer() {
   const audioRef = useRef<HTMLAudioElement>(null)
@@ -19,6 +21,8 @@ export default function AudioPlayer() {
   const [isMuted, setIsMuted] = useState(false)
   const [playbackRate, setPlaybackRate] = useState(1)
   const [showTranscript, setShowTranscript] = useState(false)
+  const [hasMarkedListened, setHasMarkedListened] = useState(false)
+  const queryClient = useQueryClient()
   
   const { 
     currentAudio, 
@@ -31,11 +35,38 @@ export default function AudioPlayer() {
     clearAudio,
   } = useStore()
   
+  // Mutation for marking as listened
+  const markListenedMutation = useMutation({
+    mutationFn: (id: string) => briefingsApi.updateListened(id, true),
+    onSuccess: () => {
+      // Invalidate all briefings queries (with any filter/page combination)
+      queryClient.invalidateQueries({ queryKey: ['briefings'] })
+      if (currentAudio?.id) {
+        queryClient.invalidateQueries({ queryKey: ['briefing', currentAudio.id] })
+      }
+    },
+  })
+  
   useEffect(() => {
     const audio = audioRef.current
     if (!audio) return
     
-    const handleTimeUpdate = () => setCurrentTime(audio.currentTime)
+    const handleTimeUpdate = () => {
+      const newTime = audio.currentTime
+      setCurrentTime(newTime)
+      
+      // Auto-mark as listened if played for more than 5 seconds
+      if (
+        currentAudio?.type === 'briefing' &&
+        currentAudio.id &&
+        !hasMarkedListened &&
+        newTime >= 5
+      ) {
+        setHasMarkedListened(true)
+        markListenedMutation.mutate(currentAudio.id)
+      }
+    }
+    
     const handleDurationChange = () => setDuration(audio.duration)
     const handleEnded = () => setIsPlaying(false)
     
@@ -48,7 +79,12 @@ export default function AudioPlayer() {
       audio.removeEventListener('durationchange', handleDurationChange)
       audio.removeEventListener('ended', handleEnded)
     }
-  }, [setCurrentTime, setDuration, setIsPlaying])
+  }, [setCurrentTime, setDuration, setIsPlaying, currentAudio, hasMarkedListened, markListenedMutation])
+  
+  // Reset hasMarkedListened when audio changes
+  useEffect(() => {
+    setHasMarkedListened(false)
+  }, [currentAudio?.id])
   
   useEffect(() => {
     if (audioRef.current) {

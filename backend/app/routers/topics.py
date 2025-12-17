@@ -38,6 +38,7 @@ async def ensure_default_topics(user_id: str, db: AsyncSession) -> None:
                 slug=topic_data["slug"],
                 color=topic_data["color"],
                 is_active=True,
+                use_newsapi=True,  # Default to True for default topics
             )
             db.add(topic)
         await db.commit()
@@ -53,6 +54,7 @@ def _topic_to_response(topic: Topic, site_count: int = 0) -> TopicResponse:
         description=topic.description,
         color=topic.color,
         is_active=topic.is_active,
+        use_newsapi=topic.use_newsapi,
         created_at=topic.created_at,
         site_count=site_count,
     )
@@ -121,6 +123,7 @@ async def create_topic(
         description=request.description,
         color=request.color,
         is_active=True,
+        use_newsapi=request.use_newsapi if request.use_newsapi is not None else True,
     )
     
     db.add(topic)
@@ -213,6 +216,8 @@ async def update_topic(
         topic.color = request.color
     if request.is_active is not None:
         topic.is_active = request.is_active
+    if request.use_newsapi is not None:
+        topic.use_newsapi = request.use_newsapi
     
     await db.commit()
     await db.refresh(topic)

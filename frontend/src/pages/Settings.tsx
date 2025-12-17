@@ -17,7 +17,8 @@ import {
   Search,
   ChevronDown,
   Clock,
-  Globe
+  Globe,
+  Mail
 } from 'lucide-react'
 import clsx from 'clsx'
 import { settingsApi, AppSettings, ModelOption, TimezoneGroups } from '../api/client'
@@ -39,12 +40,14 @@ export default function Settings() {
   const [conversationComplexity, setConversationComplexity] = useState(3)
   const [timezone, setTimezone] = useState('UTC')
   const [newsApiKey, setNewsApiKey] = useState('')
+  const [resendApiKey, setResendApiKey] = useState('')
   const [userName, setUserName] = useState('')
   
   // UI state
   const [showOpenrouterKey, setShowOpenrouterKey] = useState(false)
   const [showElevenlabsKey, setShowElevenlabsKey] = useState(false)
   const [showNewsApiKey, setShowNewsApiKey] = useState(false)
+  const [showResendApiKey, setShowResendApiKey] = useState(false)
   const [saved, setSaved] = useState(false)
   const [modelSearch, setModelSearch] = useState('')
   const [showModelDropdown, setShowModelDropdown] = useState(false)
@@ -154,6 +157,9 @@ export default function Settings() {
       if (!newsApiKey && settings.news_api_key) {
         setNewsApiKey(settings.news_api_key)
       }
+      if (!resendApiKey && settings.resend_api_key) {
+        setResendApiKey(settings.resend_api_key)
+      }
     }
   }, [settings])
   
@@ -179,6 +185,9 @@ export default function Settings() {
     }
     if (isNewKey(newsApiKey, settings?.news_api_key)) {
       updates.news_api_key = newsApiKey
+    }
+    if (isNewKey(resendApiKey, settings?.resend_api_key)) {
+      updates.resend_api_key = resendApiKey
     }
     
     // Always send non-key settings if changed
@@ -740,6 +749,59 @@ export default function Settings() {
               Enables additional news sources for briefings
             </p>
           </div>
+        </div>
+      </div>
+      
+      {/* Email Notifications Section */}
+      <div className="card mb-6">
+        <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+          <Mail className="w-5 h-5 text-accent" />
+          Email Notifications (Resend)
+          {settings?.resend_configured ? (
+            <span className="ml-auto px-2 py-0.5 bg-green-500/20 text-green-400 text-xs rounded-full">
+              Configured
+            </span>
+          ) : (
+            <span className="ml-auto px-2 py-0.5 bg-yellow-500/20 text-yellow-400 text-xs rounded-full">
+              Not configured
+            </span>
+          )}
+        </h2>
+        
+        <p className="text-sm text-augustus-400 mb-4">
+          Resend enables email notifications for scheduled briefings.{' '}
+          <a 
+            href="https://resend.com/api-keys" 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="text-accent hover:underline inline-flex items-center gap-1"
+          >
+            Get an API key <ExternalLink className="w-3 h-3" />
+          </a>
+        </p>
+        
+        <div>
+          <label className="label">Resend API Key</label>
+          <div className="relative">
+            <Key className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-augustus-500" />
+            <input
+              type={showResendApiKey ? 'text' : 'password'}
+              value={resendApiKey}
+              onChange={(e) => setResendApiKey(e.target.value)}
+              placeholder={settings?.resend_api_key || 're_xxxxxxxxxxxxxxxxxxxxx'}
+              className="input pl-12 pr-12"
+            />
+            <button
+              type="button"
+              onClick={() => setShowResendApiKey(!showResendApiKey)}
+              className="absolute right-4 top-1/2 -translate-y-1/2 text-augustus-500 hover:text-augustus-300"
+            >
+              {showResendApiKey ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+            </button>
+          </div>
+          <p className="text-xs text-augustus-500 mt-1">
+            Required for email notifications on scheduled briefings
+          </p>
         </div>
       </div>
       

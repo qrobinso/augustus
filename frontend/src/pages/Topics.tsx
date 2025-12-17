@@ -33,10 +33,12 @@ export default function Topics() {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [color, setColor] = useState(PRESET_COLORS[0])
+  const [useNewsapi, setUseNewsapi] = useState(true)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
   const [editDescription, setEditDescription] = useState('')
   const [editColor, setEditColor] = useState('')
+  const [editUseNewsapi, setEditUseNewsapi] = useState(true)
   
   const { data, isLoading, error } = useQuery({
     queryKey: ['topics'],
@@ -44,10 +46,11 @@ export default function Topics() {
   })
   
   const createMutation = useMutation({
-    mutationFn: () => topicsApi.create({ name, description: description || undefined, color }),
+    mutationFn: () => topicsApi.create({ name, description: description || undefined, color, use_newsapi: useNewsapi }),
     onSuccess: () => {
       setName('')
       setDescription('')
+      setUseNewsapi(true)
       // Pick next color in rotation
       const currentIndex = PRESET_COLORS.indexOf(color)
       setColor(PRESET_COLORS[(currentIndex + 1) % PRESET_COLORS.length])
@@ -56,7 +59,7 @@ export default function Topics() {
   })
   
   const updateMutation = useMutation({
-    mutationFn: ({ id, ...options }: { id: string; name?: string; description?: string; color?: string }) =>
+    mutationFn: ({ id, ...options }: { id: string; name?: string; description?: string; color?: string; use_newsapi?: boolean }) =>
       topicsApi.update(id, options),
     onSuccess: () => {
       setEditingId(null)
@@ -83,6 +86,7 @@ export default function Topics() {
     setEditName(topic.name)
     setEditDescription(topic.description || '')
     setEditColor(topic.color || PRESET_COLORS[0])
+    setEditUseNewsapi(topic.use_newsapi)
   }
   
   const cancelEdit = () => {
@@ -90,6 +94,7 @@ export default function Topics() {
     setEditName('')
     setEditDescription('')
     setEditColor('')
+    setEditUseNewsapi(true)
   }
   
   const saveEdit = (id: string) => {
@@ -98,6 +103,7 @@ export default function Topics() {
       name: editName,
       description: editDescription || undefined,
       color: editColor,
+      use_newsapi: editUseNewsapi,
     })
   }
   
@@ -161,6 +167,19 @@ export default function Topics() {
               placeholder="Brief description of this topic"
               className="input"
             />
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="use-newsapi"
+              checked={useNewsapi}
+              onChange={(e) => setUseNewsapi(e.target.checked)}
+              className="w-4 h-4 rounded border-augustus-700 bg-augustus-900 text-accent focus:ring-accent focus:ring-2"
+            />
+            <label htmlFor="use-newsapi" className="text-sm text-augustus-300 cursor-pointer">
+              Include NewsAPI results for this topic
+            </label>
           </div>
           
           <button
@@ -245,6 +264,18 @@ export default function Topics() {
                         />
                       ))}
                     </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id={`edit-use-newsapi-${topic.id}`}
+                        checked={editUseNewsapi}
+                        onChange={(e) => setEditUseNewsapi(e.target.checked)}
+                        className="w-4 h-4 rounded border-augustus-700 bg-augustus-900 text-accent focus:ring-accent focus:ring-2"
+                      />
+                      <label htmlFor={`edit-use-newsapi-${topic.id}`} className="text-sm text-augustus-300 cursor-pointer">
+                        Include NewsAPI results
+                      </label>
+                    </div>
                     <div className="flex gap-2">
                       <button
                         onClick={() => saveEdit(topic.id)}
@@ -290,6 +321,9 @@ export default function Topics() {
                         <div className="flex items-center gap-2 mt-2 text-xs text-augustus-500">
                           <Globe className="w-3 h-3" />
                           <span>{topic.site_count} site{topic.site_count !== 1 ? 's' : ''}</span>
+                          {!topic.use_newsapi && (
+                            <span className="text-augustus-600">• Custom sites only</span>
+                          )}
                         </div>
                       </div>
                     </div>

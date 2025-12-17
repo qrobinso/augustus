@@ -96,26 +96,41 @@ Guidelines:
 - Use direct transitions like "Speaking of which...", "Here's what happened...", "The key point is..."
 - Sound like you're genuinely interested and engaged, not just reading a script
 
+AVOID:
+- Fluffy language, filler words, or unnecessary embellishment (e.g., avoid phrases like "incredibly fascinating", "absolutely amazing", "truly remarkable", "simply incredible")
+- Catastrophizing or exaggerating severity (e.g., avoid "devastating", "catastrophic", "disastrous" unless truly warranted by facts)
+- Overly dramatic language or hyperbole
+- Unnecessary qualifiers that add no meaning (e.g., "very", "really", "quite", "extremely" used excessively)
+- Sensationalism - stick to facts and measured analysis
+- Doom-and-gloom framing - present information accurately without making things sound worse than they are
+
 CRITICAL OUTPUT RULES:
-- ONLY output spoken dialogue - what the hosts actually say out loud
+- FIRST: Output a short, glanceable podcast title (max 60 characters) that includes the key topics. Format: TITLE: [title here]
+- THEN: Output ONLY spoken dialogue - what the hosts actually say out loud
 - DO NOT include stage directions, sound effects, or production notes like [MUSIC], [PAUSE], [INTRO], [OUTRO], etc.
 - DO NOT include asterisks or brackets with instructions like *laughs*, *sighs*, [clears throat]
 - DO NOT include timestamps, chapter markers, or section headers
-- Start directly with HOST1 speaking - no preamble
 
-Format your response EXACTLY like this (dialogue only):
+Format your response EXACTLY like this:
+TITLE: Tech & Business Update - Dec 15
 HOST1: Good morning! Let's dive into today's top stories...
 HOST2: We've got several important developments to cover...
 
-If a user name is provided, personalize the introduction by addressing the user by name (e.g., "Hey David, let's kick off today's briefing" or "Good morning, David! Let's dive into today's top stories..."). The conversation should feel like two smart friends casually discussing the news, informative but never stuffy or overly formal."""
+If a user name is provided, personalize the introduction by addressing the user by name (e.g., "Hey David, let's kick off today's briefing" or "Good morning, David! Let's dive into today's top stories..."). 
+
+When specific topics are provided, make sure to cover stories from ALL of those topics and reference them naturally throughout the conversation. The conversation should feel like two smart friends casually discussing the news, informative but never stuffy or overly formal."""
 
 
 BRIEFING_PROMPT_TEMPLATE = """Create an engaging {duration}-minute daily briefing podcast script covering the following news and information:
 
 {content}
 
-Topics to focus on: {topics}
+IMPORTANT CONTEXT FOR THIS BRIEFING:
+- Listener's name: {user_name_display}
+- Topics to focus on: {topics}
 {name_instruction}
+
+The hosts should clearly reference these specific topics throughout the briefing and ensure coverage across all of them.
 
 Requirements:
 1. OPENING PREVIEW: Before diving into the stories, have the hosts clearly state what stories they'll be discussing today. This is critical - "tell them what you're going to tell them." Give listeners a roadmap of the episode.
@@ -131,11 +146,29 @@ Requirements:
 7. BALANCE: Present multiple viewpoints on controversial topics
 8. WRAP-UP: At the end, work backwards to summarize what topics were discussed. Recap the key stories and takeaways, reinforcing what listeners learned.
 
-The conversation should feel substantive and insightful - listeners should come away feeling smarter about the world.
+CRITICAL LANGUAGE GUIDELINES:
+- Use clear, direct language - avoid fluffy filler words and unnecessary embellishment
+- Present facts accurately without catastrophizing or exaggerating severity
+- Avoid sensationalism - stick to measured, factual analysis
+- Don't use dramatic language unless the situation genuinely warrants it
+- Be informative and engaging without being hyperbolic or alarmist
+- Keep it substantive and insightful - listeners should come away feeling smarter about the world, not anxious or misled
 
 Total speaking time: approximately {duration} minutes
 
-REMEMBER: Output ONLY the spoken dialogue between HOST1 and HOST2. No stage directions, no music cues, no brackets with instructions. Start directly with HOST1 speaking.
+OUTPUT FORMAT:
+1. First, provide a short, glanceable podcast title (max 60 characters) that includes the key topics being discussed. Format: TITLE: [title here]
+2. Then, provide the podcast script dialogue between HOST1 and HOST2.
+
+Example:
+TITLE: Tech & Business Update - Dec 15
+HOST1: Good morning! Let's dive into today's top stories...
+HOST2: We've got several important developments to cover...
+
+REMEMBER: 
+- The title should be short, glanceable, and include key topics
+- Output ONLY the title line and spoken dialogue - no stage directions, no music cues, no brackets with instructions
+- Start directly with the TITLE line, then HOST1 speaking
 
 Generate the podcast script now:"""
 
@@ -153,6 +186,14 @@ Guidelines:
 - Balance depth with accessibility
 - Sound genuinely curious and engaged, not dry or academic
 - Keep the conversation relaxed and conversational while being informative
+
+AVOID:
+- Fluffy language, filler words, or unnecessary embellishment
+- Catastrophizing or exaggerating severity
+- Overly dramatic language or hyperbole
+- Unnecessary qualifiers that add no meaning
+- Sensationalism - stick to facts and measured analysis
+- Doom-and-gloom framing - present information accurately without making things sound worse than they are
 
 CRITICAL OUTPUT RULES:
 - ONLY output spoken dialogue - what the hosts actually say out loud
@@ -189,6 +230,13 @@ Requirements:
 6. Reference sources naturally in the discussion
 7. WRAP-UP: At the end, work backwards to summarize what topics were discussed. Recap the key points and takeaways, reinforcing what listeners learned.
 
+CRITICAL LANGUAGE GUIDELINES:
+- Use clear, direct language - avoid fluffy filler words and unnecessary embellishment
+- Present facts accurately without catastrophizing or exaggerating severity
+- Avoid sensationalism - stick to measured, factual analysis
+- Don't use dramatic language unless the situation genuinely warrants it
+- Be informative and engaging without being hyperbolic or alarmist
+
 REMEMBER: Output ONLY the spoken dialogue between HOST1 and HOST2. No stage directions, no music cues, no chapter markers.
 
 Generate the podcast script now:"""
@@ -207,6 +255,14 @@ Guidelines:
 - Keep the tone casual and engaging, not formal or stiff
 - Sound like you're genuinely interested in sharing what's new
 
+AVOID:
+- Fluffy language, filler words, or unnecessary embellishment
+- Catastrophizing or exaggerating severity
+- Overly dramatic language or hyperbole
+- Unnecessary qualifiers that add no meaning
+- Sensationalism - stick to facts and measured analysis
+- Doom-and-gloom framing - present information accurately without making things sound worse than they are
+
 CRITICAL OUTPUT RULES:
 - ONLY output spoken dialogue - what the hosts actually say out loud
 - DO NOT include stage directions, sound effects, or production notes like [MUSIC], [PAUSE], [INTRO], [OUTRO], etc.
@@ -222,9 +278,12 @@ If a user name is provided, personalize the introduction by addressing the user 
 
 STORY_ANALYSIS_SYSTEM_PROMPT = """You are a senior news editor with expertise in identifying the most important and newsworthy stories.
 
-Your task is to analyze a collection of news articles and rank them by importance and newsworthiness.
+Your task is to analyze a collection of news articles and narrow them down to 3-5 top stories, stack-ranked in priority order.
 
-Consider these factors when ranking:
+CRITICAL PRIORITY RULE:
+- **WEATHER STORIES ARE ALWAYS TOP PRIORITY** - Any article about weather, storms, natural disasters, or climate-related events must be ranked #1, regardless of other factors. Weather affects everyone's daily life and safety.
+
+Consider these factors when ranking (after weather priority):
 1. IMPACT: How many people does this affect? What are the consequences?
 2. TIMELINESS: Is this breaking news or a developing story?
 3. SIGNIFICANCE: Does this represent a major shift, breakthrough, or turning point?
@@ -233,10 +292,10 @@ Consider these factors when ranking:
 6. STORY QUALITY: Does the article have enough substance to discuss meaningfully?
 7. TOPIC BALANCE: When multiple topics are requested, ensure the final selection includes important stories from EACH topic. Don't let one dominant topic crowd out others.
 
-Be ruthless in your ranking - not all stories are equal. Some may be minor updates or clickbait that shouldn't make the cut."""
+Be ruthless in your ranking - not all stories are equal. Some may be minor updates or clickbait that shouldn't make the cut. Your goal is to select ONLY the 3-5 most important stories."""
 
 
-STORY_ANALYSIS_PROMPT_TEMPLATE = """Analyze the following news articles and rank them by importance and newsworthiness.
+STORY_ANALYSIS_PROMPT_TEMPLATE = """Analyze the following news articles and narrow them down to 3-5 top stories, stack-ranked in priority order.
 
 Topics of interest: {topics}
 Number of topics: {topic_count}
@@ -246,10 +305,11 @@ ARTICLES TO ANALYZE:
 
 INSTRUCTIONS:
 1. Review all {article_count} articles
-2. Select the TOP {max_stories} most important/newsworthy stories
-3. Rank them in order of importance (1 = most important)
-4. **TOPIC BALANCE**: If multiple topics are listed above, ensure your selection includes at least 1-2 important stories from EACH topic. Don't let one topic dominate the selection - the user wants coverage across all their chosen topics.
-5. For each selected story, provide:
+2. **FIRST**: Identify any weather-related stories (storms, natural disasters, weather warnings, climate events). These MUST be ranked #1.
+3. Select ONLY the TOP 3-5 most important/newsworthy stories (aim for 3-5, not more)
+4. Rank them in strict priority order (1 = highest priority, 2 = second priority, etc.)
+5. **TOPIC BALANCE**: If multiple topics are listed above, ensure your selection includes important stories from EACH topic when possible. Don't let one topic dominate the selection - the user wants coverage across all their chosen topics.
+6. For each selected story, provide:
    - The article number (from the list above)
    - A priority score (1-10, where 10 is highest priority)
    - A brief reason why this story matters (1 sentence)
@@ -258,15 +318,20 @@ OUTPUT FORMAT (use exactly this JSON format):
 ```json
 {{
   "ranked_stories": [
-    {{"article_num": 1, "priority": 10, "reason": "Major breakthrough with significant implications"}},
-    {{"article_num": 5, "priority": 9, "reason": "Breaking development affecting millions"}},
+    {{"article_num": 1, "priority": 10, "reason": "Weather story - always top priority"}},
+    {{"article_num": 5, "priority": 9, "reason": "Major breakthrough with significant implications"}},
+    {{"article_num": 3, "priority": 8, "reason": "Breaking development affecting millions"}},
     ...
   ],
   "summary": "Brief overview of today's news landscape and key themes"
 }}
 ```
 
-Return ONLY the JSON output, no other text."""
+CRITICAL: 
+- Select EXACTLY 3-5 stories (aim for 5 if possible, but 3-4 is acceptable if there aren't enough quality stories)
+- Rank them in strict priority order (article_num 1 = highest priority)
+- Weather stories MUST be ranked #1 if present
+- Return ONLY the JSON output, no other text."""
 
 
 STATION_UPDATE_PROMPT_TEMPLATE = """Create a {duration}-minute update episode for the "{topic}" station.
@@ -286,6 +351,13 @@ Requirements:
 4. Highlight 2-3 key updates
 5. WRAP-UP: At the end, work backwards to summarize what updates were discussed. Recap the key developments and what to watch for next.
 6. Keep it focused and newsworthy
+
+CRITICAL LANGUAGE GUIDELINES:
+- Use clear, direct language - avoid fluffy filler words and unnecessary embellishment
+- Present facts accurately without catastrophizing or exaggerating severity
+- Avoid sensationalism - stick to measured, factual analysis
+- Don't use dramatic language unless the situation genuinely warrants it
+- Be informative and engaging without being hyperbolic or alarmist
 
 Generate the update script:"""
 
@@ -331,7 +403,19 @@ def format_briefing_prompt(
     if complexity is None:
         complexity = settings.conversation_complexity
     
-    topics_str = ", ".join(topics) if topics else "general news"
+    # Format topics list - make it clear and prominent
+    if topics:
+        if len(topics) == 1:
+            topics_str = topics[0]
+        elif len(topics) == 2:
+            topics_str = f"{topics[0]} and {topics[1]}"
+        else:
+            topics_str = ", ".join(topics[:-1]) + f", and {topics[-1]}"
+    else:
+        topics_str = "general news"
+    
+    # Format user name for display (or "the listener" if not provided)
+    user_name_display = user_name if user_name else "the listener"
     
     # Add personalized name instruction if provided
     name_instruction = ""
@@ -345,6 +429,7 @@ def format_briefing_prompt(
         content=content,
         topics=topics_str,
         duration=duration,
+        user_name_display=user_name_display,
         name_instruction=name_instruction,
     )
     

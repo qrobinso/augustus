@@ -49,12 +49,13 @@ async def generate_briefing_task(
 async def list_briefings(
     limit: int = 10,
     offset: int = 0,
+    listened: Optional[bool] = None,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """List all briefings for the current user."""
     service = BriefingService(db)
-    briefings, total = await service.list_briefings(user.id, limit, offset)
+    briefings, total = await service.list_briefings(user.id, limit, offset, listened=listened)
     
     return BriefingListResponse(
         briefings=[BriefingResponse.model_validate(b) for b in briefings],

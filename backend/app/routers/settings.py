@@ -43,6 +43,9 @@ class SettingsResponse(BaseModel):
     news_api_key: Optional[str] = None
     rss_feeds: str = ""
     
+    # Resend Email
+    resend_api_key: Optional[str] = None
+    
     # User Personalization
     user_name: Optional[str] = None
     
@@ -50,6 +53,7 @@ class SettingsResponse(BaseModel):
     openrouter_configured: bool = False
     elevenlabs_configured: bool = False
     news_api_configured: bool = False
+    resend_configured: bool = False
 
 
 class SettingsUpdate(BaseModel):
@@ -68,6 +72,7 @@ class SettingsUpdate(BaseModel):
     timezone: Optional[str] = None
     news_api_key: Optional[str] = None
     rss_feeds: Optional[str] = None
+    resend_api_key: Optional[str] = None
     user_name: Optional[str] = None
 
 
@@ -184,6 +189,7 @@ def get_current_settings() -> dict:
         "timezone": os.environ.get("TIMEZONE") or env_vars.get("TIMEZONE", "UTC"),
         "news_api_key": os.environ.get("NEWS_API_KEY") or env_vars.get("NEWS_API_KEY"),
         "rss_feeds": os.environ.get("RSS_FEEDS") or env_vars.get("RSS_FEEDS", ""),
+        "resend_api_key": os.environ.get("RESEND_API_KEY") or env_vars.get("RESEND_API_KEY"),
         "user_name": os.environ.get("USER_NAME") or env_vars.get("USER_NAME"),
     }
     
@@ -210,10 +216,12 @@ async def get_settings_endpoint():
         timezone=settings["timezone"],
         news_api_key=mask_api_key(settings["news_api_key"]),
         rss_feeds=settings["rss_feeds"],
+        resend_api_key=mask_api_key(settings["resend_api_key"]),
         user_name=settings["user_name"],
         openrouter_configured=bool(settings["openrouter_api_key"]),
         elevenlabs_configured=bool(settings["elevenlabs_api_key"]),
         news_api_configured=bool(settings["news_api_key"]),
+        resend_configured=bool(settings["resend_api_key"]),
     )
 
 
@@ -281,6 +289,10 @@ async def update_settings(updates: SettingsUpdate):
         if updates.rss_feeds is not None:
             env_updates["RSS_FEEDS"] = updates.rss_feeds
             os.environ["RSS_FEEDS"] = updates.rss_feeds
+        
+        if updates.resend_api_key is not None:
+            env_updates["RESEND_API_KEY"] = updates.resend_api_key
+            os.environ["RESEND_API_KEY"] = updates.resend_api_key
         
         if updates.user_name is not None:
             env_updates["USER_NAME"] = updates.user_name
