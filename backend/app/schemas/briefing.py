@@ -12,9 +12,9 @@ class BriefingBase(BaseModel):
 
 class BriefingGenerateRequest(BaseModel):
     """Request to generate a new briefing."""
-    topics: Optional[list[str]] = Field(
+    topic_ids: Optional[list[str]] = Field(
         default=None,
-        description="Optional list of topics to focus on",
+        description="Optional list of topic IDs to include in the briefing",
     )
     include_calendar: bool = Field(
         default=False,
@@ -51,10 +51,17 @@ class BriefingResponse(BriefingBase):
     error_message: Optional[str] = None
     generated_at: Optional[datetime] = None
     created_at: datetime
+    listened: bool = False
+    listened_at: Optional[datetime] = None
     
     model_config = {
         "from_attributes": True,
     }
+
+
+class BriefingListenedUpdate(BaseModel):
+    """Request to update listened state."""
+    listened: bool
 
 
 class BriefingListResponse(BaseModel):

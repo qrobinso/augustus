@@ -220,6 +220,55 @@ HOST2: Let me add some context to that...
 If a user name is provided, personalize the introduction by addressing the user by name (e.g., "Hey David, here's your latest update" or "David, let me catch you up on...")."""
 
 
+STORY_ANALYSIS_SYSTEM_PROMPT = """You are a senior news editor with expertise in identifying the most important and newsworthy stories.
+
+Your task is to analyze a collection of news articles and rank them by importance and newsworthiness.
+
+Consider these factors when ranking:
+1. IMPACT: How many people does this affect? What are the consequences?
+2. TIMELINESS: Is this breaking news or a developing story?
+3. SIGNIFICANCE: Does this represent a major shift, breakthrough, or turning point?
+4. RELEVANCE: How relevant is this to the requested topics?
+5. UNIQUENESS: Is this a fresh story or just rehashing known information?
+6. STORY QUALITY: Does the article have enough substance to discuss meaningfully?
+7. TOPIC BALANCE: When multiple topics are requested, ensure the final selection includes important stories from EACH topic. Don't let one dominant topic crowd out others.
+
+Be ruthless in your ranking - not all stories are equal. Some may be minor updates or clickbait that shouldn't make the cut."""
+
+
+STORY_ANALYSIS_PROMPT_TEMPLATE = """Analyze the following news articles and rank them by importance and newsworthiness.
+
+Topics of interest: {topics}
+Number of topics: {topic_count}
+
+ARTICLES TO ANALYZE:
+{articles}
+
+INSTRUCTIONS:
+1. Review all {article_count} articles
+2. Select the TOP {max_stories} most important/newsworthy stories
+3. Rank them in order of importance (1 = most important)
+4. **TOPIC BALANCE**: If multiple topics are listed above, ensure your selection includes at least 1-2 important stories from EACH topic. Don't let one topic dominate the selection - the user wants coverage across all their chosen topics.
+5. For each selected story, provide:
+   - The article number (from the list above)
+   - A priority score (1-10, where 10 is highest priority)
+   - A brief reason why this story matters (1 sentence)
+
+OUTPUT FORMAT (use exactly this JSON format):
+```json
+{{
+  "ranked_stories": [
+    {{"article_num": 1, "priority": 10, "reason": "Major breakthrough with significant implications"}},
+    {{"article_num": 5, "priority": 9, "reason": "Breaking development affecting millions"}},
+    ...
+  ],
+  "summary": "Brief overview of today's news landscape and key themes"
+}}
+```
+
+Return ONLY the JSON output, no other text."""
+
+
 STATION_UPDATE_PROMPT_TEMPLATE = """Create a {duration}-minute update episode for the "{topic}" station.
 
 New developments since last update:
@@ -362,6 +411,47 @@ def format_deepcast_prompt(
     system_prompt = DEEPCAST_SYSTEM_PROMPT + complexity_instruction
     
     return system_prompt, user_prompt
+
+
+def format_story_analysis_prompt(
+    articles: list[dict],
+    topics: list[str],
+    max_stories: int = 10,
+) -> tuple[str, str]:
+    """Format story analysis prompt for ranking news articles.
+    
+    Args:
+        articles: List of article dictionaries with title, summary, source, category
+        topics: List of topics to focus on
+        max_stories: Maximum number of stories to select
+    
+    Returns:
+        Tuple of (system_prompt, user_prompt)
+    """
+    # Format articles for the prompt
+    articles_text = []
+    for i, article in enumerate(articles, 1):
+        article_text = f"""
+ARTICLE {i}:
+Title: {article.get('title', 'Untitled')}
+Source: {article.get('source', 'Unknown')}
+Category: {article.get('category', 'general')}
+Summary: {article.get('summary', 'No summary available')[:300]}
+"""
+        articles_text.append(article_text)
+    
+    topics_str = ", ".join(topics) if topics else "general news"
+    topic_count = len(topics) if topics else 1
+    
+    user_prompt = STORY_ANALYSIS_PROMPT_TEMPLATE.format(
+        topics=topics_str,
+        topic_count=topic_count,
+        articles="\n---".join(articles_text),
+        article_count=len(articles),
+        max_stories=max_stories,
+    )
+    
+    return STORY_ANALYSIS_SYSTEM_PROMPT, user_prompt
 
 
 def format_station_update_prompt(

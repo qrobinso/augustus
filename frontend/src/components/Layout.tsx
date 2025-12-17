@@ -3,6 +3,8 @@ import {
   LayoutDashboard, 
   Mic2, 
   Radio, 
+  Globe,
+  Tag,
   Settings,
   Waves
 } from 'lucide-react'
@@ -14,6 +16,8 @@ const navItems = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/deepcasts', icon: Mic2, label: 'DeepCasts' },
   { to: '/stations', icon: Radio, label: 'Stations' },
+  { to: '/topics', icon: Tag, label: 'Topics' },
+  { to: '/custom-sites', icon: Globe, label: 'Custom Sites' },
   { to: '/settings', icon: Settings, label: 'Settings' },
 ]
 

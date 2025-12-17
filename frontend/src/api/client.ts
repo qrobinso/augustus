@@ -19,6 +19,13 @@ export interface SegmentTiming {
   duration_seconds: number
 }
 
+export interface BriefingProgress {
+  step: number
+  total_steps: number
+  step_name: string
+  percent: number
+}
+
 export interface Briefing {
   id: string
   user_id: string
@@ -29,16 +36,19 @@ export interface Briefing {
   duration_seconds?: number
   extra_data: Record<string, unknown> & {
     segment_timings?: SegmentTiming[]
+    progress?: BriefingProgress | null
   }
   sources: Array<{
     title: string
     url: string
     summary?: string
   }>
-  status: 'pending' | 'generating' | 'completed' | 'failed'
+  status: 'pending' | 'generating' | 'completed' | 'failed' | 'cancelled'
   error_message?: string
   generated_at?: string
   created_at: string
+  listened: boolean
+  listened_at?: string
 }
 
 export interface DeepCast {
@@ -96,11 +106,49 @@ export interface Station {
   episode_count: number
 }
 
+export interface Topic {
+  id: string
+  user_id: string
+  name: string
+  slug: string
+  description?: string
+  color?: string
+  is_active: boolean
+  created_at: string
+  site_count: number
+}
+
+export interface CustomSite {
+  id: string
+  user_id: string
+  name: string
+  url: string
+  topic_id: string
+  topic_name?: string
+  topic_color?: string
+  is_active: boolean
+  last_fetched?: string
+  last_error?: string
+  created_at: string
+}
+
+export interface CustomSiteTestResult {
+  success: boolean
+  articles_found: number
+  articles: Array<{
+    title: string
+    url: string
+    summary?: string
+  }>
+  error?: string
+}
+
 export interface AppSettings {
   openrouter_api_key?: string
   openrouter_model: string
   tts_provider: string
   elevenlabs_api_key?: string
+  elevenlabs_model: string
   tts_voice_host1: string
   tts_voice_host2: string
   briefing_duration_minutes: number
@@ -153,7 +201,7 @@ export const briefingsApi = {
   },
   
   generate: async (options: {
-    topics?: string[]
+    topic_ids?: string[]
     max_duration_minutes?: number
   } = {}) => {
     const { data } = await api.post<Briefing>('/api/briefings/generate', options)
@@ -162,6 +210,16 @@ export const briefingsApi = {
   
   delete: async (id: string) => {
     await api.delete(`/api/briefings/${id}`)
+  },
+  
+  updateListened: async (id: string, listened: boolean) => {
+    const { data } = await api.patch<Briefing>(`/api/briefings/${id}/listened`, { listened })
+    return data
+  },
+  
+  cancel: async (id: string) => {
+    const { data } = await api.post<Briefing>(`/api/briefings/${id}/cancel`)
+    return data
   },
 }
 
@@ -238,6 +296,89 @@ export const stationsApi = {
       `/api/stations/${id}/episodes?limit=${limit}&offset=${offset}`
     )
     return data
+  },
+}
+
+export const customSitesApi = {
+  list: async (topicId?: string, limit = 50, offset = 0) => {
+    const params = new URLSearchParams({ limit: String(limit), offset: String(offset) })
+    if (topicId) params.set('topic_id', topicId)
+    const { data } = await api.get<{ sites: CustomSite[]; total: number }>(
+      `/api/custom-sites?${params}`
+    )
+    return data
+  },
+  
+  get: async (id: string) => {
+    const { data } = await api.get<CustomSite>(`/api/custom-sites/${id}`)
+    return data
+  },
+  
+  create: async (options: {
+    name: string
+    url: string
+    topic_id: string
+  }) => {
+    const { data } = await api.post<CustomSite>('/api/custom-sites', options)
+    return data
+  },
+  
+  update: async (id: string, options: Partial<{
+    name: string
+    url: string
+    topic_id: string
+    is_active: boolean
+  }>) => {
+    const { data } = await api.put<CustomSite>(`/api/custom-sites/${id}`, options)
+    return data
+  },
+  
+  delete: async (id: string) => {
+    await api.delete(`/api/custom-sites/${id}`)
+  },
+  
+  test: async (id: string) => {
+    const { data } = await api.post<CustomSiteTestResult>(`/api/custom-sites/${id}/test`)
+    return data
+  },
+}
+
+export const topicsApi = {
+  list: async (includeInactive = false) => {
+    const params = new URLSearchParams()
+    if (includeInactive) params.set('include_inactive', 'true')
+    const { data } = await api.get<{ topics: Topic[]; total: number }>(
+      `/api/topics?${params}`
+    )
+    return data
+  },
+  
+  get: async (id: string) => {
+    const { data } = await api.get<Topic>(`/api/topics/${id}`)
+    return data
+  },
+  
+  create: async (options: {
+    name: string
+    description?: string
+    color?: string
+  }) => {
+    const { data } = await api.post<Topic>('/api/topics', options)
+    return data
+  },
+  
+  update: async (id: string, options: Partial<{
+    name: string
+    description: string
+    color: string
+    is_active: boolean
+  }>) => {
+    const { data } = await api.put<Topic>(`/api/topics/${id}`, options)
+    return data
+  },
+  
+  delete: async (id: string) => {
+    await api.delete(`/api/topics/${id}`)
   },
 }
 

@@ -24,6 +24,7 @@ class SettingsResponse(BaseModel):
     # TTS
     tts_provider: str = "piper"
     elevenlabs_api_key: Optional[str] = None
+    elevenlabs_model: str = "eleven_turbo_v2_5"
     tts_voice_host1: str = "21m00Tcm4TlvDq8ikWAM"
     tts_voice_host2: str = "AZnzlk1XvdvUeBnXmlld"
     
@@ -57,6 +58,7 @@ class SettingsUpdate(BaseModel):
     openrouter_model: Optional[str] = None
     tts_provider: Optional[str] = None
     elevenlabs_api_key: Optional[str] = None
+    elevenlabs_model: Optional[str] = None
     tts_voice_host1: Optional[str] = None
     tts_voice_host2: Optional[str] = None
     briefing_duration_minutes: Optional[int] = None
@@ -172,6 +174,7 @@ def get_current_settings() -> dict:
         "openrouter_model": os.environ.get("OPENROUTER_MODEL") or env_vars.get("OPENROUTER_MODEL", "anthropic/claude-3.5-sonnet"),
         "tts_provider": os.environ.get("TTS_PROVIDER") or env_vars.get("TTS_PROVIDER", "piper"),
         "elevenlabs_api_key": os.environ.get("ELEVENLABS_API_KEY") or env_vars.get("ELEVENLABS_API_KEY"),
+        "elevenlabs_model": os.environ.get("ELEVENLABS_MODEL") or env_vars.get("ELEVENLABS_MODEL", "eleven_turbo_v2_5"),
         "tts_voice_host1": os.environ.get("TTS_VOICE_HOST1") or env_vars.get("TTS_VOICE_HOST1", "21m00Tcm4TlvDq8ikWAM"),
         "tts_voice_host2": os.environ.get("TTS_VOICE_HOST2") or env_vars.get("TTS_VOICE_HOST2", "AZnzlk1XvdvUeBnXmlld"),
         "briefing_duration_minutes": get_int("BRIEFING_DURATION_MINUTES", 5),
@@ -197,6 +200,7 @@ async def get_settings_endpoint():
         openrouter_model=settings["openrouter_model"],
         tts_provider=settings["tts_provider"],
         elevenlabs_api_key=mask_api_key(settings["elevenlabs_api_key"]),
+        elevenlabs_model=settings["elevenlabs_model"],
         tts_voice_host1=settings["tts_voice_host1"],
         tts_voice_host2=settings["tts_voice_host2"],
         briefing_duration_minutes=settings["briefing_duration_minutes"],
@@ -235,6 +239,10 @@ async def update_settings(updates: SettingsUpdate):
         if updates.elevenlabs_api_key is not None:
             env_updates["ELEVENLABS_API_KEY"] = updates.elevenlabs_api_key
             os.environ["ELEVENLABS_API_KEY"] = updates.elevenlabs_api_key
+        
+        if updates.elevenlabs_model is not None:
+            env_updates["ELEVENLABS_MODEL"] = updates.elevenlabs_model
+            os.environ["ELEVENLABS_MODEL"] = updates.elevenlabs_model
         
         if updates.tts_voice_host1 is not None:
             env_updates["TTS_VOICE_HOST1"] = updates.tts_voice_host1

@@ -105,11 +105,23 @@ class ElevenLabsProvider(TTSProvider):
             "similarity_boost": 0.75,
         }
         
-        # Try with multilingual model first, fall back to monolingual if needed
-        models_to_try = ["eleven_multilingual_v2", "eleven_monolingual_v1"]
+        # Get configured model from settings (refresh to get latest value)
+        from app.config import get_settings
+        current_settings = get_settings()
+        configured_model = current_settings.elevenlabs_model or "eleven_turbo_v2_5"
+        
+        # Try configured model first, then fall back to alternatives
+        models_to_try = [configured_model]
+        # Add fallbacks if the configured model is different
+        fallback_models = ["eleven_turbo_v2_5", "eleven_multilingual_v2", "eleven_monolingual_v1"]
+        for fallback in fallback_models:
+            if fallback not in models_to_try:
+                models_to_try.append(fallback)
+        
         last_error = None
         
         for model_id in models_to_try:
+            print(f"[ElevenLabs] Trying model: {model_id}")
             payload = {
                 "text": text,
                 "model_id": model_id,
@@ -129,6 +141,7 @@ class ElevenLabsProvider(TTSProvider):
                 
                 duration = await self._get_audio_duration(output_path)
                 
+                print(f"[ElevenLabs] Success with model: {model_id}")
                 return TTSResult(
                     audio_path=output_path,
                     duration_seconds=duration,

@@ -8,9 +8,25 @@ from sqlalchemy import select
 
 from app.database import get_db
 from app.models.user import User
+from app.models.topic import Topic, DEFAULT_TOPICS
 from app.schemas.user import UserCreate, UserResponse
 
 router = APIRouter()
+
+
+async def seed_default_topics(user_id: str, db: AsyncSession) -> None:
+    """Create default topics for a new user."""
+    for topic_data in DEFAULT_TOPICS:
+        topic = Topic(
+            id=str(uuid.uuid4()),
+            user_id=user_id,
+            name=topic_data["name"],
+            slug=topic_data["slug"],
+            color=topic_data["color"],
+            is_active=True,
+        )
+        db.add(topic)
+    await db.commit()
 
 
 async def get_current_user(
@@ -31,6 +47,9 @@ async def get_current_user(
         db.add(user)
         await db.commit()
         await db.refresh(user)
+        
+        # Seed default topics for new user
+        await seed_default_topics(user.id, db)
     
     return user
 

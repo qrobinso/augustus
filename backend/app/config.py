@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     
     # ElevenLabs TTS
     elevenlabs_api_key: Optional[str] = None
+    elevenlabs_model: str = "eleven_turbo_v2_5"  # TTS model to use
     
     # Voice settings (used by both ElevenLabs and Piper)
     # For ElevenLabs: use voice IDs like "21m00Tcm4TlvDq8ikWAM" (Rachel) or voice names

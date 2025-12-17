@@ -12,6 +12,7 @@ from app.schemas.briefing import (
     BriefingGenerateRequest,
     BriefingResponse,
     BriefingListResponse,
+    BriefingListenedUpdate,
 )
 from app.services.briefing import BriefingService
 
@@ -20,7 +21,7 @@ router = APIRouter()
 
 async def generate_briefing_task(
     briefing_id: str,
-    topics: Optional[list[str]],
+    topic_ids: Optional[list[str]],
     max_duration: int,
     db_url: str,
 ):
@@ -35,7 +36,7 @@ async def generate_briefing_task(
         try:
             await service.generate_briefing(
                 briefing_id=briefing_id,
-                topics=topics,
+                topic_ids=topic_ids,
                 max_duration_minutes=max_duration,
             )
         except Exception as e:
@@ -72,15 +73,23 @@ async def generate_briefing(
     from app.config import get_settings
     settings = get_settings()
     
+    service = BriefingService(db)
+    
+    # Check if there's already a briefing in progress
+    in_progress = await service.has_briefing_in_progress(user.id)
+    if in_progress:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"A briefing is already being generated. Please wait for it to complete.",
+        )
+    
     # Use configured duration if not specified in request
     duration = request.max_duration_minutes or settings.briefing_duration_minutes
     
-    service = BriefingService(db)
-    
-    # Create briefing record
+    # Create briefing record with topic_ids
     briefing = await service.create_briefing(
         user_id=user.id,
-        topics=request.topics,
+        topic_ids=request.topic_ids,
         max_duration_minutes=duration,
     )
     
@@ -88,7 +97,7 @@ async def generate_briefing(
     background_tasks.add_task(
         generate_briefing_task,
         briefing.id,
-        request.topics,
+        request.topic_ids,
         duration,
         settings.database_url,
     )
@@ -144,4 +153,63 @@ async def delete_briefing(
         )
     
     await service.delete_briefing(briefing_id)
+
+
+@router.patch("/{briefing_id}/listened", response_model=BriefingResponse)
+async def update_listened_status(
+    briefing_id: str,
+    update: BriefingListenedUpdate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update the listened status of a briefing."""
+    service = BriefingService(db)
+    briefing = await service.get_briefing(briefing_id)
+    
+    if not briefing:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Briefing not found",
+        )
+    
+    if briefing.user_id != user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied",
+        )
+    
+    updated = await service.update_listened_status(briefing_id, update.listened)
+    return BriefingResponse.model_validate(updated)
+
+
+@router.post("/{briefing_id}/cancel", response_model=BriefingResponse)
+async def cancel_briefing(
+    briefing_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Cancel a briefing that is pending or generating."""
+    service = BriefingService(db)
+    briefing = await service.get_briefing(briefing_id)
+    
+    if not briefing:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Briefing not found",
+        )
+    
+    if briefing.user_id != user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied",
+        )
+    
+    if briefing.status not in ["pending", "generating"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Briefing cannot be cancelled (not in progress)",
+        )
+    
+    cancelled = await service.cancel_briefing(briefing_id)
+    return BriefingResponse.model_validate(cancelled)
 

@@ -129,31 +129,38 @@ class NewsService:
     
     async def fetch_newsapi(
         self,
-        query: Optional[str] = None,
-        categories: Optional[list[str]] = None,
+        topics: Optional[list[str]] = None,
         country: str = "us",
     ) -> list[NewsItem]:
-        """Fetch news from NewsAPI (requires API key)."""
+        """Fetch news from NewsAPI using topic names as search queries.
+        
+        Args:
+            topics: List of topic names to search for (e.g., ["Technology", "AI", "Climate"])
+            country: Country code for news sources
+            
+        Returns:
+            List of NewsItem objects
+        """
         if not settings.news_api_key:
             return []
         
-        categories = categories or ["technology", "business", "science", "health"]
+        topics = topics or ["technology", "business", "science", "health"]
         all_items = []
         
         try:
-            for category in categories:
+            for topic in topics:
+                # Use the "everything" endpoint with topic name as query
+                # This allows for custom topic searches beyond NewsAPI's fixed categories
                 params = {
                     "apiKey": settings.news_api_key,
-                    "country": country,
-                    "category": category,
+                    "q": topic,  # Use topic name as search query
+                    "language": "en",
+                    "sortBy": "publishedAt",
                     "pageSize": 10,
                 }
                 
-                if query:
-                    params["q"] = query
-                
                 response = await self.client.get(
-                    "https://newsapi.org/v2/top-headlines",
+                    "https://newsapi.org/v2/everything",
                     params=params,
                 )
                 response.raise_for_status()
@@ -193,7 +200,7 @@ class NewsService:
                         source=article.get("source", {}).get("name", "NewsAPI"),
                         published=published,
                         author=article.get("author"),
-                        category=category,
+                        category=topic.lower(),  # Use topic name as category
                         content=content,  # Raw content from NewsAPI (up to ~200 chars)
                         image_url=article.get("urlToImage"),
                     ))

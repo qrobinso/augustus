@@ -11,12 +11,15 @@ import {
   Trash2,
   AlertCircle,
   FileText,
-  ChevronRight
+  ChevronRight,
+  CheckCircle,
+  Circle,
+  XCircle
 } from 'lucide-react'
 import clsx from 'clsx'
-import { briefingsApi, settingsApi, Briefing } from '../api/client'
+import { briefingsApi, settingsApi, topicsApi, Briefing } from '../api/client'
 import { useStore } from '../store/useStore'
-import { formatCompactDate, formatRelativeTime } from '../utils/timezone'
+import { formatCompactDate } from '../utils/timezone'
 
 export default function Dashboard() {
   const navigate = useNavigate()
@@ -26,12 +29,19 @@ export default function Dashboard() {
   const setCurrentAudio = useStore((s) => s.setCurrentAudio)
   const setIsPlaying = useStore((s) => s.setIsPlaying)
   
-  const [generatingTopics, setGeneratingTopics] = useState<string[]>([])
+  const [selectedTopicIds, setSelectedTopicIds] = useState<string[]>([])
+  
+  // Check if there's a briefing in progress to determine poll interval
+  const hasBriefingInProgress = (briefings: Briefing[] | undefined) => 
+    briefings?.some((b) => b.status === 'pending' || b.status === 'generating')
   
   const { data, isLoading, error } = useQuery({
     queryKey: ['briefings'],
     queryFn: () => briefingsApi.list(),
-    refetchInterval: 10000, // Poll for updates
+    refetchInterval: (query) => {
+      // Poll more frequently (2s) when a briefing is in progress, otherwise every 10s
+      return hasBriefingInProgress(query.state.data?.briefings) ? 2000 : 10000
+    },
   })
   
   // Fetch settings for timezone
@@ -40,17 +50,45 @@ export default function Dashboard() {
     queryFn: () => settingsApi.get(),
   })
   
+  // Fetch topics for the topic selector
+  const { data: topicsData, isLoading: topicsLoading } = useQuery({
+    queryKey: ['topics'],
+    queryFn: () => topicsApi.list(),
+  })
+  
+  const topics = topicsData?.topics || []
   const timezone = settings?.timezone || 'UTC'
   
+  // Check if there's a briefing currently in progress
+  const briefingInProgress = data?.briefings.find(
+    (b) => b.status === 'pending' || b.status === 'generating'
+  )
+  
   const generateMutation = useMutation({
-    mutationFn: (topics?: string[]) => briefingsApi.generate({ topics }),
+    mutationFn: (topicIds?: string[]) => briefingsApi.generate({ 
+      topic_ids: topicIds && topicIds.length > 0 ? topicIds : undefined 
+    }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['briefings'] })
+    },
+    onError: (error: Error & { response?: { status: number } }) => {
+      // Handle 409 conflict (briefing already in progress)
+      if (error.response?.status === 409) {
+        // Just refresh the list to show the in-progress briefing
+        queryClient.invalidateQueries({ queryKey: ['briefings'] })
+      }
     },
   })
   
   const deleteMutation = useMutation({
     mutationFn: (id: string) => briefingsApi.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['briefings'] })
+    },
+  })
+  
+  const cancelMutation = useMutation({
+    mutationFn: (id: string) => briefingsApi.cancel(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['briefings'] })
     },
@@ -86,7 +124,15 @@ export default function Dashboard() {
   }
   
   const handleGenerate = () => {
-    generateMutation.mutate(generatingTopics.length > 0 ? generatingTopics : undefined)
+    generateMutation.mutate(selectedTopicIds.length > 0 ? selectedTopicIds : undefined)
+  }
+  
+  const toggleTopic = (topicId: string) => {
+    setSelectedTopicIds((prev) =>
+      prev.includes(topicId)
+        ? prev.filter((id) => id !== topicId)
+        : [...prev, topicId]
+    )
   }
   
   const formatDuration = (seconds?: number) => {
@@ -119,46 +165,117 @@ export default function Dashboard() {
           Generate New Briefing
         </h2>
         
-        <div className="flex flex-wrap gap-2 mb-4">
-          {['Technology', 'Business', 'Science', 'Health', 'Sports'].map((topic) => (
-            <button
-              key={topic}
-              onClick={() => {
-                setGeneratingTopics((prev) =>
-                  prev.includes(topic)
-                    ? prev.filter((t) => t !== topic)
-                    : [...prev, topic]
-                )
-              }}
-              className={clsx(
-                'px-3 py-1.5 rounded-full text-sm font-medium transition-all',
-                generatingTopics.includes(topic)
-                  ? 'bg-accent text-white'
-                  : 'bg-augustus-800 text-augustus-300 hover:bg-augustus-700'
-              )}
-            >
-              {topic}
-            </button>
-          ))}
+        <div className="mb-4">
+          <p className="text-sm text-augustus-400 mb-2">Select topics to include:</p>
+          {topicsLoading ? (
+            <div className="flex items-center gap-2 text-augustus-500">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span className="text-sm">Loading topics...</span>
+            </div>
+          ) : topics.length === 0 ? (
+            <p className="text-sm text-augustus-500">
+              No topics found. <a href="/topics" className="text-accent hover:underline">Create some topics</a> first.
+            </p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {topics.map((topic) => (
+                <button
+                  key={topic.id}
+                  onClick={() => toggleTopic(topic.id)}
+                  className={clsx(
+                    'px-3 py-1.5 rounded-full text-sm font-medium transition-all flex items-center gap-1.5',
+                    selectedTopicIds.includes(topic.id)
+                      ? 'text-white'
+                      : 'bg-augustus-800 text-augustus-300 hover:bg-augustus-700'
+                  )}
+                  style={selectedTopicIds.includes(topic.id) ? {
+                    backgroundColor: topic.color || '#3B82F6',
+                  } : undefined}
+                >
+                  <span
+                    className="w-2 h-2 rounded-full"
+                    style={{ backgroundColor: topic.color || '#3B82F6' }}
+                  />
+                  {topic.name}
+                </button>
+              ))}
+            </div>
+          )}
+          {selectedTopicIds.length === 0 && topics.length > 0 && (
+            <p className="text-xs text-augustus-500 mt-2">
+              No topics selected - all topics will be included
+            </p>
+          )}
         </div>
         
-        <button
-          onClick={handleGenerate}
-          disabled={generateMutation.isPending}
-          className="btn btn-primary flex items-center gap-2"
-        >
-          {generateMutation.isPending ? (
-            <>
-              <Loader2 className="w-5 h-5 animate-spin" />
-              Generating...
-            </>
-          ) : (
-            <>
-              <Sparkles className="w-5 h-5" />
-              Generate Briefing
-            </>
-          )}
-        </button>
+        {/* Show in-progress message or generate button */}
+        {briefingInProgress ? (
+          <div className="p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-start gap-3 flex-1">
+                <Loader2 className="w-5 h-5 animate-spin text-yellow-400 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-yellow-400 font-medium">Generating briefing...</p>
+                  <p className="text-sm text-augustus-400 mb-3">
+                    {briefingInProgress.title}
+                  </p>
+                  
+                  {/* Progress bar */}
+                  {briefingInProgress.extra_data?.progress && (
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-xs">
+                        <span className="text-augustus-400">
+                          Step {briefingInProgress.extra_data.progress.step} of {briefingInProgress.extra_data.progress.total_steps}: {briefingInProgress.extra_data.progress.step_name}
+                        </span>
+                        <span className="text-augustus-500">
+                          {briefingInProgress.extra_data.progress.percent}%
+                        </span>
+                      </div>
+                      <div className="h-2 bg-augustus-800 rounded-full overflow-hidden">
+                        <div 
+                          className="h-full bg-yellow-500 rounded-full transition-all duration-500"
+                          style={{ width: `${briefingInProgress.extra_data.progress.percent}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+              
+              {/* Cancel button */}
+              <button
+                onClick={() => cancelMutation.mutate(briefingInProgress.id)}
+                disabled={cancelMutation.isPending}
+                className="btn btn-ghost p-2 text-augustus-400 hover:text-red-400 hover:bg-red-500/10"
+                title="Cancel briefing"
+              >
+                {cancelMutation.isPending ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <XCircle className="w-5 h-5" />
+                )}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            onClick={handleGenerate}
+            disabled={generateMutation.isPending}
+            className="btn btn-primary flex items-center gap-2"
+          >
+            {generateMutation.isPending ? (
+              <>
+                <Loader2 className="w-5 h-5 animate-spin" />
+                Starting...
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-5 h-5" />
+                Generate Briefing
+              </>
+            )}
+          </button>
+        )}
       </div>
       
       {/* Briefings list */}
@@ -201,7 +318,7 @@ export default function Dashboard() {
                   >
                     {briefing.status === 'generating' || briefing.status === 'pending' ? (
                       <Loader2 className="w-6 h-6 animate-spin" />
-                    ) : briefing.status === 'failed' ? (
+                    ) : briefing.status === 'failed' || briefing.status === 'cancelled' ? (
                       <AlertCircle className="w-6 h-6 text-red-500" />
                     ) : isCurrentlyPlaying ? (
                       <Pause className="w-6 h-6" />
@@ -230,9 +347,31 @@ export default function Dashboard() {
                         briefing.status === 'generating' && 'bg-yellow-500/20 text-yellow-400',
                         briefing.status === 'pending' && 'bg-augustus-700 text-augustus-400',
                         briefing.status === 'failed' && 'bg-red-500/20 text-red-400',
+                        briefing.status === 'cancelled' && 'bg-augustus-700 text-augustus-500',
                       )}>
                         {briefing.status}
                       </span>
+                      {/* Listened indicator */}
+                      {briefing.status === 'completed' && (
+                        <span className={clsx(
+                          'flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium',
+                          briefing.listened 
+                            ? 'bg-accent/20 text-accent' 
+                            : 'bg-augustus-700 text-augustus-400'
+                        )}>
+                          {briefing.listened ? (
+                            <>
+                              <CheckCircle className="w-3 h-3" />
+                              Listened
+                            </>
+                          ) : (
+                            <>
+                              <Circle className="w-3 h-3" />
+                              Unlistened
+                            </>
+                          )}
+                        </span>
+                      )}
                     </div>
                     {briefing.error_message && (
                       <p className="text-sm text-red-400 mt-1">{briefing.error_message}</p>

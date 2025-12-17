@@ -1,5 +1,5 @@
 import { useParams, useNavigate } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useRef, useEffect, useState, useCallback } from 'react'
 import { 
   ArrowLeft, 
@@ -11,7 +11,11 @@ import {
   AlertCircle,
   FileText,
   ExternalLink,
-  Volume2
+  Volume2,
+  MoreVertical,
+  CheckCircle,
+  Circle,
+  Check
 } from 'lucide-react'
 import clsx from 'clsx'
 import { briefingsApi, settingsApi, SegmentTiming } from '../api/client'
@@ -21,6 +25,7 @@ import { formatFullDate } from '../utils/timezone'
 export default function BriefingDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const segmentRefs = useRef<Map<number, HTMLDivElement>>(new Map())
   
@@ -31,6 +36,7 @@ export default function BriefingDetail() {
   
   // Track active segment for highlighting
   const [activeSegmentIndex, setActiveSegmentIndex] = useState<number | null>(null)
+  const [showMenu, setShowMenu] = useState(false)
   
   const { data: briefing, isLoading, error } = useQuery({
     queryKey: ['briefing', id],
@@ -45,6 +51,17 @@ export default function BriefingDetail() {
   })
   
   const timezone = settings?.timezone || 'UTC'
+  
+  // Mutation for updating listened status
+  const listenedMutation = useMutation({
+    mutationFn: ({ listened }: { listened: boolean }) => 
+      briefingsApi.updateListened(id!, listened),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['briefing', id] })
+      queryClient.invalidateQueries({ queryKey: ['briefings'] })
+      setShowMenu(false)
+    },
+  })
   
   const isCurrentlyPlaying = currentAudio?.id === id && isPlaying
   const isThisBriefingLoaded = currentAudio?.id === id
@@ -400,12 +417,82 @@ export default function BriefingDetail() {
               )}>
                 {briefing.status}
               </span>
+              {/* Listened indicator */}
+              {briefing.status === 'completed' && (
+                <span className={clsx(
+                  'flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium',
+                  briefing.listened 
+                    ? 'bg-accent/20 text-accent' 
+                    : 'bg-augustus-700 text-augustus-400'
+                )}>
+                  {briefing.listened ? (
+                    <>
+                      <CheckCircle className="w-3 h-3" />
+                      Listened
+                    </>
+                  ) : (
+                    <>
+                      <Circle className="w-3 h-3" />
+                      Unlistened
+                    </>
+                  )}
+                </span>
+              )}
             </div>
             
             {briefing.error_message && (
               <p className="text-sm text-red-400 mt-2">{briefing.error_message}</p>
             )}
           </div>
+          
+          {/* Menu button */}
+          {briefing.status === 'completed' && (
+            <div className="relative">
+              <button
+                onClick={() => setShowMenu(!showMenu)}
+                className="btn btn-ghost p-2 text-augustus-400 hover:text-white"
+              >
+                <MoreVertical className="w-5 h-5" />
+              </button>
+              
+              {/* Dropdown menu */}
+              {showMenu && (
+                <>
+                  <div 
+                    className="fixed inset-0 z-10" 
+                    onClick={() => setShowMenu(false)}
+                  />
+                  <div className="absolute right-0 top-full mt-2 w-56 bg-augustus-900 border border-augustus-700 rounded-lg shadow-xl z-20 overflow-hidden">
+                    <div className="py-1">
+                      <button
+                        onClick={() => listenedMutation.mutate({ listened: !briefing.listened })}
+                        disabled={listenedMutation.isPending}
+                        className="w-full px-4 py-3 text-left hover:bg-augustus-800 transition-colors flex items-center gap-3"
+                      >
+                        {listenedMutation.isPending ? (
+                          <Loader2 className="w-5 h-5 animate-spin text-augustus-400" />
+                        ) : briefing.listened ? (
+                          <Circle className="w-5 h-5 text-augustus-400" />
+                        ) : (
+                          <Check className="w-5 h-5 text-accent" />
+                        )}
+                        <div>
+                          <span className="text-white font-medium block">
+                            {briefing.listened ? 'Mark as unlistened' : 'Mark as listened'}
+                          </span>
+                          <span className="text-xs text-augustus-500">
+                            {briefing.listened 
+                              ? 'Remove from your listened history' 
+                              : 'Add to your listened history'}
+                          </span>
+                        </div>
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
         </div>
       </div>
       

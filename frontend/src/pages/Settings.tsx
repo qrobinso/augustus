@@ -30,6 +30,7 @@ export default function Settings() {
   const [openrouterModel, setOpenrouterModel] = useState('')
   const [ttsProvider, setTtsProvider] = useState('piper')
   const [elevenlabsKey, setElevenlabsKey] = useState('')
+  const [elevenlabsModel, setElevenlabsModel] = useState('eleven_turbo_v2_5')
   const [voiceHost1, setVoiceHost1] = useState('21m00Tcm4TlvDq8ikWAM')
   const [voiceHost2, setVoiceHost2] = useState('AZnzlk1XvdvUeBnXmlld')
   const [briefingDuration, setBriefingDuration] = useState(5)
@@ -38,7 +39,6 @@ export default function Settings() {
   const [conversationComplexity, setConversationComplexity] = useState(3)
   const [timezone, setTimezone] = useState('UTC')
   const [newsApiKey, setNewsApiKey] = useState('')
-  const [rssFeeds, setRssFeeds] = useState('')
   const [userName, setUserName] = useState('')
   
   // UI state
@@ -135,6 +135,7 @@ export default function Settings() {
     if (settings) {
       setOpenrouterModel(settings.openrouter_model)
       setTtsProvider(settings.tts_provider)
+      setElevenlabsModel(settings.elevenlabs_model || 'eleven_turbo_v2_5')
       setVoiceHost1(settings.tts_voice_host1)
       setVoiceHost2(settings.tts_voice_host2)
       setBriefingDuration(settings.briefing_duration_minutes)
@@ -142,7 +143,6 @@ export default function Settings() {
       setStationUpdateDuration(settings.station_update_duration_minutes)
       setConversationComplexity(settings.conversation_complexity || 3)
       setTimezone(settings.timezone || 'UTC')
-      setRssFeeds(settings.rss_feeds)
       setUserName(settings.user_name || '')
       // Show masked keys if user hasn't typed anything yet
       if (!openrouterKey && settings.openrouter_api_key) {
@@ -184,6 +184,7 @@ export default function Settings() {
     // Always send non-key settings if changed
     if (openrouterModel !== settings?.openrouter_model) updates.openrouter_model = openrouterModel
     if (ttsProvider !== settings?.tts_provider) updates.tts_provider = ttsProvider
+    if (elevenlabsModel !== settings?.elevenlabs_model) updates.elevenlabs_model = elevenlabsModel
     if (voiceHost1 !== settings?.tts_voice_host1) updates.tts_voice_host1 = voiceHost1
     if (voiceHost2 !== settings?.tts_voice_host2) updates.tts_voice_host2 = voiceHost2
     if (briefingDuration !== settings?.briefing_duration_minutes) updates.briefing_duration_minutes = briefingDuration
@@ -191,7 +192,6 @@ export default function Settings() {
     if (stationUpdateDuration !== settings?.station_update_duration_minutes) updates.station_update_duration_minutes = stationUpdateDuration
     if (conversationComplexity !== settings?.conversation_complexity) updates.conversation_complexity = conversationComplexity
     if (timezone !== settings?.timezone) updates.timezone = timezone
-    if (rssFeeds !== settings?.rss_feeds) updates.rss_feeds = rssFeeds
     if (userName !== settings?.user_name) updates.user_name = userName
     
     if (Object.keys(updates).length > 0) {
@@ -375,36 +375,62 @@ export default function Settings() {
           </div>
           
           {ttsProvider === 'elevenlabs' && (
-            <div>
-              <label className="label">
-                ElevenLabs API Key{' '}
-                <a 
-                  href="https://elevenlabs.io/app/settings/api-keys" 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="text-accent hover:underline inline-flex items-center gap-1 font-normal"
-                >
-                  Get key <ExternalLink className="w-3 h-3" />
-                </a>
-              </label>
-              <div className="relative">
-                <Key className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-augustus-500" />
-                <input
-                  type={showElevenlabsKey ? 'text' : 'password'}
-                  value={elevenlabsKey}
-                  onChange={(e) => setElevenlabsKey(e.target.value)}
-                  placeholder={settings?.elevenlabs_api_key || 'Enter ElevenLabs API key'}
-                  className="input pl-12 pr-12"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowElevenlabsKey(!showElevenlabsKey)}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 text-augustus-500 hover:text-augustus-300"
-                >
-                  {showElevenlabsKey ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                </button>
+            <>
+              <div>
+                <label className="label">
+                  ElevenLabs API Key{' '}
+                  <a 
+                    href="https://elevenlabs.io/app/settings/api-keys" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="text-accent hover:underline inline-flex items-center gap-1 font-normal"
+                  >
+                    Get key <ExternalLink className="w-3 h-3" />
+                  </a>
+                </label>
+                <div className="relative">
+                  <Key className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-augustus-500" />
+                  <input
+                    type={showElevenlabsKey ? 'text' : 'password'}
+                    value={elevenlabsKey}
+                    onChange={(e) => setElevenlabsKey(e.target.value)}
+                    placeholder={settings?.elevenlabs_api_key || 'Enter ElevenLabs API key'}
+                    className="input pl-12 pr-12"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowElevenlabsKey(!showElevenlabsKey)}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-augustus-500 hover:text-augustus-300"
+                  >
+                    {showElevenlabsKey ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  </button>
+                </div>
               </div>
-            </div>
+              
+              <div>
+                <label className="label">
+                  TTS Model{' '}
+                  <a 
+                    href="https://elevenlabs.io/docs/api-reference/text-to-speech" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="text-accent hover:underline inline-flex items-center gap-1 font-normal"
+                  >
+                    View models <ExternalLink className="w-3 h-3" />
+                  </a>
+                </label>
+                <input
+                  type="text"
+                  value={elevenlabsModel}
+                  onChange={(e) => setElevenlabsModel(e.target.value)}
+                  placeholder="eleven_turbo_v2_5"
+                  className="input"
+                />
+                <p className="text-xs text-augustus-500 mt-1">
+                  Default: eleven_turbo_v2_5 (fastest). Other options: eleven_multilingual_v2, eleven_monolingual_v1
+                </p>
+              </div>
+            </>
           )}
           
           {/* Voice Configuration */}
@@ -712,20 +738,6 @@ export default function Settings() {
             </div>
             <p className="text-xs text-augustus-500 mt-1">
               Enables additional news sources for briefings
-            </p>
-          </div>
-          
-          <div>
-            <label className="label">RSS Feeds</label>
-            <textarea
-              value={rssFeeds}
-              onChange={(e) => setRssFeeds(e.target.value)}
-              placeholder="Enter RSS feed URLs, one per line or comma-separated"
-              rows={4}
-              className="input resize-none"
-            />
-            <p className="text-xs text-augustus-500 mt-1">
-              RSS feeds used for daily briefings. Separate multiple URLs with commas.
             </p>
           </div>
         </div>
