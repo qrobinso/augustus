@@ -107,6 +107,12 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[Migration] Error running sendgrid to resend migration: {e}")
     
+    from app.migrations.create_casts_tables import migrate as migrate_casts
+    try:
+        await migrate_casts()
+    except Exception as e:
+        print(f"[Migration] Error running casts migration: {e}")
+    
     # Ensure audio storage directory exists
     audio_path = Path(settings.audio_storage_path)
     audio_path.mkdir(parents=True, exist_ok=True)
@@ -187,7 +193,7 @@ async def health():
 # Import and include routers after app is created to avoid circular imports
 from app.routers import (
     briefings, deepcasts, stations, auth, settings as settings_router,
-    topics, custom_sites, scheduled_briefings
+    topics, custom_sites, scheduled_briefings, casts
 )
 
 app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
@@ -198,4 +204,5 @@ app.include_router(settings_router.router, prefix="/api/settings", tags=["Settin
 app.include_router(topics.router, prefix="/api/topics", tags=["Topics"])
 app.include_router(custom_sites.router, prefix="/api/custom-sites", tags=["Custom Sites"])
 app.include_router(scheduled_briefings.router, prefix="/api/scheduled-briefings", tags=["Scheduled Briefings"])
+app.include_router(casts.router, prefix="/api/casts", tags=["Casts"])
 

@@ -28,6 +28,10 @@ class StationCreate(BaseModel):
         default={},
         description="Additional station settings",
     )
+    cast_id: Optional[str] = Field(
+        default=None,
+        description="Optional cast ID to use (uses default if not specified)",
+    )
 
 
 class StationUpdate(BaseModel):
@@ -68,6 +72,7 @@ class StationResponse(BaseModel):
     update_frequency_hours: int
     settings: dict = {}
     is_active: bool
+    cast_id: Optional[str] = None
     last_update: Optional[datetime] = None
     created_at: datetime
     episodes: list[EpisodeResponse] = []
@@ -88,6 +93,7 @@ class StationResponse(BaseModel):
             update_frequency_hours=station.update_frequency_hours,
             settings=station.settings,
             is_active=station.is_active,
+            cast_id=getattr(station, 'cast_id', None),
             last_update=station.last_update,
             created_at=station.created_at,
             episodes=[],

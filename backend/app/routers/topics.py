@@ -258,3 +258,4 @@ async def delete_topic(
     await db.delete(topic)
     await db.commit()
 
+

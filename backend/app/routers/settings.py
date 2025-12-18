@@ -25,6 +25,8 @@ class SettingsResponse(BaseModel):
     tts_provider: str = "piper"
     elevenlabs_api_key: Optional[str] = None
     elevenlabs_model: str = "eleven_turbo_v2_5"
+    gemini_api_key: Optional[str] = None
+    gemini_model: str = "gemini-2.5-flash-preview-tts"
     tts_voice_host1: str = "21m00Tcm4TlvDq8ikWAM"
     tts_voice_host2: str = "AZnzlk1XvdvUeBnXmlld"
     
@@ -54,6 +56,7 @@ class SettingsResponse(BaseModel):
     elevenlabs_configured: bool = False
     news_api_configured: bool = False
     resend_configured: bool = False
+    gemini_configured: bool = False
 
 
 class SettingsUpdate(BaseModel):
@@ -63,6 +66,8 @@ class SettingsUpdate(BaseModel):
     tts_provider: Optional[str] = None
     elevenlabs_api_key: Optional[str] = None
     elevenlabs_model: Optional[str] = None
+    gemini_api_key: Optional[str] = None
+    gemini_model: Optional[str] = None
     tts_voice_host1: Optional[str] = None
     tts_voice_host2: Optional[str] = None
     briefing_duration_minutes: Optional[int] = None
@@ -180,6 +185,8 @@ def get_current_settings() -> dict:
         "tts_provider": os.environ.get("TTS_PROVIDER") or env_vars.get("TTS_PROVIDER", "piper"),
         "elevenlabs_api_key": os.environ.get("ELEVENLABS_API_KEY") or env_vars.get("ELEVENLABS_API_KEY"),
         "elevenlabs_model": os.environ.get("ELEVENLABS_MODEL") or env_vars.get("ELEVENLABS_MODEL", "eleven_turbo_v2_5"),
+        "gemini_api_key": os.environ.get("GEMINI_API_KEY") or env_vars.get("GEMINI_API_KEY"),
+        "gemini_model": os.environ.get("GEMINI_MODEL") or env_vars.get("GEMINI_MODEL", "gemini-2.5-flash-preview-tts"),
         "tts_voice_host1": os.environ.get("TTS_VOICE_HOST1") or env_vars.get("TTS_VOICE_HOST1", "21m00Tcm4TlvDq8ikWAM"),
         "tts_voice_host2": os.environ.get("TTS_VOICE_HOST2") or env_vars.get("TTS_VOICE_HOST2", "AZnzlk1XvdvUeBnXmlld"),
         "briefing_duration_minutes": get_int("BRIEFING_DURATION_MINUTES", 5),
@@ -207,6 +214,8 @@ async def get_settings_endpoint():
         tts_provider=settings["tts_provider"],
         elevenlabs_api_key=mask_api_key(settings["elevenlabs_api_key"]),
         elevenlabs_model=settings["elevenlabs_model"],
+        gemini_api_key=mask_api_key(settings["gemini_api_key"]),
+        gemini_model=settings["gemini_model"],
         tts_voice_host1=settings["tts_voice_host1"],
         tts_voice_host2=settings["tts_voice_host2"],
         briefing_duration_minutes=settings["briefing_duration_minutes"],
@@ -222,12 +231,14 @@ async def get_settings_endpoint():
         elevenlabs_configured=bool(settings["elevenlabs_api_key"]),
         news_api_configured=bool(settings["news_api_key"]),
         resend_configured=bool(settings["resend_api_key"]),
+        gemini_configured=bool(settings["gemini_api_key"]),
     )
 
 
 @router.put("", response_model=SettingsResponse)
 async def update_settings(updates: SettingsUpdate):
     """Update application settings and save to .env file."""
+    print(f"[Settings] Received updates: {updates.model_dump(exclude_unset=True)}")
     try:
         env_updates = {}
         
@@ -251,6 +262,14 @@ async def update_settings(updates: SettingsUpdate):
         if updates.elevenlabs_model is not None:
             env_updates["ELEVENLABS_MODEL"] = updates.elevenlabs_model
             os.environ["ELEVENLABS_MODEL"] = updates.elevenlabs_model
+        
+        if updates.gemini_api_key is not None:
+            env_updates["GEMINI_API_KEY"] = updates.gemini_api_key
+            os.environ["GEMINI_API_KEY"] = updates.gemini_api_key
+        
+        if updates.gemini_model is not None:
+            env_updates["GEMINI_MODEL"] = updates.gemini_model
+            os.environ["GEMINI_MODEL"] = updates.gemini_model
         
         if updates.tts_voice_host1 is not None:
             env_updates["TTS_VOICE_HOST1"] = updates.tts_voice_host1
@@ -305,6 +324,11 @@ async def update_settings(updates: SettingsUpdate):
         # Clear the cached settings in app.config
         from app.config import get_settings
         get_settings.cache_clear()
+        
+        # Reset LLM provider if model or API key changed
+        if updates.openrouter_model is not None or updates.openrouter_api_key is not None:
+            from app.services.llm.openrouter import reset_llm_provider
+            reset_llm_provider()
         
         # Return updated settings
         return await get_settings_endpoint()

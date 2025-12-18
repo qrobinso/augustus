@@ -11,6 +11,8 @@ from sqlalchemy import select
 
 from app.config import get_settings
 from app.models.deepcast import DeepCast
+from app.models.cast import Cast
+from app.services.cast import CastService
 from app.services.llm.openrouter import get_llm_provider
 from app.services.llm.prompts import format_deepcast_prompt
 from app.services.tts.factory import TTSFactory
@@ -88,6 +90,28 @@ class DeepCastService:
             deepcast.status = "generating"
             await self.db.commit()
             
+            # Load cast for this DeepCast
+            cast_service = CastService(self.db)
+            if deepcast.cast_id:
+                cast = await cast_service.get_cast(deepcast.cast_id, deepcast.user_id)
+                if not cast:
+                    print(f"[DeepCast] Cast {deepcast.cast_id} not found, using default")
+                    cast = await cast_service.get_default_cast(deepcast.user_id)
+            else:
+                cast = await cast_service.get_default_cast(deepcast.user_id)
+            
+            # Prepare cast members for prompt
+            cast_members = []
+            for member in sorted(cast.members, key=lambda m: m.order):
+                cast_members.append({
+                    "name": member.name,
+                    "personality": member.personality,
+                    "voice_id": member.voice_id,
+                    "order": member.order,
+                })
+            
+            print(f"[DeepCast] Using cast '{cast.name}' with {len(cast_members)} member(s)")
+            
             # Generate script with LLM - use stored duration or configured default
             from app.config import get_settings
             current_settings = get_settings()
@@ -100,6 +124,7 @@ class DeepCastService:
                 sources=[s.to_dict() for s in sources],
                 duration=target_duration,
                 user_name=user_name,
+                cast_members=cast_members,
             )
             
             response = await self.llm.generate(
@@ -115,19 +140,28 @@ class DeepCastService:
             # Generate title from script
             deepcast.title = self._extract_title(script, deepcast.query)
             
-            # Parse script into segments and chapters
-            segments = self._parse_script(script)
+            # Parse script into segments and chapters using cast member names
+            segments = self._parse_script(script, cast_members)
             deepcast.chapters = self._extract_chapters(script)
+            
+            # Build voice_map from cast members
+            voice_map = {}
+            for i, member in enumerate(cast_members):
+                host_key = f"HOST{i+1}"
+                voice_map[host_key] = member["voice_id"]
+                voice_map[member["name"]] = member["voice_id"]  # Also map by name
+            
+            print(f"[DeepCast] Voice map: {voice_map}")
             
             # Generate audio
             audio_filename = f"deepcast_{deepcast.id}.mp3"
             audio_path = Path(settings.audio_storage_path) / audio_filename
             audio_path.parent.mkdir(parents=True, exist_ok=True)
             
-            tts_result = await TTSFactory.synthesize_conversation_with_fallback(
+            tts_result = await TTSFactory.synthesize_conversation(
                 script=segments,
                 output_path=audio_path,
-                voice_map=None,  # Use configured voices from settings
+                voice_map=voice_map,  # Use cast voice IDs
             )
             
             # Update deepcast
@@ -167,31 +201,74 @@ class DeepCastService:
         # Fallback to query
         return f"DeepCast: {fallback[:80]}"
     
-    def _parse_script(self, script: str) -> list[dict]:
-        """Parse podcast script into speaker segments."""
+    def _parse_script(self, script: str, cast_members: list[dict] | None = None) -> list[dict]:
+        """Parse podcast script into speaker segments.
+        
+        Args:
+            script: The script text to parse
+            cast_members: List of cast members with 'name' and 'order' keys
+            
+        Returns:
+            List of segments with 'speaker' and 'text' keys
+        """
         segments = []
         
         # Remove chapter markers for TTS
         clean_script = re.sub(r'\[CHAPTER:.*?\]', '', script)
         
-        # Pattern to match HOST1: or HOST2: at the start of lines
-        pattern = r'^(HOST[12]):\s*(.+?)(?=^HOST[12]:|\Z)'
-        matches = re.findall(pattern, clean_script, re.MULTILINE | re.DOTALL)
-        
-        if matches:
-            for speaker, text in matches:
-                text = text.strip()
-                if text:
-                    segments.append({
-                        "speaker": speaker,
-                        "text": text,
-                    })
+        if cast_members:
+            # Build pattern from cast member names
+            cast_names = [m["name"] for m in sorted(cast_members, key=lambda x: x["order"])]
+            # Escape names for regex
+            escaped_names = [re.escape(name) for name in cast_names]
+            # Create pattern: NAME: or NAME: (case-insensitive)
+            pattern_parts = "|".join(escaped_names)
+            pattern = rf'^({pattern_parts}):\s*(.+?)(?=^({pattern_parts}):|\Z)'
+            
+            matches = re.findall(pattern, clean_script, re.MULTILINE | re.DOTALL | re.IGNORECASE)
+            
+            # Map cast member names to HOST identifiers
+            name_to_host = {}
+            for i, member in enumerate(sorted(cast_members, key=lambda x: x["order"])):
+                name_to_host[member["name"]] = f"HOST{i+1}"
+            
+            if matches:
+                for match in matches:
+                    # match is a tuple: (speaker_name, text, next_speaker_or_empty)
+                    speaker_name = match[0]
+                    text = match[1].strip()
+                    if text:
+                        # Map cast member name to HOST identifier for TTS
+                        host_id = name_to_host.get(speaker_name, "HOST1")
+                        segments.append({
+                            "speaker": host_id,
+                            "text": text,
+                        })
+            else:
+                # Fallback: treat entire script as first host
+                segments.append({
+                    "speaker": "HOST1",
+                    "text": clean_script,
+                })
         else:
-            # Fallback: treat entire script as single speaker
-            segments.append({
-                "speaker": "HOST1",
-                "text": clean_script,
-            })
+            # Legacy parsing for backward compatibility
+            pattern = r'^(HOST[12]):\s*(.+?)(?=^HOST[12]:|\Z)'
+            matches = re.findall(pattern, clean_script, re.MULTILINE | re.DOTALL)
+            
+            if matches:
+                for speaker, text in matches:
+                    text = text.strip()
+                    if text:
+                        segments.append({
+                            "speaker": speaker,
+                            "text": text,
+                        })
+            else:
+                # Fallback: treat entire script as single speaker
+                segments.append({
+                    "speaker": "HOST1",
+                    "text": clean_script,
+                })
         
         return segments
     

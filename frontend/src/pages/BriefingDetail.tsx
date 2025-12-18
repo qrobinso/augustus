@@ -142,13 +142,14 @@ export default function BriefingDetail() {
       // Toggle play/pause for current audio
       setIsPlaying(!isPlaying)
     } else {
-      // Start playing this briefing
+      // Start playing this briefing, resuming from saved position if available
       setCurrentAudio({
         id: briefing.id,
         type: 'briefing',
         title: briefing.title,
         audioUrl: briefing.audio_url,
         transcript: briefing.transcript,
+        initialPosition: briefing.playback_position || undefined,
       })
       setIsPlaying(true)
     }
@@ -166,6 +167,7 @@ export default function BriefingDetail() {
         title: briefing.title,
         audioUrl: briefing.audio_url,
         transcript: briefing.transcript,
+        initialPosition: startSeconds,  // Use the segment start as initial position
       })
       setIsPlaying(true)
       
@@ -226,7 +228,7 @@ export default function BriefingDetail() {
               if (el) segmentRefs.current.set(index, el)
             }}
             className={clsx(
-              'mb-4 p-4 rounded-lg cursor-pointer transition-all duration-300',
+              'mb-3 sm:mb-4 p-3 sm:p-4 rounded-lg cursor-pointer transition-all duration-300 active:scale-[0.99]',
               // Base styles
               isHost1 
                 ? 'border-l-4 border-accent' 
@@ -237,25 +239,25 @@ export default function BriefingDetail() {
                   ? 'bg-accent/25 ring-2 ring-accent shadow-lg shadow-accent/20 scale-[1.01]'
                   : 'bg-purple-500/25 ring-2 ring-purple-500 shadow-lg shadow-purple-500/20 scale-[1.01]'
                 : isHost1
-                  ? 'bg-accent/10 hover:ring-2 hover:ring-accent/50'
-                  : 'bg-purple-500/10 hover:ring-2 hover:ring-purple-500/50'
+                  ? 'bg-accent/10 hover:ring-2 hover:ring-accent/50 active:bg-accent/20'
+                  : 'bg-purple-500/10 hover:ring-2 hover:ring-purple-500/50 active:bg-purple-500/20'
             )}
             onClick={() => handleSeekToSegment(segment.start_seconds)}
-            title={`Click to jump to ${formatTimestamp(segment.start_seconds)}`}
+            title={`Tap to jump to ${formatTimestamp(segment.start_seconds)}`}
           >
             <div className="flex items-center justify-between mb-1">
               <div className="flex items-center gap-2">
                 {isActive && isCurrentlyPlaying && (
                   <Volume2 className={clsx(
-                    'w-4 h-4 animate-pulse',
+                    'w-3.5 h-3.5 sm:w-4 sm:h-4 animate-pulse',
                     isHost1 ? 'text-accent' : 'text-purple-400'
                   )} />
                 )}
                 <span className={clsx(
-                  'font-semibold text-sm uppercase tracking-wide',
+                  'font-semibold text-xs sm:text-sm uppercase tracking-wide',
                   isHost1 ? 'text-accent' : 'text-purple-400'
                 )}>
-                  {isHost1 ? 'Alex (Host 1)' : 'Sam (Host 2)'}
+                  {isHost1 ? 'Alex' : 'Sam'}
                 </span>
               </div>
               <button
@@ -264,14 +266,14 @@ export default function BriefingDetail() {
                   handleSeekToSegment(segment.start_seconds)
                 }}
                 className={clsx(
-                  'flex items-center gap-1 px-2 py-0.5 rounded text-xs font-mono transition-colors',
+                  'flex items-center gap-1 px-2 py-0.5 rounded text-xs font-mono transition-colors min-h-[28px]',
                   isActive && isThisBriefingLoaded
                     ? isHost1
                       ? 'bg-accent/40 text-white'
                       : 'bg-purple-500/40 text-white'
                     : isHost1 
-                      ? 'bg-accent/20 text-accent hover:bg-accent/30' 
-                      : 'bg-purple-500/20 text-purple-400 hover:bg-purple-500/30'
+                      ? 'bg-accent/20 text-accent hover:bg-accent/30 active:bg-accent/40' 
+                      : 'bg-purple-500/20 text-purple-400 hover:bg-purple-500/30 active:bg-purple-500/40'
                 )}
               >
                 <Play className="w-3 h-3" />
@@ -279,7 +281,7 @@ export default function BriefingDetail() {
               </button>
             </div>
             <p className={clsx(
-              'transition-colors duration-300',
+              'transition-colors duration-300 text-sm sm:text-base',
               isActive && isThisBriefingLoaded ? 'text-white' : 'text-augustus-200'
             )}>{segment.text}</p>
           </div>
@@ -308,21 +310,21 @@ export default function BriefingDetail() {
         const isHost1 = host.toUpperCase() === 'HOST1'
         formatted.push(
           <div key={index} className={clsx(
-            'mb-4 p-4 rounded-lg',
+            'mb-3 sm:mb-4 p-3 sm:p-4 rounded-lg',
             isHost1 ? 'bg-accent/10 border-l-4 border-accent' : 'bg-purple-500/10 border-l-4 border-purple-500'
           )}>
             <span className={clsx(
-              'font-semibold text-sm uppercase tracking-wide',
+              'font-semibold text-xs sm:text-sm uppercase tracking-wide',
               isHost1 ? 'text-accent' : 'text-purple-400'
             )}>
-              {isHost1 ? 'Alex (Host 1)' : 'Sam (Host 2)'}
+              {isHost1 ? 'Alex' : 'Sam'}
             </span>
-            <p className="text-augustus-200 mt-1">{content}</p>
+            <p className="text-augustus-200 mt-1 text-sm sm:text-base">{content}</p>
           </div>
         )
       } else {
         formatted.push(
-          <p key={index} className="text-augustus-300 mb-2">{trimmed}</p>
+          <p key={index} className="text-augustus-300 mb-2 text-sm sm:text-base">{trimmed}</p>
         )
       }
     })
@@ -332,7 +334,7 @@ export default function BriefingDetail() {
   
   if (isLoading) {
     return (
-      <div className="p-8 flex items-center justify-center min-h-[50vh]">
+      <div className="page-container flex items-center justify-center min-h-[50vh]">
         <Loader2 className="w-8 h-8 animate-spin text-accent" />
       </div>
     )
@@ -340,72 +342,72 @@ export default function BriefingDetail() {
   
   if (error || !briefing) {
     return (
-      <div className="p-8">
+      <div className="page-container">
         <button
           onClick={() => navigate('/dashboard')}
-          className="btn btn-ghost mb-6 flex items-center gap-2"
+          className="btn btn-ghost mb-4 sm:mb-6 flex items-center gap-2"
         >
           <ArrowLeft className="w-5 h-5" />
-          Back to Dashboard
+          Back
         </button>
         
-        <div className="card text-center py-12">
-          <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-          <p className="text-augustus-400">Failed to load briefing</p>
+        <div className="card text-center py-10 sm:py-12">
+          <AlertCircle className="w-10 sm:w-12 h-10 sm:h-12 text-red-500 mx-auto mb-3 sm:mb-4" />
+          <p className="text-sm sm:text-base text-augustus-400">Failed to load briefing</p>
         </div>
       </div>
     )
   }
   
   return (
-    <div className="p-8 max-w-4xl mx-auto">
+    <div className="page-container max-w-4xl mx-auto">
       {/* Back button */}
       <button
         onClick={() => navigate('/dashboard')}
-        className="btn btn-ghost mb-6 flex items-center gap-2 text-augustus-400 hover:text-white"
+        className="btn btn-ghost mb-4 sm:mb-6 flex items-center gap-2 text-augustus-400 hover:text-white -ml-2"
       >
         <ArrowLeft className="w-5 h-5" />
-        Back to Dashboard
+        <span className="sm:inline">Back</span>
       </button>
       
       {/* Header */}
-      <div className="card mb-6">
-        <div className="flex items-start gap-6">
+      <div className="card mb-4 sm:mb-6">
+        <div className="flex flex-col sm:flex-row items-start gap-4 sm:gap-6">
           {/* Play button */}
           <button
             onClick={handlePlayPause}
             disabled={briefing.status !== 'completed'}
             className={clsx(
-              'w-20 h-20 rounded-full flex items-center justify-center flex-shrink-0 transition-all',
+              'w-16 h-16 sm:w-20 sm:h-20 rounded-full flex items-center justify-center flex-shrink-0 transition-all self-center sm:self-start',
               briefing.status === 'completed'
-                ? 'bg-accent hover:bg-accent-600 text-white glow'
+                ? 'bg-accent hover:bg-accent-600 text-white glow active:scale-95'
                 : 'bg-augustus-800 text-augustus-500'
             )}
           >
             {briefing.status === 'generating' || briefing.status === 'pending' ? (
-              <Loader2 className="w-8 h-8 animate-spin" />
+              <Loader2 className="w-7 h-7 sm:w-8 sm:h-8 animate-spin" />
             ) : briefing.status === 'failed' ? (
-              <AlertCircle className="w-8 h-8 text-red-500" />
+              <AlertCircle className="w-7 h-7 sm:w-8 sm:h-8 text-red-500" />
             ) : isCurrentlyPlaying ? (
-              <Pause className="w-8 h-8" />
+              <Pause className="w-7 h-7 sm:w-8 sm:h-8" />
             ) : (
-              <Play className="w-8 h-8 ml-1" />
+              <Play className="w-7 h-7 sm:w-8 sm:h-8 ml-1" />
             )}
           </button>
           
           {/* Info */}
-          <div className="flex-1">
-            <h1 className="text-2xl font-display font-semibold text-white mb-2">
+          <div className="flex-1 text-center sm:text-left">
+            <h1 className="text-xl sm:text-2xl font-display font-semibold text-white mb-2">
               {briefing.title}
             </h1>
             
-            <div className="flex flex-wrap items-center gap-4 text-sm text-augustus-400">
+            <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2 sm:gap-4 text-xs sm:text-sm text-augustus-400">
               <span className="flex items-center gap-1">
-                <Clock className="w-4 h-4" />
+                <Clock className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                 {formatDuration(briefing.duration_seconds)}
               </span>
               <span className="flex items-center gap-1">
-                <Calendar className="w-4 h-4" />
+                <Calendar className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                 {formatDate(briefing.created_at)}
               </span>
               <span className={clsx(
@@ -428,12 +430,12 @@ export default function BriefingDetail() {
                   {briefing.listened ? (
                     <>
                       <CheckCircle className="w-3 h-3" />
-                      Listened
+                      <span className="hidden sm:inline">Listened</span>
                     </>
                   ) : (
                     <>
                       <Circle className="w-3 h-3" />
-                      Unlistened
+                      <span className="hidden sm:inline">Unlistened</span>
                     </>
                   )}
                 </span>
@@ -447,7 +449,7 @@ export default function BriefingDetail() {
           
           {/* Menu button */}
           {briefing.status === 'completed' && (
-            <div className="relative">
+            <div className="relative absolute top-4 right-4 sm:static">
               <button
                 onClick={() => setShowMenu(!showMenu)}
                 className="btn btn-ghost p-2 text-augustus-400 hover:text-white"
@@ -467,7 +469,7 @@ export default function BriefingDetail() {
                       <button
                         onClick={() => listenedMutation.mutate({ listened: !briefing.listened })}
                         disabled={listenedMutation.isPending}
-                        className="w-full px-4 py-3 text-left hover:bg-augustus-800 transition-colors flex items-center gap-3"
+                        className="w-full px-4 py-3 text-left hover:bg-augustus-800 active:bg-augustus-700 transition-colors flex items-center gap-3"
                       >
                         {listenedMutation.isPending ? (
                           <Loader2 className="w-5 h-5 animate-spin text-augustus-400" />
@@ -477,13 +479,8 @@ export default function BriefingDetail() {
                           <Check className="w-5 h-5 text-accent" />
                         )}
                         <div>
-                          <span className="text-white font-medium block">
+                          <span className="text-white font-medium block text-sm">
                             {briefing.listened ? 'Mark as unlistened' : 'Mark as listened'}
-                          </span>
-                          <span className="text-xs text-augustus-500">
-                            {briefing.listened 
-                              ? 'Remove from your listened history' 
-                              : 'Add to your listened history'}
                           </span>
                         </div>
                       </button>
@@ -499,12 +496,12 @@ export default function BriefingDetail() {
       {/* Transcript */}
       {(briefing.transcript || segmentTimings.length > 0) && (
         <div className="card">
-          <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+          <h2 className="text-base sm:text-lg font-semibold text-white mb-3 sm:mb-4 flex items-center gap-2">
             <FileText className="w-5 h-5 text-accent" />
             Transcript
             {segmentTimings.length > 0 && (
-              <span className="text-xs font-normal text-augustus-400 ml-2">
-                (click segments to jump to that part)
+              <span className="text-xs font-normal text-augustus-400 ml-1 sm:ml-2">
+                (tap to jump)
               </span>
             )}
           </h2>
@@ -517,23 +514,23 @@ export default function BriefingDetail() {
       
       {/* Sources */}
       {briefing.sources && briefing.sources.length > 0 && (
-        <div className="card mt-6">
-          <h2 className="text-lg font-semibold text-white mb-4">
+        <div className="card mt-4 sm:mt-6">
+          <h2 className="text-base sm:text-lg font-semibold text-white mb-3 sm:mb-4">
             Sources ({briefing.sources.length})
           </h2>
           
-          <div className="space-y-3">
+          <div className="space-y-2 sm:space-y-3">
             {briefing.sources.map((source, index) => (
               <a
                 key={index}
                 href={source.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="block p-3 rounded-lg bg-augustus-900/50 hover:bg-augustus-800/50 transition-colors"
+                className="block p-3 rounded-lg bg-augustus-900/50 hover:bg-augustus-800/50 active:bg-augustus-700/50 transition-colors"
               >
                 <div className="flex items-start gap-2">
                   <ExternalLink className="w-4 h-4 text-augustus-500 flex-shrink-0 mt-0.5" />
-                  <div>
+                  <div className="min-w-0">
                     <h3 className="text-white font-medium text-sm">
                       {source.title}
                     </h3>
@@ -552,4 +549,3 @@ export default function BriefingDetail() {
     </div>
   )
 }
-

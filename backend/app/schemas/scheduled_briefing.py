@@ -55,6 +55,10 @@ class ScheduledBriefingCreate(BaseModel):
         max_length=255,
         description="Resend API key (optional, uses global if not set)",
     )
+    cast_id: Optional[str] = Field(
+        default=None,
+        description="Optional cast ID to use (uses default if not specified)",
+    )
     
     @field_validator('schedule_days')
     @classmethod
@@ -111,6 +115,7 @@ class ScheduledBriefingUpdate(BaseModel):
     is_active: Optional[bool] = None
     max_duration_minutes: Optional[int] = Field(default=None, ge=1, le=60)
     resend_api_key: Optional[str] = Field(default=None, max_length=255)
+    cast_id: Optional[str] = None
 
 
 class ScheduledBriefingResponse(BaseModel):
@@ -127,6 +132,7 @@ class ScheduledBriefingResponse(BaseModel):
     is_active: bool
     max_duration_minutes: int
     resend_api_key: Optional[str] = None
+    cast_id: Optional[str] = None
     last_generated_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime

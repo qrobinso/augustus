@@ -102,4 +102,32 @@ def get_timezone_offset_str(tz_name: Optional[str] = None) -> str:
         return "UTC+00:00"
 
 
+def get_time_of_day(tz_name: Optional[str] = None) -> str:
+    """Get the time of day period based on the current hour in the user's timezone.
+    
+    Args:
+        tz_name: Timezone name (defaults to user's timezone)
+    
+    Returns:
+        Time of day string: "Morning", "Afternoon", "Evening", or "Night"
+    """
+    try:
+        zone = ZoneInfo(tz_name) if tz_name else get_user_timezone()
+        now = datetime.now(zone)
+        hour = now.hour
+        
+        if 5 <= hour < 12:
+            return "Morning"
+        elif 12 <= hour < 17:
+            return "Afternoon"
+        elif 17 <= hour < 22:
+            return "Evening"
+        else:
+            return "Night"
+    except Exception:
+        # Default to Morning if there's an error
+        return "Morning"
+
+
+
 

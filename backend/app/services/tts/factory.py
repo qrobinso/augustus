@@ -1,4 +1,4 @@
-"""TTS provider factory with fallback support."""
+"""TTS provider factory."""
 
 from typing import Optional
 from pathlib import Path
@@ -7,13 +7,11 @@ from app.config import get_settings
 from app.services.tts.base import TTSProvider, TTSResult
 from app.services.tts.piper import PiperProvider
 from app.services.tts.elevenlabs import ElevenLabsProvider
+from app.services.tts.gemini import GeminiProvider
 
 
 class TTSFactory:
-    """Factory for creating TTS providers with fallback support."""
-    
-    _primary: Optional[TTSProvider] = None
-    _fallback: Optional[TTSProvider] = None
+    """Factory for creating TTS providers."""
     
     @classmethod
     def get_provider(cls, provider_name: Optional[str] = None) -> TTSProvider:
@@ -34,113 +32,68 @@ class TTSFactory:
             if not settings.elevenlabs_api_key:
                 raise ValueError("ElevenLabs API key required")
             return ElevenLabsProvider()
+        elif provider_name == "gemini":
+            if not settings.gemini_api_key:
+                raise ValueError("Gemini API key required")
+            return GeminiProvider()
         else:
             raise ValueError(f"Unknown TTS provider: {provider_name}")
     
     @classmethod
-    def _get_primary_and_fallback(cls) -> tuple[str, str]:
-        """Get primary and fallback provider names based on settings."""
-        settings = get_settings()
-        primary = settings.tts_provider
-        
-        # Set fallback to the other provider
-        if primary == "elevenlabs":
-            fallback = "piper"
-        else:
-            fallback = "elevenlabs"
-        
-        return primary, fallback
-    
-    @classmethod
-    async def synthesize_with_fallback(
+    async def synthesize(
         cls,
         text: str,
         voice_id: str,
         output_path: Path,
-        primary: Optional[str] = None,
-        fallback: Optional[str] = None,
+        provider_name: Optional[str] = None,
     ) -> TTSResult:
-        """Synthesize with automatic fallback.
+        """Synthesize text to speech using the chosen provider.
         
-        Tries primary provider first, falls back to secondary on failure.
-        Uses settings.tts_provider as primary if not specified.
+        Args:
+            text: Text to synthesize
+            voice_id: Voice identifier
+            output_path: Path to save audio file
+            provider_name: Optional provider name. Defaults to settings.tts_provider.
+            
+        Returns:
+            TTSResult with audio path and metadata
         """
-        # Get primary/fallback from settings if not provided
-        if primary is None or fallback is None:
-            settings_primary, settings_fallback = cls._get_primary_and_fallback()
-            primary = primary or settings_primary
-            fallback = fallback or settings_fallback
-        
-        primary_error_msg = None
-        
-        # Try primary
+        provider_name = provider_name or get_settings().tts_provider
+        print(f"[TTS] Using {provider_name} provider")
+        provider = cls.get_provider(provider_name)
         try:
-            print(f"[TTS] Using {primary} as primary provider")
-            provider = cls.get_provider(primary)
             result = await provider.synthesize(text, voice_id, output_path)
-            await provider.close()
             return result
-        except Exception as e:
-            primary_error_msg = str(e)
-            print(f"[TTS] Primary ({primary}) failed: {primary_error_msg}")
-        
-        # Try fallback
-        try:
-            print(f"[TTS] Trying fallback provider: {fallback}")
-            provider = cls.get_provider(fallback)
-            result = await provider.synthesize(text, voice_id, output_path)
+        finally:
             await provider.close()
-            return result
-        except Exception as fallback_error:
-            raise RuntimeError(
-                f"All TTS providers failed. Primary ({primary}): {primary_error_msg}, "
-                f"Fallback ({fallback}): {fallback_error}"
-            )
     
     @classmethod
-    async def synthesize_conversation_with_fallback(
+    async def synthesize_conversation(
         cls,
         script: list[dict],
         output_path: Path,
         voice_map: Optional[dict[str, str]] = None,
-        primary: Optional[str] = None,
-        fallback: Optional[str] = None,
+        provider_name: Optional[str] = None,
     ) -> TTSResult:
-        """Synthesize conversation with automatic fallback.
+        """Synthesize conversation using the chosen provider.
         
-        Uses settings.tts_provider as primary if not specified.
+        Args:
+            script: List of dicts with 'speaker' and 'text' keys
+            output_path: Path to save combined audio
+            voice_map: Optional mapping of speaker names to voice IDs
+            provider_name: Optional provider name. Defaults to settings.tts_provider.
+            
+        Returns:
+            TTSResult with combined audio
         """
-        # Get primary/fallback from settings if not provided
-        if primary is None or fallback is None:
-            settings_primary, settings_fallback = cls._get_primary_and_fallback()
-            primary = primary or settings_primary
-            fallback = fallback or settings_fallback
-        
-        primary_error_msg = None
-        
-        # Try primary
+        provider_name = provider_name or get_settings().tts_provider
+        print(f"[TTS] Using {provider_name} provider for conversation")
+        provider = cls.get_provider(provider_name)
         try:
-            print(f"[TTS] Using {primary} as primary provider for conversation")
-            provider = cls.get_provider(primary)
             result = await provider.synthesize_conversation(script, output_path, voice_map)
-            await provider.close()
             return result
-        except Exception as e:
-            primary_error_msg = str(e)
-            print(f"[TTS] Primary ({primary}) failed: {primary_error_msg}")
-        
-        # Try fallback
-        try:
-            print(f"[TTS] Trying fallback provider: {fallback}")
-            provider = cls.get_provider(fallback)
-            result = await provider.synthesize_conversation(script, output_path, voice_map)
+        finally:
             await provider.close()
-            return result
-        except Exception as fallback_error:
-            raise RuntimeError(
-                f"All TTS providers failed. Primary ({primary}): {primary_error_msg}, "
-                f"Fallback ({fallback}): {fallback_error}"
-            )
 
 
 # Convenience function

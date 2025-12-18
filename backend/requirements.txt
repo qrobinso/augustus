@@ -29,3 +29,6 @@ mutagen>=1.47.0
 
 # Utilities
 python-dotenv>=1.0.1
+
+# Google Gemini API
+google-genai>=0.1.0

@@ -70,6 +70,137 @@ LANGUAGE & COMPLEXITY LEVEL: {level['name']} ({level['description']})
 """
 
 
+# Personality descriptions mapping
+PERSONALITY_DESCRIPTIONS = {
+    "Casual": "relaxed, conversational, approachable",
+    "Professional": "formal, authoritative, clear",
+    "Analytical": "curious, insightful, asks probing questions",
+    "Friendly": "warm, approachable, engaging",
+    "Informative": "clear, educational, thorough",
+    "Upbeat": "energetic, positive, enthusiastic",
+}
+
+
+def build_briefing_system_prompt(cast_members: list[dict]) -> str:
+    """Build briefing system prompt dynamically based on cast members.
+    
+    Args:
+        cast_members: List of dicts with 'name' and 'personality' keys, sorted by order
+        
+    Returns:
+        System prompt string
+    """
+    num_hosts = len(cast_members)
+    
+    # Build host descriptions
+    host_descriptions = []
+    host_names = []
+    
+    for i, member in enumerate(cast_members):
+        name = member.get("name", f"HOST{i+1}")
+        personality = member.get("personality", "Casual")
+        personality_desc = PERSONALITY_DESCRIPTIONS.get(personality, "conversational")
+        
+        host_names.append(name)
+        
+        if num_hosts == 1:
+            # Single host - narrator style
+            host_descriptions.append(
+                f"{name}: You are the podcast host - {personality_desc}. "
+                f"You provide the main narrative and context, explaining complex topics clearly. "
+                f"Keep the tone engaging and informative while maintaining your {personality_desc} style."
+            )
+        elif num_hosts == 2:
+            # Two hosts - conversation style
+            if i == 0:
+                host_descriptions.append(
+                    f"{name}: The lead anchor - {personality_desc}. "
+                    "Provides the main narrative and context. Keeps the tone engaging while being informative."
+                )
+            else:
+                host_descriptions.append(
+                    f"{name}: The co-host - {personality_desc}. "
+                    "Adds depth and unique perspectives. Asks insightful questions and offers analysis."
+                )
+        else:
+            # Three hosts - panel style
+            roles = ["lead anchor", "analyst", "contributor"]
+            host_descriptions.append(
+                f"{name}: The {roles[i]} - {personality_desc}. "
+                "Contributes to the discussion with your unique perspective and style."
+            )
+    
+    # Build format example based on number of hosts
+    if num_hosts == 1:
+        format_example = f"TITLE: Tech & Business Update - Dec 15\n{host_names[0]}: Good morning! Let's dive into today's top stories..."
+        host_intro = f"You are {host_names[0]}, an expert podcast host creating insightful daily audio briefings."
+        style_note = "Your Style:\n- Engaging solo narration - like a knowledgeable friend explaining the news\n"
+    elif num_hosts == 2:
+        format_example = f"TITLE: Tech & Business Update - Dec 15\n{host_names[0]}: Good morning! Let's dive into today's top stories...\n{host_names[1]}: We've got several important developments to cover..."
+        host_intro = f"You are a team of two expert podcast hosts ({host_names[0]} and {host_names[1]}) creating insightful daily audio briefings."
+        style_note = "Your Style:\n- Casual and informative - like smart friends having an engaging conversation about the news\n"
+    else:
+        format_example = f"TITLE: Tech & Business Update - Dec 15\n{host_names[0]}: Good morning! Let's dive into today's top stories...\n{host_names[1]}: We've got several important developments to cover...\n{host_names[2]}: And there's more to unpack here..."
+        host_intro = f"You are a team of three expert podcast hosts ({host_names[0]}, {host_names[1]}, and {host_names[2]}) creating insightful daily audio briefings."
+        style_note = "Your Style:\n- Engaging panel discussion - like knowledgeable friends having a dynamic conversation about the news\n"
+    
+    # Build the prompt
+    prompt = f"""{host_intro}
+
+{chr(10).join(host_descriptions)}
+
+{style_note}- Go beyond headlines to explain WHY stories matter
+- Connect dots between stories and broader trends
+- Provide historical context when relevant
+- Offer balanced perspectives on complex issues
+- Use analogies and examples to make abstract concepts concrete
+- Keep it relaxed and conversational, not formal or stiff
+
+Guidelines:
+- Write in a natural, casual, conversational tone suitable for text-to-speech
+- Be informative without being dry or academic
+- Be direct and straightforward - state facts and insights clearly without alluding to things being "interesting" or building unnecessary suspense
+- Use "..." for natural pauses and emphasis
+- Keep sentences clear and punchy for easy listening
+- Include thoughtful questions that prompt deeper discussion
+- Vary sentence length for natural rhythm
+- Use direct transitions like "Speaking of which...", "Here's what happened...", "The key point is..."
+- Sound like you're genuinely interested and engaged, not just reading a script
+
+AVOID:
+- Fluffy language, filler words, or unnecessary embellishment (e.g., avoid phrases like "incredibly fascinating", "absolutely amazing", "truly remarkable", "simply incredible")
+- Catastrophizing or exaggerating severity (e.g., avoid "devastating", "catastrophic", "disastrous" unless truly warranted by facts)
+- Overly dramatic language or hyperbole
+- Unnecessary qualifiers that add no meaning (e.g., "very", "really", "quite", "extremely" used excessively)
+- Sensationalism - stick to facts and measured analysis
+- Doom-and-gloom framing - present information accurately without making things sound worse than they are
+
+CRITICAL OUTPUT RULES:
+- FIRST: Output a short, glanceable podcast title (max 60 characters) that includes the key topics. Format: TITLE: [title here]
+- THEN: Output ONLY spoken dialogue - what the hosts actually say out loud
+- DO NOT include stage directions, sound effects, or production notes like [MUSIC], [PAUSE], [INTRO], [OUTRO], etc.
+- DO NOT include asterisks or brackets with instructions like *laughs*, *sighs*, [clears throat]
+- DO NOT include timestamps, chapter markers, or section headers
+
+Format your response EXACTLY like this:
+{format_example}
+
+If a user name is provided, personalize the introduction by addressing the user by name (e.g., "Hey David, let's kick off today's briefing" or "Good morning, David! Let's dive into today's top stories..."). 
+
+When the time of day context is provided (Morning, Afternoon, Evening, or Night), use it to craft an appropriate greeting and set the right tone. For example:
+- Morning: "Good morning!" or "Rise and shine!"
+- Afternoon: "Good afternoon!" or "Hope you're having a great afternoon!"
+- Evening: "Good evening!" or "Hope you're winding down nicely!"
+- Night: "Good evening!" or "Hope you're having a relaxing evening!"
+
+IMPORTANT: Always reference the current date accurately in the briefing. Include the full date (month, day, and year) when appropriate, especially in the opening. For example: "Good morning! It's January 15th, 2025..." or "Welcome to today's briefing for January 15th, 2025." Ensure the month and year are correct based on the current date provided in the prompt.
+
+When specific topics are provided, make sure to cover stories from ALL of those topics and reference them naturally throughout the conversation. The conversation should feel like {('a knowledgeable friend' if num_hosts == 1 else 'smart friends')} casually discussing the news, informative but never stuffy or overly formal."""
+    
+    return prompt
+
+
+# Legacy constant for backward compatibility (will be replaced by dynamic function)
 BRIEFING_SYSTEM_PROMPT = """You are a team of two expert podcast hosts creating insightful daily audio briefings.
 
 HOST1 (Alex): The lead anchor - articulate, great at explaining complex topics simply. Provides the main narrative and context. Keeps the tone casual and approachable while being informative.
@@ -118,17 +249,30 @@ HOST2: We've got several important developments to cover...
 
 If a user name is provided, personalize the introduction by addressing the user by name (e.g., "Hey David, let's kick off today's briefing" or "Good morning, David! Let's dive into today's top stories..."). 
 
+When the time of day context is provided (Morning, Afternoon, Evening, or Night), use it to craft an appropriate greeting and set the right tone. For example:
+- Morning: "Good morning!" or "Rise and shine!"
+- Afternoon: "Good afternoon!" or "Hope you're having a great afternoon!"
+- Evening: "Good evening!" or "Hope you're winding down nicely!"
+- Night: "Good evening!" or "Hope you're having a relaxing evening!"
+
+IMPORTANT: Always reference the current date accurately in the briefing. Include the full date (month, day, and year) when appropriate, especially in the opening. For example: "Good morning! It's January 15th, 2025..." or "Welcome to today's briefing for January 15th, 2025." Ensure the month and year are correct based on the current date provided in the prompt.
+
 When specific topics are provided, make sure to cover stories from ALL of those topics and reference them naturally throughout the conversation. The conversation should feel like two smart friends casually discussing the news, informative but never stuffy or overly formal."""
 
 
 BRIEFING_PROMPT_TEMPLATE = """Create an engaging {duration}-minute daily briefing podcast script covering the following news and information:
 
 {content}
+{additional_facts_section}
 
 IMPORTANT CONTEXT FOR THIS BRIEFING:
+- Current date and time: {current_date_time} (based on the listener's timezone: {timezone})
 - Listener's name: {user_name_display}
 - Topics to focus on: {topics}
+- Time of day: {time_of_day}
 {name_instruction}
+
+CRITICAL: Use the EXACT current date provided above when referencing dates in the briefing. Ensure the month and year are correct. For example, if the current date is "January 15, 2025", use "January 15, 2025" or "January 15th, 2025" - do NOT use incorrect dates like "December 15" or "2024".
 
 The hosts should clearly reference these specific topics throughout the briefing and ensure coverage across all of them.
 
@@ -140,11 +284,12 @@ Requirements:
    - Why it matters (the significance)  
    - What it means going forward (implications)
    - How it connects to bigger trends or other stories
-4. ANALYSIS: Have HOST2 ask insightful questions and offer unique perspectives
-5. DEPTH: Go beyond surface-level reporting - help listeners truly understand the stories
-6. CONNECTIONS: Draw connections between different stories when relevant
-7. BALANCE: Present multiple viewpoints on controversial topics
-8. WRAP-UP: At the end, work backwards to summarize what topics were discussed. Recap the key stories and takeaways, reinforcing what listeners learned.
+4. ADDITIONAL FACTS: When discussing each article, incorporate the additional quantifiable facts provided above that correspond to that specific article. These facts should be woven naturally into the conversation to provide concrete data and evidence, making the discussion more informative and less "fluffy". Use these facts to ground the conversation in real numbers and statistics when covering each story.
+5. ANALYSIS: Have HOST2 ask insightful questions and offer unique perspectives
+6. DEPTH: Go beyond surface-level reporting - help listeners truly understand the stories
+7. CONNECTIONS: Draw connections between different stories when relevant
+8. BALANCE: Present multiple viewpoints on controversial topics
+9. WRAP-UP: At the end, work backwards to summarize what topics were discussed. Recap the key stories and takeaways, reinforcing what listeners learned.
 
 CRITICAL LANGUAGE GUIDELINES:
 - Use clear, direct language - avoid fluffy filler words and unnecessary embellishment
@@ -161,8 +306,8 @@ OUTPUT FORMAT:
 2. Then, provide the podcast script dialogue between HOST1 and HOST2.
 
 Example:
-TITLE: Tech & Business Update - Dec 15
-HOST1: Good morning! Let's dive into today's top stories...
+TITLE: Tech & Business Update - Jan 15
+HOST1: Good morning! It's January 15th, 2025, and let's dive into today's top stories...
 HOST2: We've got several important developments to cover...
 
 REMEMBER: 
@@ -334,6 +479,99 @@ CRITICAL:
 - Return ONLY the JSON output, no other text."""
 
 
+FACTS_AGENT_SYSTEM_PROMPT = """You are a research expert specializing in finding quantifiable, factual evidence about news stories.
+
+Your task is to analyze each selected news story individually and provide 2-3 additional FACTS about each specific article that are:
+1. NOT already covered in that particular article
+2. Quantifiable and evidence-based (numbers, statistics, specific data points)
+3. Real and verifiable (not speculation or opinion)
+4. Relevant to the specific story and add meaningful context
+
+Your goal is to provide concrete, factual information that will make the podcast more informative and less "fluffy" by grounding discussions in real data and evidence.
+
+CRITICAL REQUIREMENTS:
+- Provide ONLY facts, not opinions or analysis
+- Each fact should be specific and quantifiable (e.g., "The market grew by 15%", "3 million users affected", "Revenue increased $2.5B")
+- Facts should complement, not duplicate, information already in the specific article
+- Focus on data points, statistics, historical context, or measurable impacts related to that story
+- Analyze each article independently - facts should be specific to that story's subject matter
+- If you cannot find additional quantifiable facts for an article, return an empty facts array for that article
+- Be concise - each fact should be 1-2 sentences maximum
+
+OUTPUT FORMAT (JSON only):
+```json
+{
+  "articles": [
+    {
+      "article_num": 1,
+      "title": "Article title",
+      "facts": [
+        "Fact 1: Specific quantifiable data point related to this article...",
+        "Fact 2: Another measurable statistic relevant to this story...",
+        "Fact 3: Additional evidence-based information about this topic..."
+      ]
+    }
+  ]
+}
+```"""
+
+
+FACTS_AGENT_PROMPT_TEMPLATE = """Analyze each of the following selected news stories individually and provide 2-3 additional quantifiable FACTS about each specific article that are NOT already covered in that article.
+
+SELECTED STORIES:
+{stories}
+
+INSTRUCTIONS:
+1. For EACH article above, analyze it independently and identify 2-3 additional facts that are:
+   - Quantifiable (numbers, percentages, statistics, specific data points)
+   - Evidence-based and verifiable
+   - NOT already mentioned in that specific article
+   - Relevant to that article's subject matter and add meaningful context
+
+2. Focus on facts related to the specific story, such as:
+   - Market data, growth statistics, user numbers relevant to the story
+   - Historical comparisons or trends related to the article's topic
+   - Economic impacts (dollar amounts, job numbers, etc.) for the specific subject
+   - Scientific data, research findings related to the story
+   - Regulatory or policy details with specific numbers
+   - Geographic or demographic data relevant to the article
+   - Company-specific metrics, industry benchmarks, or comparative data
+
+3. Each article should be analyzed separately - facts should be specific to that article's content and subject matter.
+
+4. If you cannot find additional quantifiable facts for an article, return an empty facts array for that article.
+
+5. Each fact should be concise (1-2 sentences) and include specific numbers or measurable data.
+
+OUTPUT FORMAT (JSON only, no other text):
+```json
+{{
+  "articles": [
+    {{
+      "article_num": 1,
+      "title": "Micron is killing Crucial after nearly 30 years",
+      "facts": [
+        "The global memory market reached $165 billion in 2024, with Micron holding approximately 23% market share.",
+        "AI data center demand for high-bandwidth memory is projected to grow 40% annually through 2027.",
+        "Micron's revenue from data center customers increased 35% year-over-year in Q4 2024."
+      ]
+    }},
+    {{
+      "article_num": 2,
+      "title": "Trump says every AI plant being built in US will be self-sustaining",
+      "facts": [
+        "US data center electricity consumption is projected to reach 35 gigawatts by 2030, up from 17 GW in 2022.",
+        "AI training operations can consume up to 6,000 megawatt-hours per model, equivalent to powering 600,000 homes for a day.",
+        "The US currently generates 4.2 trillion kilowatt-hours annually, with data centers accounting for 2.5% of total consumption."
+      ]
+    }}
+  ]
+}}
+```
+
+Return ONLY the JSON output, no other text."""
+
+
 STATION_UPDATE_PROMPT_TEMPLATE = """Create a {duration}-minute update episode for the "{topic}" station.
 
 New developments since last update:
@@ -379,6 +617,9 @@ def format_briefing_prompt(
     duration: int | None = None,
     user_name: str | None = None,
     complexity: int | None = None,
+    additional_facts: dict[int, list[str]] | None = None,
+    ranked_items: list | None = None,
+    cast_members: list[dict] | None = None,
 ) -> tuple[str, str]:
     """Format briefing prompt with content.
     
@@ -388,11 +629,14 @@ def format_briefing_prompt(
         duration: Override duration in minutes (uses settings if None)
         user_name: Optional user name for personalized introduction
         complexity: Conversation complexity level 1-5 (uses settings if None)
+        additional_facts: Dictionary mapping article index (0-based) to lists of additional facts
+        ranked_items: List of ranked news items (used to match facts to articles)
     
     Returns:
         Tuple of (system_prompt, user_prompt)
     """
     from app.config import get_settings
+    from app.utils.timezone import get_time_of_day, local_now
     settings = get_settings()
     
     # Use configured duration if not explicitly provided
@@ -402,6 +646,14 @@ def format_briefing_prompt(
     # Use configured complexity if not explicitly provided
     if complexity is None:
         complexity = settings.conversation_complexity
+    
+    # Get current date and time in user's timezone
+    now = local_now()
+    current_date_time = now.strftime("%B %d, %Y at %I:%M %p")  # e.g., "January 15, 2025 at 09:30 AM"
+    
+    # Get time of day based on user's timezone
+    time_of_day = get_time_of_day(settings.timezone)
+    timezone = settings.timezone
     
     # Format topics list - make it clear and prominent
     if topics:
@@ -422,6 +674,24 @@ def format_briefing_prompt(
     if user_name:
         name_instruction = f"\n\nIMPORTANT: Address the listener by name ({user_name}) in the opening introduction. For example: 'Hey {user_name}, let's kick off today's briefing' or 'Good morning, {user_name}! Let's dive into today's top stories...'"
     
+    # Format additional facts section
+    # Facts are keyed by article index (0-based), but articles in content are numbered starting from 1
+    additional_facts_section = ""
+    if additional_facts and ranked_items:
+        facts_lines = []
+        for article_idx, facts in additional_facts.items():
+            if 0 <= article_idx < len(ranked_items) and facts:
+                article = ranked_items[article_idx]
+                article_num = article_idx + 1  # Convert to 1-based for display
+                article_title = article.title[:80]  # Truncate long titles
+                facts_lines.append(f"\nADDITIONAL FACTS FOR ARTICLE {article_num}: {article_title}")
+                for i, fact in enumerate(facts, 1):
+                    facts_lines.append(f"  {i}. {fact}")
+        
+        if facts_lines:
+            additional_facts_section = "\n\n=== ADDITIONAL QUANTIFIABLE FACTS ===\n" + "\n".join(facts_lines) + "\n"
+            additional_facts_section += "\nThese facts are provided to add concrete, quantifiable data to the discussion. Incorporate them naturally into the conversation when discussing the corresponding articles.\n"
+    
     # Add complexity instruction
     complexity_instruction = get_complexity_instruction(complexity)
     
@@ -430,11 +700,19 @@ def format_briefing_prompt(
         topics=topics_str,
         duration=duration,
         user_name_display=user_name_display,
+        current_date_time=current_date_time,
+        time_of_day=time_of_day,
+        timezone=timezone,
         name_instruction=name_instruction,
+        additional_facts_section=additional_facts_section,
     )
     
-    # Inject complexity instruction into system prompt
-    system_prompt = BRIEFING_SYSTEM_PROMPT + complexity_instruction
+    # Build system prompt dynamically if cast_members provided, otherwise use default
+    if cast_members:
+        system_prompt = build_briefing_system_prompt(cast_members) + complexity_instruction
+    else:
+        # Fallback to default prompt for backward compatibility
+        system_prompt = BRIEFING_SYSTEM_PROMPT + complexity_instruction
     
     return system_prompt, user_prompt
 
@@ -446,6 +724,7 @@ def format_deepcast_prompt(
     duration: int | None = None,
     user_name: str | None = None,
     complexity: int | None = None,
+    cast_members: list[dict] | None = None,
 ) -> tuple[str, str]:
     """Format DeepCast prompt with research.
     
@@ -492,8 +771,12 @@ def format_deepcast_prompt(
         name_instruction=name_instruction,
     )
     
-    # Inject complexity instruction into system prompt
-    system_prompt = DEEPCAST_SYSTEM_PROMPT + complexity_instruction
+    # Build system prompt dynamically if cast_members provided, otherwise use default
+    if cast_members:
+        system_prompt = build_briefing_system_prompt(cast_members) + complexity_instruction
+    else:
+        # Fallback to default prompt for backward compatibility
+        system_prompt = DEEPCAST_SYSTEM_PROMPT + complexity_instruction
     
     return system_prompt, user_prompt
 
@@ -539,6 +822,38 @@ Summary: {article.get('summary', 'No summary available')[:300]}
     return STORY_ANALYSIS_SYSTEM_PROMPT, user_prompt
 
 
+def format_facts_agent_prompt(
+    stories: list[dict],
+    topics: list[str] | None = None,
+) -> tuple[str, str]:
+    """Format facts agent prompt to generate additional facts for each article.
+    
+    Args:
+        stories: List of story dictionaries with title, summary, source, category
+        topics: Optional list of topics (kept for backward compatibility, not used in prompt)
+    
+    Returns:
+        Tuple of (system_prompt, user_prompt)
+    """
+    # Format stories for the prompt
+    stories_text = []
+    for i, story in enumerate(stories, 1):
+        story_text = f"""
+STORY {i}:
+Title: {story.get('title', 'Untitled')}
+Source: {story.get('source', 'Unknown')}
+Category: {story.get('category', 'general')}
+Summary: {story.get('summary', 'No summary available')}
+"""
+        stories_text.append(story_text)
+    
+    user_prompt = FACTS_AGENT_PROMPT_TEMPLATE.format(
+        stories="\n---".join(stories_text),
+    )
+    
+    return FACTS_AGENT_SYSTEM_PROMPT, user_prompt
+
+
 def format_station_update_prompt(
     topic: str,
     new_content: str,
@@ -546,6 +861,7 @@ def format_station_update_prompt(
     duration: int | None = None,
     user_name: str | None = None,
     complexity: int | None = None,
+    cast_members: list[dict] | None = None,
 ) -> tuple[str, str]:
     """Format station update prompt.
     
@@ -587,8 +903,12 @@ def format_station_update_prompt(
         name_instruction=name_instruction,
     )
     
-    # Inject complexity instruction into system prompt
-    system_prompt = STATION_UPDATE_SYSTEM_PROMPT + complexity_instruction
+    # Build system prompt dynamically if cast_members provided, otherwise use default
+    if cast_members:
+        system_prompt = build_briefing_system_prompt(cast_members) + complexity_instruction
+    else:
+        # Fallback to default prompt for backward compatibility
+        system_prompt = STATION_UPDATE_SYSTEM_PROMPT + complexity_instruction
     
     return system_prompt, user_prompt
 

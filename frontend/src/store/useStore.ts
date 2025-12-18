@@ -12,6 +12,7 @@ interface AudioState {
       start_time: number
       end_time?: number
     }>
+    initialPosition?: number  // Saved playback position to resume from
   } | null
   isPlaying: boolean
   currentTime: number
@@ -33,7 +34,10 @@ export const useStore = create<AppState>()((set) => ({
   currentTime: 0,
   duration: 0,
   
-  setCurrentAudio: (audio) => set({ currentAudio: audio, currentTime: 0 }),
+  setCurrentAudio: (audio) => set({ 
+    currentAudio: audio, 
+    currentTime: audio?.initialPosition || 0 
+  }),
   setIsPlaying: (playing) => set({ isPlaying: playing }),
   setCurrentTime: (time) => set({ currentTime: time }),
   setDuration: (duration) => set({ duration }),

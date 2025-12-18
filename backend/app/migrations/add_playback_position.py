@@ -1,4 +1,4 @@
-"""Migration to add use_newsapi column to topics table."""
+"""Migration to add playback_position column to briefings table."""
 
 import asyncio
 from sqlalchemy import text
@@ -8,23 +8,23 @@ from app.config import get_settings
 
 
 async def migrate():
-    """Add use_newsapi column to topics table."""
+    """Add playback_position column to briefings table for resume functionality."""
     settings = get_settings()
     engine = create_async_engine(settings.database_url)
     
     async with engine.begin() as conn:
         # Check if column already exists
-        result = await conn.execute(text("PRAGMA table_info(topics)"))
+        result = await conn.execute(text("PRAGMA table_info(briefings)"))
         columns = [row[1] for row in result.fetchall()]
         
-        if 'use_newsapi' not in columns:
-            print("Adding 'use_newsapi' column to topics table...")
+        if 'playback_position' not in columns:
+            print("Adding 'playback_position' column to briefings table...")
             await conn.execute(text(
-                "ALTER TABLE topics ADD COLUMN use_newsapi BOOLEAN DEFAULT 1"
+                "ALTER TABLE briefings ADD COLUMN playback_position FLOAT"
             ))
-            print("Added 'use_newsapi' column")
+            print("Added 'playback_position' column")
         else:
-            print("'use_newsapi' column already exists")
+            print("'playback_position' column already exists")
     
     await engine.dispose()
     print("Migration complete!")

@@ -30,6 +30,10 @@ class BriefingGenerateRequest(BaseModel):
         le=60,
         description="Target duration in minutes (uses configured default if not specified)",
     )
+    cast_id: Optional[str] = Field(
+        default=None,
+        description="Optional cast ID to use (uses default if not specified)",
+    )
 
 
 class BriefingCreate(BriefingBase):
@@ -53,6 +57,7 @@ class BriefingResponse(BriefingBase):
     created_at: datetime
     listened: bool = False
     listened_at: Optional[datetime] = None
+    playback_position: Optional[float] = None
     
     model_config = {
         "from_attributes": True,
@@ -62,6 +67,11 @@ class BriefingResponse(BriefingBase):
 class BriefingListenedUpdate(BaseModel):
     """Request to update listened state."""
     listened: bool
+
+
+class BriefingPlaybackPositionUpdate(BaseModel):
+    """Request to update playback position."""
+    position: float = Field(ge=0, description="Playback position in seconds")
 
 
 class BriefingListResponse(BaseModel):

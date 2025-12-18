@@ -16,8 +16,10 @@ from app.models.briefing import Briefing
 from app.models.custom_site import CustomSite
 from app.models.topic import Topic
 from app.models.user import User
+from app.models.cast import Cast
+from app.services.cast import CastService
 from app.services.llm.openrouter import get_llm_provider
-from app.services.llm.prompts import format_briefing_prompt, format_story_analysis_prompt
+from app.services.llm.prompts import format_briefing_prompt, format_story_analysis_prompt, format_facts_agent_prompt
 from app.services.tts.factory import TTSFactory
 from app.services.news import get_news_service
 from app.services.scraper import get_scraper_service
@@ -156,7 +158,7 @@ class BriefingService:
                 **briefing.extra_data,
                 "progress": {
                     "step": 1,
-                    "total_steps": 6,
+                    "total_steps": 7,
                     "step_name": "Fetching news sources",
                     "percent": 0,
                 },
@@ -175,13 +177,13 @@ class BriefingService:
                 
                 # Calculate percent based on step if not provided
                 if percent is None:
-                    percent = int((step - 1) / 6 * 100)
+                    percent = int((step - 1) / 7 * 100)
                 
                 briefing.extra_data = {
                     **briefing.extra_data,
                     "progress": {
                         "step": step,
-                        "total_steps": 6,
+                        "total_steps": 7,
                         "step_name": step_name,
                         "percent": percent,
                     },
@@ -287,14 +289,49 @@ class BriefingService:
             # Store sources (the ranked/prioritized stories - should be 3-5)
             briefing.sources = [item.to_dict() for item in ranked_items]
             
-            # Step 5: Generate podcast script with LLM
-            await update_progress(5, "Writing podcast script", 65)
+            # Step 5: Generate additional facts for each article
+            await update_progress(5, "Generating additional facts", 60)
+            print("[Briefing] Generating additional facts for articles...")
+            additional_facts = await self._generate_additional_facts(
+                ranked_items=ranked_items,
+                topics=topic_names if topic_names else ["technology", "business", "science"],
+            )
+            print(f"[Briefing] Generated facts for {len(additional_facts)} articles")
+            
+            # Step 6: Load cast for this briefing
+            await update_progress(6, "Loading cast configuration", 65)
+            cast_service = CastService(self.db)
+            if briefing.cast_id:
+                cast = await cast_service.get_cast(briefing.cast_id, briefing.user_id)
+                if not cast:
+                    print(f"[Briefing] Cast {briefing.cast_id} not found, using default")
+                    cast = await cast_service.get_default_cast(briefing.user_id)
+            else:
+                cast = await cast_service.get_default_cast(briefing.user_id)
+            
+            # Prepare cast members for prompt
+            cast_members = []
+            for member in sorted(cast.members, key=lambda m: m.order):
+                cast_members.append({
+                    "name": member.name,
+                    "personality": member.personality,
+                    "voice_id": member.voice_id,
+                    "order": member.order,
+                })
+            
+            print(f"[Briefing] Using cast '{cast.name}' with {len(cast_members)} member(s)")
+            
+            # Step 7: Generate podcast script with LLM
+            await update_progress(7, "Writing podcast script", 70)
             user_name = get_settings().user_name
             system_prompt, user_prompt = format_briefing_prompt(
                 content=news_content,
                 topics=topic_names if topic_names else ["technology", "business", "science"],
                 duration=max_duration_minutes,
                 user_name=user_name,
+                additional_facts=additional_facts,
+                ranked_items=ranked_items,
+                cast_members=cast_members,
             )
             
             response = await self.llm.generate(
@@ -335,19 +372,30 @@ class BriefingService:
             
             briefing.transcript = script
             
-            # Parse script into segments
-            segments = self._parse_script(script)
+            # Parse script into segments using cast member names
+            segments = self._parse_script(script, cast_members)
             
-            # Step 6: Generate audio
-            await update_progress(6, "Generating audio", 80)
+            # Build voice_map from cast members
+            voice_map = {}
+            host_mapping = {}  # Map cast member names to HOST1/HOST2/HOST3
+            for i, member in enumerate(cast_members):
+                host_key = f"HOST{i+1}"
+                voice_map[host_key] = member["voice_id"]
+                voice_map[member["name"]] = member["voice_id"]  # Also map by name
+                host_mapping[member["name"]] = host_key
+            
+            print(f"[Briefing] Voice map: {voice_map}")
+            
+            # Step 8: Generate audio
+            await update_progress(8, "Generating audio", 85)
             audio_filename = f"briefing_{briefing.id}.mp3"
             audio_path = Path(settings.audio_storage_path) / audio_filename
             audio_path.parent.mkdir(parents=True, exist_ok=True)
             
-            tts_result = await TTSFactory.synthesize_conversation_with_fallback(
+            tts_result = await TTSFactory.synthesize_conversation(
                 script=segments,
                 output_path=audio_path,
-                voice_map=None,  # Use configured voices from settings
+                voice_map=voice_map,  # Use cast voice IDs
             )
             
             # Build segment timings for the transcript
@@ -398,28 +446,77 @@ class BriefingService:
             await self.db.commit()
             raise
     
-    def _parse_script(self, script: str) -> list[dict]:
-        """Parse podcast script into speaker segments."""
+    def _parse_script(self, script: str, cast_members: list[dict] | None = None) -> list[dict]:
+        """Parse podcast script into speaker segments.
+        
+        Args:
+            script: The script text to parse
+            cast_members: List of cast members with 'name' and 'order' keys
+            
+        Returns:
+            List of segments with 'speaker' and 'text' keys
+        """
         segments = []
         
-        # Pattern to match HOST1: or HOST2: at the start of lines
-        pattern = r'^(HOST[12]):\s*(.+?)(?=^HOST[12]:|\Z)'
-        matches = re.findall(pattern, script, re.MULTILINE | re.DOTALL)
-        
-        if matches:
-            for speaker, text in matches:
-                text = text.strip()
-                if text:
+        if cast_members:
+            # Build pattern from cast member names
+            cast_names = [m["name"] for m in sorted(cast_members, key=lambda x: x["order"])]
+            # Escape names for regex
+            escaped_names = [re.escape(name) for name in cast_names]
+            # Create pattern: NAME: or NAME: (case-insensitive)
+            pattern_parts = "|".join(escaped_names)
+            pattern = rf'^({pattern_parts}):\s*(.+?)(?=^({pattern_parts}):|\Z)'
+            
+            matches = re.findall(pattern, script, re.MULTILINE | re.DOTALL | re.IGNORECASE)
+            
+            # Map cast member names to HOST identifiers
+            name_to_host = {}
+            for i, member in enumerate(sorted(cast_members, key=lambda x: x["order"])):
+                name_to_host[member["name"]] = f"HOST{i+1}"
+            
+            if matches:
+                for match in matches:
+                    # match is a tuple: (speaker_name, text, next_speaker_or_empty)
+                    speaker_name = match[0]
+                    text = match[1].strip()
+                    if text:
+                        # Map cast member name to HOST identifier for TTS
+                        host_id = name_to_host.get(speaker_name, "HOST1")
+                        segments.append({
+                            "speaker": host_id,
+                            "text": text,
+                        })
+            else:
+                # Fallback: treat entire script as first host
+                if cast_members:
                     segments.append({
-                        "speaker": speaker,
-                        "text": text,
+                        "speaker": "HOST1",
+                        "text": script,
+                    })
+                else:
+                    segments.append({
+                        "speaker": "HOST1",
+                        "text": script,
                     })
         else:
-            # Fallback: treat entire script as single speaker
-            segments.append({
-                "speaker": "HOST1",
-                "text": script,
-            })
+            # Legacy parsing for backward compatibility
+            pattern = r'^(HOST[12]):\s*(.+?)(?=^HOST[12]:|\Z)'
+            matches = re.findall(pattern, script, re.MULTILINE | re.DOTALL)
+            
+            if matches:
+                for speaker, text in matches:
+                    text = text.strip()
+                    if text:
+                        segments.append({
+                            "speaker": speaker,
+                            "text": text,
+                        })
+            else:
+                # Fallback: treat entire script as single speaker
+                segments.append({
+                    "speaker": "HOST1",
+                    "text": script,
+                })
         
         return segments
     
@@ -504,6 +601,35 @@ class BriefingService:
         
         briefing.listened = listened
         briefing.listened_at = datetime.utcnow() if listened else None
+        
+        await self.db.commit()
+        await self.db.refresh(briefing)
+        
+        return briefing
+    
+    async def update_playback_position(
+        self,
+        briefing_id: str,
+        position: float,
+    ) -> Optional[Briefing]:
+        """Update the playback position of a briefing.
+        
+        Args:
+            briefing_id: The briefing ID
+            position: Playback position in seconds
+            
+        Returns:
+            Updated briefing or None if not found
+        """
+        result = await self.db.execute(
+            select(Briefing).where(Briefing.id == briefing_id)
+        )
+        briefing = result.scalar_one_or_none()
+        
+        if not briefing:
+            return None
+        
+        briefing.playback_position = position
         
         await self.db.commit()
         await self.db.refresh(briefing)
@@ -774,8 +900,81 @@ class BriefingService:
             print(f"[Briefing] Warning: Failed to parse story analysis JSON: {e}")
             print(f"[Briefing] Falling back to original order")
             return news_items[:max_stories], None
+    
+    async def _generate_additional_facts(
+        self,
+        ranked_items: list,
+        topics: list[str],
+    ) -> dict[int, list[str]]:
+        """Use LLM to generate additional quantifiable facts for each article.
+        
+        Args:
+            ranked_items: List of ranked NewsItem objects
+            topics: List of topic names (kept for compatibility, not used)
+            
+        Returns:
+            Dictionary mapping article index (0-based) to lists of facts
+        """
+        import json
+        
+        # Convert news items to dictionaries for the prompt
+        stories_for_analysis = [
+            {
+                "title": item.title,
+                "summary": item.summary,
+                "source": item.source,
+                "category": item.category or "general",
+            }
+            for item in ranked_items
+        ]
+        
+        # Get the facts agent prompt
+        system_prompt, user_prompt = format_facts_agent_prompt(
+            stories=stories_for_analysis,
+            topics=topics,
+        )
+        
+        try:
+            # Call LLM to generate facts
+            response = await self.llm.generate(
+                prompt=user_prompt,
+                system_prompt=system_prompt,
+                max_tokens=2048,
+                temperature=0.5,  # Moderate temperature for factual but varied responses
+            )
+            
+            # Parse the JSON response
+            content = response.content.strip()
+            
+            # Extract JSON from the response (handle markdown code blocks)
+            if "```json" in content:
+                content = content.split("```json")[1].split("```")[0].strip()
+            elif "```" in content:
+                content = content.split("```")[1].split("```")[0].strip()
+            
+            facts_data = json.loads(content)
+            articles_facts = facts_data.get("articles", [])
+            
+            # Convert to dictionary mapping article index to facts
+            # Article numbers in response are 1-based, convert to 0-based index
+            facts_dict = {}
+            for article_data in articles_facts:
+                article_num = article_data.get("article_num", 0)
+                facts = article_data.get("facts", [])
+                # Convert 1-based article_num to 0-based index
+                idx = article_num - 1
+                if 0 <= idx < len(ranked_items) and facts:
+                    facts_dict[idx] = facts
+                    print(f"[Briefing] Generated {len(facts)} facts for article {article_num}: {ranked_items[idx].title[:60]}...")
+            
+            return facts_dict
+            
+        except json.JSONDecodeError as e:
+            print(f"[Briefing] Warning: Failed to parse facts agent JSON: {e}")
+            print(f"[Briefing] Falling back to empty facts")
+            return {}
         except Exception as e:
-            print(f"[Briefing] Warning: Story analysis failed: {e}")
-            print(f"[Briefing] Falling back to original order")
-            return news_items[:max_stories], None
+            print(f"[Briefing] Warning: Facts generation failed: {e}")
+            print(f"[Briefing] Falling back to empty facts")
+            return {}
 

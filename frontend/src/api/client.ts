@@ -34,6 +34,7 @@ export interface Briefing {
   audio_url?: string
   audio_filename?: string
   duration_seconds?: number
+  cast_id?: string
   extra_data: Record<string, unknown> & {
     segment_timings?: SegmentTiming[]
     progress?: BriefingProgress | null
@@ -49,6 +50,7 @@ export interface Briefing {
   created_at: string
   listened: boolean
   listened_at?: string
+  playback_position?: number
 }
 
 export interface DeepCast {
@@ -57,6 +59,7 @@ export interface DeepCast {
   query: string
   title?: string
   transcript?: string
+  cast_id?: string
   chapters: Array<{
     title: string
     start_time: number
@@ -97,6 +100,7 @@ export interface Station {
   user_id: string
   topic: string
   description?: string
+  cast_id?: string
   update_frequency_hours: number
   settings: Record<string, unknown>
   is_active: boolean
@@ -144,12 +148,54 @@ export interface CustomSiteTestResult {
   error?: string
 }
 
+export interface CastMember {
+  id: string
+  cast_id: string
+  name: string
+  voice_id: string
+  personality: string
+  order: number
+  created_at: string
+}
+
+export interface Cast {
+  id: string
+  user_id: string
+  name: string
+  is_default: boolean
+  members: CastMember[]
+  created_at: string
+  updated_at: string
+}
+
+export interface CastCreate {
+  name: string
+  members: Array<{
+    name: string
+    voice_id: string
+    personality: string
+    order: number
+  }>
+}
+
+export interface CastUpdate {
+  name?: string
+  members?: Array<{
+    name: string
+    voice_id: string
+    personality: string
+    order: number
+  }>
+}
+
 export interface AppSettings {
   openrouter_api_key?: string
   openrouter_model: string
   tts_provider: string
   elevenlabs_api_key?: string
   elevenlabs_model: string
+  gemini_api_key?: string
+  gemini_model: string
   tts_voice_host1: string
   tts_voice_host2: string
   briefing_duration_minutes: number
@@ -165,6 +211,7 @@ export interface AppSettings {
   elevenlabs_configured: boolean
   news_api_configured: boolean
   resend_configured: boolean
+  gemini_configured: boolean
 }
 
 export interface TimezoneOption {
@@ -182,6 +229,7 @@ export interface ScheduledBriefing {
   user_id: string
   name: string
   topic_ids: string[]
+  cast_id?: string
   schedule_time: string
   schedule_days: number[]
   notification_methods: string[]
@@ -231,6 +279,7 @@ export const briefingsApi = {
   generate: async (options: {
     topic_ids?: string[]
     max_duration_minutes?: number
+    cast_id?: string
   } = {}) => {
     const { data } = await api.post<Briefing>('/api/briefings/generate', options)
     return data
@@ -242,6 +291,11 @@ export const briefingsApi = {
   
   updateListened: async (id: string, listened: boolean) => {
     const { data } = await api.patch<Briefing>(`/api/briefings/${id}/listened`, { listened })
+    return data
+  },
+  
+  updatePlaybackPosition: async (id: string, position: number) => {
+    const { data } = await api.patch<Briefing>(`/api/briefings/${id}/playback-position`, { position })
     return data
   },
   
@@ -268,6 +322,7 @@ export const deepcastsApi = {
     query: string
     target_duration_minutes?: number
     num_sources?: number
+    cast_id?: string
   }) => {
     const { data } = await api.post<DeepCast>('/api/deepcasts', options)
     return data
@@ -295,6 +350,7 @@ export const stationsApi = {
     topic: string
     description?: string
     update_frequency_hours?: number
+    cast_id?: string
   }) => {
     const { data } = await api.post<Station>('/api/stations', options)
     return data
@@ -305,6 +361,7 @@ export const stationsApi = {
     description: string
     update_frequency_hours: number
     is_active: boolean
+    cast_id: string
   }>) => {
     const { data } = await api.put<Station>(`/api/stations/${id}`, options)
     return data
@@ -423,6 +480,8 @@ export const settingsApi = {
     openrouter_model: string
     tts_provider: string
     elevenlabs_api_key: string
+    gemini_api_key: string
+    gemini_model: string
     tts_voice_host1: string
     tts_voice_host2: string
     briefing_duration_minutes: number
@@ -501,6 +560,37 @@ export const scheduledBriefingsApi = {
   
   toggle: async (id: string) => {
     const { data } = await api.patch<ScheduledBriefing>(`/api/scheduled-briefings/${id}/toggle`)
+    return data
+  },
+}
+
+export const castsApi = {
+  list: async () => {
+    const { data } = await api.get<{ casts: Cast[] }>('/api/casts')
+    return data
+  },
+  
+  get: async (id: string) => {
+    const { data } = await api.get<Cast>(`/api/casts/${id}`)
+    return data
+  },
+  
+  create: async (cast: CastCreate) => {
+    const { data } = await api.post<Cast>('/api/casts', cast)
+    return data
+  },
+  
+  update: async (id: string, cast: CastUpdate) => {
+    const { data } = await api.put<Cast>(`/api/casts/${id}`, cast)
+    return data
+  },
+  
+  delete: async (id: string) => {
+    await api.delete(`/api/casts/${id}`)
+  },
+  
+  setDefault: async (id: string) => {
+    const { data } = await api.post<Cast>(`/api/casts/${id}/set-default`)
     return data
   },
 }

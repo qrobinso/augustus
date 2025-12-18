@@ -67,3 +67,4 @@ class TopicListResponse(BaseModel):
     topics: list[TopicResponse]
     total: int
 
+

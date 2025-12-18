@@ -6,6 +6,7 @@ import DeepCasts from './pages/DeepCasts'
 import Stations from './pages/Stations'
 import Topics from './pages/Topics'
 import CustomSites from './pages/CustomSites'
+import Casts from './pages/Casts'
 import Settings from './pages/Settings'
 
 function App() {
@@ -19,6 +20,7 @@ function App() {
         <Route path="stations" element={<Stations />} />
         <Route path="topics" element={<Topics />} />
         <Route path="custom-sites" element={<CustomSites />} />
+        <Route path="casts" element={<Casts />} />
         <Route path="settings" element={<Settings />} />
       </Route>
     </Routes>

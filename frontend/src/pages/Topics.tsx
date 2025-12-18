@@ -108,26 +108,26 @@ export default function Topics() {
   }
   
   return (
-    <div className="p-8">
+    <div className="page-container">
       {/* Header */}
-      <div className="mb-8">
-        <h1 className="text-3xl font-display font-semibold text-white mb-2">
+      <div className="mb-6 sm:mb-8">
+        <h1 className="text-2xl sm:text-3xl font-display font-semibold text-white mb-1 sm:mb-2">
           Topics
         </h1>
-        <p className="text-augustus-400">
+        <p className="text-sm sm:text-base text-augustus-400">
           Manage your news topics and categories for briefings
         </p>
       </div>
       
       {/* Add new topic form */}
-      <form onSubmit={handleCreate} className="card mb-8">
-        <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+      <form onSubmit={handleCreate} className="card mb-6 sm:mb-8">
+        <h2 className="text-base sm:text-lg font-semibold text-white mb-3 sm:mb-4 flex items-center gap-2">
           <Tag className="w-5 h-5 text-accent" />
           Add New Topic
         </h2>
         
         <div className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4">
             <div>
               <label className="label">Topic Name</label>
               <input
@@ -148,8 +148,8 @@ export default function Topics() {
                     type="button"
                     onClick={() => setColor(c)}
                     className={clsx(
-                      'w-8 h-8 rounded-full transition-all',
-                      color === c ? 'ring-2 ring-white ring-offset-2 ring-offset-augustus-900' : 'hover:scale-110'
+                      'w-9 h-9 sm:w-8 sm:h-8 rounded-full transition-all',
+                      color === c ? 'ring-2 ring-white ring-offset-2 ring-offset-augustus-900 scale-110' : 'hover:scale-110 active:scale-95'
                     )}
                     style={{ backgroundColor: c }}
                   />
@@ -169,13 +169,13 @@ export default function Topics() {
             />
           </div>
           
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             <input
               type="checkbox"
               id="use-newsapi"
               checked={useNewsapi}
               onChange={(e) => setUseNewsapi(e.target.checked)}
-              className="w-4 h-4 rounded border-augustus-700 bg-augustus-900 text-accent focus:ring-accent focus:ring-2"
+              className="w-5 h-5 rounded border-augustus-700 bg-augustus-900 text-accent focus:ring-accent focus:ring-2"
             />
             <label htmlFor="use-newsapi" className="text-sm text-augustus-300 cursor-pointer">
               Include NewsAPI results for this topic
@@ -185,7 +185,7 @@ export default function Topics() {
           <button
             type="submit"
             disabled={!name.trim() || createMutation.isPending}
-            className="btn btn-primary flex items-center gap-2"
+            className="btn btn-primary w-full sm:w-auto flex items-center justify-center gap-2"
           >
             {createMutation.isPending ? (
               <>
@@ -210,24 +210,24 @@ export default function Topics() {
       
       {/* Topics list */}
       <div className="space-y-4">
-        <h2 className="text-lg font-semibold text-white">Your Topics</h2>
+        <h2 className="text-base sm:text-lg font-semibold text-white">Your Topics</h2>
         
         {isLoading ? (
-          <div className="card flex items-center justify-center py-12">
+          <div className="card flex items-center justify-center py-10 sm:py-12">
             <Loader2 className="w-8 h-8 animate-spin text-accent" />
           </div>
         ) : error ? (
-          <div className="card text-center py-12">
-            <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-            <p className="text-augustus-400">Failed to load topics. Is the backend running?</p>
+          <div className="card text-center py-10 sm:py-12">
+            <AlertCircle className="w-10 sm:w-12 h-10 sm:h-12 text-red-500 mx-auto mb-3 sm:mb-4" />
+            <p className="text-sm sm:text-base text-augustus-400">Failed to load topics. Is the backend running?</p>
           </div>
         ) : data?.topics.length === 0 ? (
-          <div className="card text-center py-12">
-            <Tag className="w-12 h-12 text-augustus-600 mx-auto mb-4" />
-            <p className="text-augustus-400">No topics yet. Add your first one!</p>
+          <div className="card text-center py-10 sm:py-12">
+            <Tag className="w-10 sm:w-12 h-10 sm:h-12 text-augustus-600 mx-auto mb-3 sm:mb-4" />
+            <p className="text-sm sm:text-base text-augustus-400">No topics yet. Add your first one!</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
             {data?.topics.map((topic) => (
               <div
                 key={topic.id}
@@ -257,20 +257,20 @@ export default function Topics() {
                           type="button"
                           onClick={() => setEditColor(c)}
                           className={clsx(
-                            'w-6 h-6 rounded-full transition-all',
+                            'w-7 h-7 sm:w-6 sm:h-6 rounded-full transition-all',
                             editColor === c ? 'ring-2 ring-white ring-offset-2 ring-offset-augustus-900' : 'hover:scale-110'
                           )}
                           style={{ backgroundColor: c }}
                         />
                       ))}
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-3">
                       <input
                         type="checkbox"
                         id={`edit-use-newsapi-${topic.id}`}
                         checked={editUseNewsapi}
                         onChange={(e) => setEditUseNewsapi(e.target.checked)}
-                        className="w-4 h-4 rounded border-augustus-700 bg-augustus-900 text-accent focus:ring-accent focus:ring-2"
+                        className="w-5 h-5 rounded border-augustus-700 bg-augustus-900 text-accent focus:ring-accent focus:ring-2"
                       />
                       <label htmlFor={`edit-use-newsapi-${topic.id}`} className="text-sm text-augustus-300 cursor-pointer">
                         Include NewsAPI results
@@ -291,9 +291,9 @@ export default function Topics() {
                       </button>
                       <button
                         onClick={cancelEdit}
-                        className="btn btn-ghost"
+                        className="btn btn-ghost p-2"
                       >
-                        <X className="w-4 h-4" />
+                        <X className="w-5 h-5" />
                       </button>
                     </div>
                   </div>
@@ -312,13 +312,13 @@ export default function Topics() {
                       </div>
                       
                       <div className="flex-1 min-w-0">
-                        <h3 className="font-semibold text-white">{topic.name}</h3>
+                        <h3 className="font-semibold text-white text-sm sm:text-base">{topic.name}</h3>
                         {topic.description && (
-                          <p className="text-sm text-augustus-400 truncate">
+                          <p className="text-xs sm:text-sm text-augustus-400 truncate">
                             {topic.description}
                           </p>
                         )}
-                        <div className="flex items-center gap-2 mt-2 text-xs text-augustus-500">
+                        <div className="flex items-center gap-2 mt-1.5 sm:mt-2 text-xs text-augustus-500">
                           <Globe className="w-3 h-3" />
                           <span>{topic.site_count} site{topic.site_count !== 1 ? 's' : ''}</span>
                           {!topic.use_newsapi && (
@@ -328,7 +328,7 @@ export default function Topics() {
                       </div>
                     </div>
                     
-                    <div className="flex items-center gap-2 mt-4 pt-4 border-t border-augustus-800/50">
+                    <div className="flex items-center gap-2 mt-3 sm:mt-4 pt-3 sm:pt-4 border-t border-augustus-800/50">
                       <button
                         onClick={() => startEdit(topic)}
                         className="btn btn-ghost p-2 text-augustus-400 hover:text-white"

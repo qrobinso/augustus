@@ -114,14 +114,27 @@ if (-not (Test-Path $NODE_MODULES)) {
 }
 Write-Host "[OK] Frontend dependencies ready" -ForegroundColor Green
 
+# Get local IP address for network access
+$localIP = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -like "192.168.*" -or $_.IPAddress -like "10.*" -or $_.IPAddress -like "172.16.*" -or $_.IPAddress -like "172.17.*" -or $_.IPAddress -like "172.18.*" -or $_.IPAddress -like "172.19.*" -or $_.IPAddress -like "172.20.*" -or $_.IPAddress -like "172.21.*" -or $_.IPAddress -like "172.22.*" -or $_.IPAddress -like "172.23.*" -or $_.IPAddress -like "172.24.*" -or $_.IPAddress -like "172.25.*" -or $_.IPAddress -like "172.26.*" -or $_.IPAddress -like "172.27.*" -or $_.IPAddress -like "172.28.*" -or $_.IPAddress -like "172.29.*" -or $_.IPAddress -like "172.30.*" -or $_.IPAddress -like "172.31.*" } | Select-Object -First 1).IPAddress
+if (-not $localIP) {
+    $localIP = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -ne "127.0.0.1" } | Select-Object -First 1).IPAddress
+}
+
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Green
 Write-Host "  Starting Augustus Services..." -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Green
 Write-Host ""
+Write-Host "   Local Access:" -ForegroundColor Cyan
 Write-Host "   Backend:  http://localhost:8000" -ForegroundColor White
 Write-Host "   API Docs: http://localhost:8000/docs" -ForegroundColor White
 Write-Host "   Frontend: http://localhost:3000" -ForegroundColor White
+if ($localIP) {
+    Write-Host ""
+    Write-Host "   Network Access (from other devices):" -ForegroundColor Cyan
+    Write-Host "   Frontend: http://$localIP:3000" -ForegroundColor White
+    Write-Host "   Backend:  http://$localIP:8000" -ForegroundColor White
+}
 Write-Host ""
 Write-Host "   Press Ctrl+C to stop all services" -ForegroundColor DarkGray
 Write-Host ""

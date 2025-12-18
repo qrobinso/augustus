@@ -32,6 +32,8 @@ export default function Settings() {
   const [ttsProvider, setTtsProvider] = useState('piper')
   const [elevenlabsKey, setElevenlabsKey] = useState('')
   const [elevenlabsModel, setElevenlabsModel] = useState('eleven_turbo_v2_5')
+  const [geminiKey, setGeminiKey] = useState('')
+  const [geminiModel, setGeminiModel] = useState('gemini-2.5-flash-preview-tts')
   const [voiceHost1, setVoiceHost1] = useState('21m00Tcm4TlvDq8ikWAM')
   const [voiceHost2, setVoiceHost2] = useState('AZnzlk1XvdvUeBnXmlld')
   const [briefingDuration, setBriefingDuration] = useState(5)
@@ -46,6 +48,7 @@ export default function Settings() {
   // UI state
   const [showOpenrouterKey, setShowOpenrouterKey] = useState(false)
   const [showElevenlabsKey, setShowElevenlabsKey] = useState(false)
+  const [showGeminiKey, setShowGeminiKey] = useState(false)
   const [showNewsApiKey, setShowNewsApiKey] = useState(false)
   const [showResendApiKey, setShowResendApiKey] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -117,7 +120,7 @@ export default function Settings() {
       setDropdownPosition({
         top: rect.bottom + 8,
         left: rect.left,
-        width: rect.width,
+        width: Math.min(rect.width, window.innerWidth - 32),
       })
     }
     setShowModelDropdown(!showModelDropdown)
@@ -139,6 +142,7 @@ export default function Settings() {
       setOpenrouterModel(settings.openrouter_model)
       setTtsProvider(settings.tts_provider)
       setElevenlabsModel(settings.elevenlabs_model || 'eleven_turbo_v2_5')
+      setGeminiModel(settings.gemini_model || 'gemini-2.5-flash-preview-tts')
       setVoiceHost1(settings.tts_voice_host1)
       setVoiceHost2(settings.tts_voice_host2)
       setBriefingDuration(settings.briefing_duration_minutes)
@@ -153,6 +157,9 @@ export default function Settings() {
       }
       if (!elevenlabsKey && settings.elevenlabs_api_key) {
         setElevenlabsKey(settings.elevenlabs_api_key)
+      }
+      if (!geminiKey && settings.gemini_api_key) {
+        setGeminiKey(settings.gemini_api_key)
       }
       if (!newsApiKey && settings.news_api_key) {
         setNewsApiKey(settings.news_api_key)
@@ -183,6 +190,9 @@ export default function Settings() {
     if (isNewKey(elevenlabsKey, settings?.elevenlabs_api_key)) {
       updates.elevenlabs_api_key = elevenlabsKey
     }
+    if (isNewKey(geminiKey, settings?.gemini_api_key)) {
+      updates.gemini_api_key = geminiKey
+    }
     if (isNewKey(newsApiKey, settings?.news_api_key)) {
       updates.news_api_key = newsApiKey
     }
@@ -194,6 +204,7 @@ export default function Settings() {
     if (openrouterModel !== settings?.openrouter_model) updates.openrouter_model = openrouterModel
     if (ttsProvider !== settings?.tts_provider) updates.tts_provider = ttsProvider
     if (elevenlabsModel !== settings?.elevenlabs_model) updates.elevenlabs_model = elevenlabsModel
+    if (geminiModel !== settings?.gemini_model) updates.gemini_model = geminiModel
     if (voiceHost1 !== settings?.tts_voice_host1) updates.tts_voice_host1 = voiceHost1
     if (voiceHost2 !== settings?.tts_voice_host2) updates.tts_voice_host2 = voiceHost2
     if (briefingDuration !== settings?.briefing_duration_minutes) updates.briefing_duration_minutes = briefingDuration
@@ -210,7 +221,7 @@ export default function Settings() {
   
   if (isLoading) {
     return (
-      <div className="p-8 flex items-center justify-center">
+      <div className="page-container flex items-center justify-center min-h-[50vh]">
         <Loader2 className="w-8 h-8 animate-spin text-accent" />
       </div>
     )
@@ -218,53 +229,53 @@ export default function Settings() {
   
   if (error) {
     return (
-      <div className="p-8">
-        <div className="card text-center py-12">
-          <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-          <p className="text-augustus-400">Failed to load settings. Is the backend running?</p>
+      <div className="page-container">
+        <div className="card text-center py-10 sm:py-12">
+          <AlertCircle className="w-10 sm:w-12 h-10 sm:h-12 text-red-500 mx-auto mb-3 sm:mb-4" />
+          <p className="text-sm sm:text-base text-augustus-400">Failed to load settings. Is the backend running?</p>
         </div>
       </div>
     )
   }
   
   return (
-    <div className="p-8 max-w-3xl">
+    <div className="page-container max-w-3xl mx-auto">
       {/* Header */}
-      <div className="mb-8">
-        <h1 className="text-3xl font-display font-semibold text-white mb-2">
+      <div className="mb-6 sm:mb-8">
+        <h1 className="text-2xl sm:text-3xl font-display font-semibold text-white mb-1 sm:mb-2">
           Settings
         </h1>
-        <p className="text-augustus-400">
+        <p className="text-sm sm:text-base text-augustus-400">
           Configure API keys and integrations for Augustus
         </p>
       </div>
       
       {/* Success message */}
       {saved && (
-        <div className="mb-6 p-4 bg-green-500/10 border border-green-500/20 rounded-lg flex items-center gap-3">
-          <CheckCircle className="w-5 h-5 text-green-400" />
-          <span className="text-green-400">Settings saved successfully!</span>
+        <div className="mb-4 sm:mb-6 p-3 sm:p-4 bg-green-500/10 border border-green-500/20 rounded-lg flex items-center gap-3">
+          <CheckCircle className="w-5 h-5 text-green-400 flex-shrink-0" />
+          <span className="text-green-400 text-sm sm:text-base">Settings saved successfully!</span>
         </div>
       )}
       
       {/* OpenRouter Section */}
-      <div className="card mb-6 overflow-visible">
-        <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-          <Cpu className="w-5 h-5 text-accent" />
-          LLM Provider (OpenRouter)
+      <div className="card mb-4 sm:mb-6 overflow-visible">
+        <h2 className="text-base sm:text-lg font-semibold text-white mb-3 sm:mb-4 flex items-center gap-2 flex-wrap">
+          <Cpu className="w-5 h-5 text-accent flex-shrink-0" />
+          <span>LLM Provider (OpenRouter)</span>
           {settings?.openrouter_configured ? (
-            <span className="ml-auto px-2 py-0.5 bg-green-500/20 text-green-400 text-xs rounded-full">
+            <span className="px-2 py-0.5 bg-green-500/20 text-green-400 text-xs rounded-full">
               Configured
             </span>
           ) : (
-            <span className="ml-auto px-2 py-0.5 bg-yellow-500/20 text-yellow-400 text-xs rounded-full">
+            <span className="px-2 py-0.5 bg-yellow-500/20 text-yellow-400 text-xs rounded-full">
               Not configured
             </span>
           )}
         </h2>
         
-        <p className="text-sm text-augustus-400 mb-4">
-          OpenRouter provides access to multiple AI models through a single API.{' '}
+        <p className="text-xs sm:text-sm text-augustus-400 mb-3 sm:mb-4">
+          OpenRouter provides access to multiple AI models.{' '}
           <a 
             href="https://openrouter.ai/keys" 
             target="_blank" 
@@ -279,20 +290,20 @@ export default function Settings() {
           <div>
             <label className="label">API Key</label>
             <div className="relative">
-              <Key className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-augustus-500" />
+              <Key className="absolute left-3 sm:left-4 top-1/2 -translate-y-1/2 w-4 sm:w-5 h-4 sm:h-5 text-augustus-500" />
               <input
                 type={showOpenrouterKey ? 'text' : 'password'}
                 value={openrouterKey}
                 onChange={(e) => setOpenrouterKey(e.target.value)}
                 placeholder={settings?.openrouter_api_key || 'sk-or-...'}
-                className="input pl-12 pr-12"
+                className="input pl-10 sm:pl-12 pr-10 sm:pr-12"
               />
               <button
                 type="button"
                 onClick={() => setShowOpenrouterKey(!showOpenrouterKey)}
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-augustus-500 hover:text-augustus-300"
+                className="absolute right-3 sm:right-4 top-1/2 -translate-y-1/2 text-augustus-500 hover:text-augustus-300 p-1"
               >
-                {showOpenrouterKey ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                {showOpenrouterKey ? <EyeOff className="w-4 sm:w-5 h-4 sm:h-5" /> : <Eye className="w-4 sm:w-5 h-4 sm:h-5" />}
               </button>
             </div>
           </div>
@@ -309,21 +320,16 @@ export default function Settings() {
             >
               <div className="flex-1 min-w-0">
                 {selectedModel ? (
-                  <div className="flex items-center gap-2">
-                    <span className="text-white truncate">{selectedModel.name}</span>
-                    <span className="text-augustus-500 text-sm">({selectedModel.provider})</span>
-                    {selectedModel.context_length && (
-                      <span className="px-1.5 py-0.5 bg-augustus-700 text-augustus-400 text-xs rounded">
-                        {formatContextLength(selectedModel.context_length)} ctx
-                      </span>
-                    )}
+                  <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
+                    <span className="text-white text-sm sm:text-base truncate">{selectedModel.name}</span>
+                    <span className="text-augustus-500 text-xs sm:text-sm hidden sm:inline">({selectedModel.provider})</span>
                   </div>
                 ) : (
-                  <span className="text-augustus-500">Select a model...</span>
+                  <span className="text-augustus-500 text-sm sm:text-base">Select a model...</span>
                 )}
               </div>
               <ChevronDown className={clsx(
-                'w-5 h-5 text-augustus-500 transition-transform',
+                'w-5 h-5 text-augustus-500 transition-transform flex-shrink-0',
                 showModelDropdown && 'rotate-180'
               )} />
             </button>
@@ -332,8 +338,8 @@ export default function Settings() {
       </div>
       
       {/* TTS Section */}
-      <div className="card mb-6">
-        <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+      <div className="card mb-4 sm:mb-6">
+        <h2 className="text-base sm:text-lg font-semibold text-white mb-3 sm:mb-4 flex items-center gap-2">
           <Volume2 className="w-5 h-5 text-accent" />
           Text-to-Speech Provider
         </h2>
@@ -341,19 +347,19 @@ export default function Settings() {
         <div className="space-y-4">
           <div>
             <label className="label">Provider</label>
-            <div className="flex gap-4">
+            <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
               <button
                 type="button"
                 onClick={() => setTtsProvider('piper')}
                 className={clsx(
-                  'flex-1 p-4 rounded-lg border-2 transition-all text-left',
+                  'flex-1 p-3 sm:p-4 rounded-lg border-2 transition-all text-left',
                   ttsProvider === 'piper'
                     ? 'border-accent bg-accent/10'
-                    : 'border-augustus-700 hover:border-augustus-600'
+                    : 'border-augustus-700 hover:border-augustus-600 active:bg-augustus-800'
                 )}
               >
-                <div className="font-medium text-white">Piper</div>
-                <div className="text-sm text-augustus-400">
+                <div className="font-medium text-white text-sm sm:text-base">Piper</div>
+                <div className="text-xs sm:text-sm text-augustus-400">
                   Self-hosted, free, good quality
                 </div>
               </button>
@@ -362,13 +368,13 @@ export default function Settings() {
                 type="button"
                 onClick={() => setTtsProvider('elevenlabs')}
                 className={clsx(
-                  'flex-1 p-4 rounded-lg border-2 transition-all text-left',
+                  'flex-1 p-3 sm:p-4 rounded-lg border-2 transition-all text-left',
                   ttsProvider === 'elevenlabs'
                     ? 'border-accent bg-accent/10'
-                    : 'border-augustus-700 hover:border-augustus-600'
+                    : 'border-augustus-700 hover:border-augustus-600 active:bg-augustus-800'
                 )}
               >
-                <div className="font-medium text-white flex items-center gap-2">
+                <div className="font-medium text-white flex items-center gap-2 text-sm sm:text-base">
                   ElevenLabs
                   {settings?.elevenlabs_configured && (
                     <span className="px-1.5 py-0.5 bg-green-500/20 text-green-400 text-xs rounded">
@@ -376,8 +382,31 @@ export default function Settings() {
                     </span>
                   )}
                 </div>
-                <div className="text-sm text-augustus-400">
+                <div className="text-xs sm:text-sm text-augustus-400">
                   Cloud API, premium quality
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setTtsProvider('gemini')}
+                className={clsx(
+                  'flex-1 p-3 sm:p-4 rounded-lg border-2 transition-all text-left',
+                  ttsProvider === 'gemini'
+                    ? 'border-accent bg-accent/10'
+                    : 'border-augustus-700 hover:border-augustus-600 active:bg-augustus-800'
+                )}
+              >
+                <div className="font-medium text-white flex items-center gap-2 text-sm sm:text-base">
+                  Google Gemini
+                  {settings?.gemini_configured && (
+                    <span className="px-1.5 py-0.5 bg-green-500/20 text-green-400 text-xs rounded">
+                      Ready
+                    </span>
+                  )}
+                </div>
+                <div className="text-xs sm:text-sm text-augustus-400">
+                  Native TTS, expressiveness
                 </div>
               </button>
             </div>
@@ -387,47 +416,29 @@ export default function Settings() {
             <>
               <div>
                 <label className="label">
-                  ElevenLabs API Key{' '}
-                  <a 
-                    href="https://elevenlabs.io/app/settings/api-keys" 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="text-accent hover:underline inline-flex items-center gap-1 font-normal"
-                  >
-                    Get key <ExternalLink className="w-3 h-3" />
-                  </a>
+                  ElevenLabs API Key
                 </label>
                 <div className="relative">
-                  <Key className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-augustus-500" />
+                  <Key className="absolute left-3 sm:left-4 top-1/2 -translate-y-1/2 w-4 sm:w-5 h-4 sm:h-5 text-augustus-500" />
                   <input
                     type={showElevenlabsKey ? 'text' : 'password'}
                     value={elevenlabsKey}
                     onChange={(e) => setElevenlabsKey(e.target.value)}
                     placeholder={settings?.elevenlabs_api_key || 'Enter ElevenLabs API key'}
-                    className="input pl-12 pr-12"
+                    className="input pl-10 sm:pl-12 pr-10 sm:pr-12"
                   />
                   <button
                     type="button"
                     onClick={() => setShowElevenlabsKey(!showElevenlabsKey)}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-augustus-500 hover:text-augustus-300"
+                    className="absolute right-3 sm:right-4 top-1/2 -translate-y-1/2 text-augustus-500 hover:text-augustus-300 p-1"
                   >
-                    {showElevenlabsKey ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                    {showElevenlabsKey ? <EyeOff className="w-4 sm:w-5 h-4 sm:h-5" /> : <Eye className="w-4 sm:w-5 h-4 sm:h-5" />}
                   </button>
                 </div>
               </div>
               
               <div>
-                <label className="label">
-                  TTS Model{' '}
-                  <a 
-                    href="https://elevenlabs.io/docs/api-reference/text-to-speech" 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="text-accent hover:underline inline-flex items-center gap-1 font-normal"
-                  >
-                    View models <ExternalLink className="w-3 h-3" />
-                  </a>
-                </label>
+                <label className="label">TTS Model</label>
                 <input
                   type="text"
                   value={elevenlabsModel}
@@ -436,7 +447,51 @@ export default function Settings() {
                   className="input"
                 />
                 <p className="text-xs text-augustus-500 mt-1">
-                  Default: eleven_turbo_v2_5 (fastest). Other options: eleven_multilingual_v2, eleven_monolingual_v1
+                  Default: eleven_turbo_v2_5 (fastest)
+                </p>
+              </div>
+            </>
+          )}
+
+          {ttsProvider === 'gemini' && (
+            <>
+              <div>
+                <label className="label">
+                  Gemini API Key
+                </label>
+                <div className="relative">
+                  <Key className="absolute left-3 sm:left-4 top-1/2 -translate-y-1/2 w-4 sm:w-5 h-4 sm:h-5 text-augustus-500" />
+                  <input
+                    type={showGeminiKey ? 'text' : 'password'}
+                    value={geminiKey}
+                    onChange={(e) => setGeminiKey(e.target.value)}
+                    placeholder={settings?.gemini_api_key || 'Enter Gemini API key'}
+                    className="input pl-10 sm:pl-12 pr-10 sm:pr-12"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowGeminiKey(!showGeminiKey)}
+                    className="absolute right-3 sm:right-4 top-1/2 -translate-y-1/2 text-augustus-500 hover:text-augustus-300 p-1"
+                  >
+                    {showGeminiKey ? <EyeOff className="w-4 sm:w-5 h-4 sm:h-5" /> : <Eye className="w-4 sm:w-5 h-4 sm:h-5" />}
+                  </button>
+                </div>
+                <p className="text-xs text-augustus-500 mt-1">
+                  Gemini TTS is currently in preview and requires a Gemini 2.0+ API key.
+                </p>
+              </div>
+
+              <div>
+                <label className="label">TTS Model</label>
+                <input
+                  type="text"
+                  value={geminiModel}
+                  onChange={(e) => setGeminiModel(e.target.value)}
+                  placeholder="gemini-2.5-flash-preview-tts"
+                  className="input"
+                />
+                <p className="text-xs text-augustus-500 mt-1">
+                  Default: gemini-2.5-flash-preview-tts
                 </p>
               </div>
             </>
@@ -444,26 +499,31 @@ export default function Settings() {
           
           {/* Voice Configuration */}
           <div className="pt-4 border-t border-augustus-700">
-            <h3 className="text-sm font-medium text-white mb-3">Voice Configuration</h3>
-            <p className="text-xs text-augustus-400 mb-4">
+            <h3 className="text-sm font-medium text-white mb-2 sm:mb-3">Voice Configuration</h3>
+            <p className="text-xs text-augustus-400 mb-3 sm:mb-4">
               {ttsProvider === 'elevenlabs' 
-                ? 'Enter ElevenLabs voice IDs. Find voices at elevenlabs.io/voice-library'
-                : 'Enter Piper voice names like "en_US-lessac-medium"'}
+                ? 'Enter ElevenLabs voice IDs'
+                : ttsProvider === 'gemini'
+                  ? 'Enter Gemini voice names (e.g., Kore, Puck, Charon)'
+                  : 'Enter Piper voice names'}
             </p>
             
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="label">Host 1 Voice (Alex)</label>
                 <input
                   type="text"
                   value={voiceHost1}
                   onChange={(e) => setVoiceHost1(e.target.value)}
-                  placeholder={ttsProvider === 'elevenlabs' ? '21m00Tcm4TlvDq8ikWAM' : 'en_US-lessac-medium'}
+                  placeholder={
+                    ttsProvider === 'elevenlabs' 
+                      ? '21m00Tcm4TlvDq8ikWAM' 
+                      : ttsProvider === 'gemini'
+                        ? 'Kore'
+                        : 'en_US-lessac-medium'
+                  }
                   className="input"
                 />
-                {ttsProvider === 'elevenlabs' && (
-                  <p className="text-xs text-augustus-500 mt-1">Default: Rachel (21m00Tcm4TlvDq8ikWAM)</p>
-                )}
               </div>
               
               <div>
@@ -472,40 +532,29 @@ export default function Settings() {
                   type="text"
                   value={voiceHost2}
                   onChange={(e) => setVoiceHost2(e.target.value)}
-                  placeholder={ttsProvider === 'elevenlabs' ? 'AZnzlk1XvdvUeBnXmlld' : 'en_US-amy-medium'}
+                  placeholder={
+                    ttsProvider === 'elevenlabs' 
+                      ? 'AZnzlk1XvdvUeBnXmlld' 
+                      : ttsProvider === 'gemini'
+                        ? 'Puck'
+                        : 'en_US-amy-medium'
+                  }
                   className="input"
                 />
-                {ttsProvider === 'elevenlabs' && (
-                  <p className="text-xs text-augustus-500 mt-1">Default: Domi (AZnzlk1XvdvUeBnXmlld)</p>
-                )}
               </div>
             </div>
-            
-            {ttsProvider === 'elevenlabs' && (
-              <div className="mt-3 p-3 bg-augustus-800/50 rounded-lg">
-                <p className="text-xs text-augustus-400">
-                  <strong className="text-white">Popular ElevenLabs voices:</strong><br />
-                  • Rachel (21m00Tcm4TlvDq8ikWAM) - Calm female<br />
-                  • Domi (AZnzlk1XvdvUeBnXmlld) - Strong female<br />
-                  • Adam (pNInz6obpgDQGcFmaJgB) - Deep male<br />
-                  • Josh (TxGEqnHWrfWFTfGW9XjX) - Young male<br />
-                  • Antoni (ErXwobaYiN019PkySvjV) - Well-rounded male<br />
-                  • Bella (EXAVITQu4vr4xnSDxMaL) - Soft female
-                </p>
-              </div>
-            )}
           </div>
           
           {/* Duration Configuration */}
           <div className="pt-4 border-t border-augustus-700">
-            <h3 className="text-sm font-medium text-white mb-3">Content Duration</h3>
-            <p className="text-xs text-augustus-400 mb-4">
-              Set the target duration for each type of audio content (in minutes)
+            <h3 className="text-sm font-medium text-white mb-2 sm:mb-3">Content Duration</h3>
+            <p className="text-xs text-augustus-400 mb-3 sm:mb-4">
+              Target duration for audio content (minutes)
             </p>
             
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-3 gap-3 sm:gap-4">
               <div>
-                <label className="label">Daily Briefing</label>
+                <label className="label text-xs sm:text-sm">Daily Briefing</label>
                 <div className="flex items-center gap-2">
                   <input
                     type="number"
@@ -515,13 +564,12 @@ export default function Settings() {
                     onChange={(e) => setBriefingDuration(Math.max(1, Math.min(30, parseInt(e.target.value) || 5)))}
                     className="input text-center"
                   />
-                  <span className="text-augustus-400 text-sm">min</span>
+                  <span className="text-augustus-400 text-xs sm:text-sm hidden sm:inline">min</span>
                 </div>
-                <p className="text-xs text-augustus-500 mt-1">Quick news updates</p>
               </div>
               
               <div>
-                <label className="label">DeepCast</label>
+                <label className="label text-xs sm:text-sm">DeepCast</label>
                 <div className="flex items-center gap-2">
                   <input
                     type="number"
@@ -531,13 +579,12 @@ export default function Settings() {
                     onChange={(e) => setDeepcastDuration(Math.max(5, Math.min(60, parseInt(e.target.value) || 10)))}
                     className="input text-center"
                   />
-                  <span className="text-augustus-400 text-sm">min</span>
+                  <span className="text-augustus-400 text-xs sm:text-sm hidden sm:inline">min</span>
                 </div>
-                <p className="text-xs text-augustus-500 mt-1">In-depth research</p>
               </div>
               
               <div>
-                <label className="label">Station Update</label>
+                <label className="label text-xs sm:text-sm">Station</label>
                 <div className="flex items-center gap-2">
                   <input
                     type="number"
@@ -547,31 +594,27 @@ export default function Settings() {
                     onChange={(e) => setStationUpdateDuration(Math.max(1, Math.min(15, parseInt(e.target.value) || 3)))}
                     className="input text-center"
                   />
-                  <span className="text-augustus-400 text-sm">min</span>
+                  <span className="text-augustus-400 text-xs sm:text-sm hidden sm:inline">min</span>
                 </div>
-                <p className="text-xs text-augustus-500 mt-1">Topic updates</p>
               </div>
             </div>
           </div>
           
           {/* Conversation Complexity */}
           <div className="pt-4 border-t border-augustus-700">
-            <h3 className="text-sm font-medium text-white mb-3">Language & Complexity</h3>
-            <p className="text-xs text-augustus-400 mb-4">
-              Adjust the language level and depth of discussion in generated podcasts
-            </p>
+            <h3 className="text-sm font-medium text-white mb-2 sm:mb-3">Language & Complexity</h3>
             
             <div className="space-y-4">
               {/* Complexity Slider */}
               <div>
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-xs text-augustus-400">Casual</span>
-                  <span className="text-sm font-medium text-white">
-                    {conversationComplexity === 1 && 'Casual (High School)'}
-                    {conversationComplexity === 2 && 'Accessible (General)'}
-                    {conversationComplexity === 3 && 'Standard (College)'}
-                    {conversationComplexity === 4 && 'Advanced (Graduate)'}
-                    {conversationComplexity === 5 && 'Expert (PhD)'}
+                  <span className="text-xs sm:text-sm font-medium text-white">
+                    {conversationComplexity === 1 && 'Casual'}
+                    {conversationComplexity === 2 && 'Accessible'}
+                    {conversationComplexity === 3 && 'Standard'}
+                    {conversationComplexity === 4 && 'Advanced'}
+                    {conversationComplexity === 5 && 'Expert'}
                   </span>
                   <span className="text-xs text-augustus-400">Expert</span>
                 </div>
@@ -599,62 +642,17 @@ export default function Settings() {
                   ))}
                 </div>
               </div>
-              
-              {/* Description for current level */}
-              <div className="p-3 bg-augustus-800/50 rounded-lg">
-                <p className="text-xs text-augustus-400">
-                  {conversationComplexity === 1 && (
-                    <>
-                      <strong className="text-white">Casual:</strong> Simple, everyday language. 
-                      No jargon or technical terms. Like explaining things to a smart teenager. 
-                      Great for casual listening or when you want the basics.
-                    </>
-                  )}
-                  {conversationComplexity === 2 && (
-                    <>
-                      <strong className="text-white">Accessible:</strong> Clear, straightforward language. 
-                      Technical terms are explained when used. Good for general audiences who want 
-                      to understand topics without specialized knowledge.
-                    </>
-                  )}
-                  {conversationComplexity === 3 && (
-                    <>
-                      <strong className="text-white">Standard:</strong> Balanced depth and accessibility. 
-                      Assumes basic familiarity with topics. Like an informed discussion between 
-                      knowledgeable friends. The default setting.
-                    </>
-                  )}
-                  {conversationComplexity === 4 && (
-                    <>
-                      <strong className="text-white">Advanced:</strong> Technical language and deeper analysis. 
-                      Assumes background knowledge. References frameworks and theories. 
-                      For professionals or enthusiasts who want more depth.
-                    </>
-                  )}
-                  {conversationComplexity === 5 && (
-                    <>
-                      <strong className="text-white">Expert:</strong> Specialized terminology and academic depth. 
-                      Assumes expert-level knowledge. Explores nuances, edge cases, and research. 
-                      For specialists who want maximum depth.
-                    </>
-                  )}
-                </p>
-              </div>
             </div>
           </div>
         </div>
       </div>
       
       {/* Personalization Section */}
-      <div className="card mb-6">
-        <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+      <div className="card mb-4 sm:mb-6">
+        <h2 className="text-base sm:text-lg font-semibold text-white mb-3 sm:mb-4 flex items-center gap-2">
           <SettingsIcon className="w-5 h-5 text-accent" />
           Personalization
         </h2>
-        
-        <p className="text-sm text-augustus-400 mb-4">
-          Customize your podcast experience with personalized introductions.
-        </p>
         
         <div>
           <label className="label">Your Name</label>
@@ -666,21 +664,17 @@ export default function Settings() {
             className="input"
           />
           <p className="text-xs text-augustus-500 mt-2">
-            Hosts will address you by name in podcast introductions (e.g., "Hey David, let's kick off today's briefing")
+            Hosts will address you by name in podcasts
           </p>
         </div>
       </div>
       
       {/* Timezone Section */}
-      <div className="card mb-6">
-        <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+      <div className="card mb-4 sm:mb-6">
+        <h2 className="text-base sm:text-lg font-semibold text-white mb-3 sm:mb-4 flex items-center gap-2">
           <Globe className="w-5 h-5 text-accent" />
           Timezone
         </h2>
-        
-        <p className="text-sm text-augustus-400 mb-4">
-          Set your local timezone for accurate scheduling and date display throughout the app.
-        </p>
         
         <div>
           <label className="label">Your Timezone</label>
@@ -702,146 +696,115 @@ export default function Settings() {
               <option value="UTC">UTC (Coordinated Universal Time)</option>
             )}
           </select>
-          <p className="text-xs text-augustus-500 mt-2">
-            Current selection: <span className="text-augustus-300">{timezone}</span>
-          </p>
         </div>
       </div>
       
       {/* News Sources Section */}
-      <div className="card mb-6">
-        <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+      <div className="card mb-4 sm:mb-6">
+        <h2 className="text-base sm:text-lg font-semibold text-white mb-3 sm:mb-4 flex items-center gap-2">
           <Rss className="w-5 h-5 text-accent" />
           News Sources
         </h2>
         
-        <div className="space-y-4">
-          <div>
-            <label className="label">
-              NewsAPI Key (optional){' '}
-              <a 
-                href="https://newsapi.org/register" 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="text-accent hover:underline inline-flex items-center gap-1 font-normal"
-              >
-                Get free key <ExternalLink className="w-3 h-3" />
-              </a>
-            </label>
-            <div className="relative">
-              <Key className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-augustus-500" />
-              <input
-                type={showNewsApiKey ? 'text' : 'password'}
-                value={newsApiKey}
-                onChange={(e) => setNewsApiKey(e.target.value)}
-                placeholder={settings?.news_api_key || 'Enter NewsAPI key (optional)'}
-                className="input pl-12 pr-12"
-              />
-              <button
-                type="button"
-                onClick={() => setShowNewsApiKey(!showNewsApiKey)}
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-augustus-500 hover:text-augustus-300"
-              >
-                {showNewsApiKey ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-              </button>
-            </div>
-            <p className="text-xs text-augustus-500 mt-1">
-              Enables additional news sources for briefings
-            </p>
+        <div>
+          <label className="label">NewsAPI Key (optional)</label>
+          <div className="relative">
+            <Key className="absolute left-3 sm:left-4 top-1/2 -translate-y-1/2 w-4 sm:w-5 h-4 sm:h-5 text-augustus-500" />
+            <input
+              type={showNewsApiKey ? 'text' : 'password'}
+              value={newsApiKey}
+              onChange={(e) => setNewsApiKey(e.target.value)}
+              placeholder={settings?.news_api_key || 'Enter NewsAPI key'}
+              className="input pl-10 sm:pl-12 pr-10 sm:pr-12"
+            />
+            <button
+              type="button"
+              onClick={() => setShowNewsApiKey(!showNewsApiKey)}
+              className="absolute right-3 sm:right-4 top-1/2 -translate-y-1/2 text-augustus-500 hover:text-augustus-300 p-1"
+            >
+              {showNewsApiKey ? <EyeOff className="w-4 sm:w-5 h-4 sm:h-5" /> : <Eye className="w-4 sm:w-5 h-4 sm:h-5" />}
+            </button>
           </div>
         </div>
       </div>
       
       {/* Email Notifications Section */}
-      <div className="card mb-6">
-        <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-          <Mail className="w-5 h-5 text-accent" />
-          Email Notifications (Resend)
+      <div className="card mb-4 sm:mb-6">
+        <h2 className="text-base sm:text-lg font-semibold text-white mb-3 sm:mb-4 flex items-center gap-2 flex-wrap">
+          <Mail className="w-5 h-5 text-accent flex-shrink-0" />
+          <span>Email Notifications (Resend)</span>
           {settings?.resend_configured ? (
-            <span className="ml-auto px-2 py-0.5 bg-green-500/20 text-green-400 text-xs rounded-full">
+            <span className="px-2 py-0.5 bg-green-500/20 text-green-400 text-xs rounded-full">
               Configured
             </span>
           ) : (
-            <span className="ml-auto px-2 py-0.5 bg-yellow-500/20 text-yellow-400 text-xs rounded-full">
+            <span className="px-2 py-0.5 bg-yellow-500/20 text-yellow-400 text-xs rounded-full">
               Not configured
             </span>
           )}
         </h2>
         
-        <p className="text-sm text-augustus-400 mb-4">
-          Resend enables email notifications for scheduled briefings.{' '}
-          <a 
-            href="https://resend.com/api-keys" 
-            target="_blank" 
-            rel="noopener noreferrer"
-            className="text-accent hover:underline inline-flex items-center gap-1"
-          >
-            Get an API key <ExternalLink className="w-3 h-3" />
-          </a>
-        </p>
-        
         <div>
           <label className="label">Resend API Key</label>
           <div className="relative">
-            <Key className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-augustus-500" />
+            <Key className="absolute left-3 sm:left-4 top-1/2 -translate-y-1/2 w-4 sm:w-5 h-4 sm:h-5 text-augustus-500" />
             <input
               type={showResendApiKey ? 'text' : 'password'}
               value={resendApiKey}
               onChange={(e) => setResendApiKey(e.target.value)}
               placeholder={settings?.resend_api_key || 're_xxxxxxxxxxxxxxxxxxxxx'}
-              className="input pl-12 pr-12"
+              className="input pl-10 sm:pl-12 pr-10 sm:pr-12"
             />
             <button
               type="button"
               onClick={() => setShowResendApiKey(!showResendApiKey)}
-              className="absolute right-4 top-1/2 -translate-y-1/2 text-augustus-500 hover:text-augustus-300"
+              className="absolute right-3 sm:right-4 top-1/2 -translate-y-1/2 text-augustus-500 hover:text-augustus-300 p-1"
             >
-              {showResendApiKey ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+              {showResendApiKey ? <EyeOff className="w-4 sm:w-5 h-4 sm:h-5" /> : <Eye className="w-4 sm:w-5 h-4 sm:h-5" />}
             </button>
           </div>
-          <p className="text-xs text-augustus-500 mt-1">
-            Required for email notifications on scheduled briefings
-          </p>
         </div>
       </div>
       
-      {/* Save Button */}
-      <div className="flex justify-end">
-        <button
-          onClick={handleSave}
-          disabled={updateMutation.isPending}
-          className="btn btn-primary flex items-center gap-2"
-        >
-          {updateMutation.isPending ? (
-            <>
-              <Loader2 className="w-5 h-5 animate-spin" />
-              Saving...
-            </>
-          ) : (
-            <>
-              <Save className="w-5 h-5" />
-              Save Settings
-            </>
-          )}
-        </button>
+      {/* Save Button - Sticky on mobile */}
+      <div className="sticky bottom-0 py-4 bg-gradient-to-t from-augustus-950 via-augustus-950 to-transparent -mx-4 px-4 sm:static sm:py-0 sm:bg-transparent sm:mx-0 sm:px-0">
+        <div className="flex justify-end">
+          <button
+            onClick={handleSave}
+            disabled={updateMutation.isPending}
+            className="btn btn-primary flex items-center gap-2 w-full sm:w-auto"
+          >
+            {updateMutation.isPending ? (
+              <>
+                <Loader2 className="w-5 h-5 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              <>
+                <Save className="w-5 h-5" />
+                Save Settings
+              </>
+            )}
+          </button>
+        </div>
       </div>
       
       {/* Info Section */}
-      <div className="card mt-8 bg-augustus-900/30">
-        <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+      <div className="card mt-6 sm:mt-8 bg-augustus-900/30">
+        <h2 className="text-base sm:text-lg font-semibold text-white mb-3 sm:mb-4 flex items-center gap-2">
           <Info className="w-5 h-5 text-accent" />
           About Augustus
         </h2>
         
-        <div className="space-y-3 text-sm text-augustus-400">
+        <div className="space-y-3 text-xs sm:text-sm text-augustus-400">
           <p>
             <strong className="text-white">Augustus</strong> (OpenHuxe) is a self-hosted 
-            audio intelligence platform that transforms content into AI-generated podcasts.
+            audio intelligence platform.
           </p>
           
-          <div className="flex items-center gap-4 pt-2 border-t border-augustus-800/50">
+          <div className="flex items-center gap-3 sm:gap-4 pt-2 border-t border-augustus-800/50 flex-wrap">
             <span>Version 0.1.0</span>
-            <span>•</span>
+            <span className="hidden sm:inline">•</span>
             <a 
               href="https://github.com/openhuxe/augustus" 
               target="_blank" 
@@ -849,15 +812,6 @@ export default function Settings() {
               className="text-accent hover:underline"
             >
               GitHub
-            </a>
-            <span>•</span>
-            <a 
-              href="https://openrouter.ai" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="text-accent hover:underline"
-            >
-              OpenRouter
             </a>
           </div>
         </div>
@@ -875,17 +829,28 @@ export default function Settings() {
             }}
           />
           
-          {/* Dropdown */}
+          {/* Dropdown - On mobile, show as bottom sheet */}
           <div 
-            className="fixed z-[9999] bg-augustus-900 border border-augustus-700 rounded-lg shadow-2xl max-h-96 overflow-hidden"
+            className={clsx(
+              "fixed z-[9999] bg-augustus-900 border border-augustus-700 shadow-2xl overflow-hidden",
+              // Mobile: bottom sheet style
+              "inset-x-0 bottom-0 rounded-t-2xl max-h-[70vh]",
+              // Desktop: dropdown style
+              "sm:inset-auto sm:rounded-lg sm:max-h-96"
+            )}
             style={{
-              top: dropdownPosition.top,
-              left: dropdownPosition.left,
-              width: dropdownPosition.width,
+              ...(window.innerWidth >= 640 && {
+                top: dropdownPosition.top,
+                left: dropdownPosition.left,
+                width: dropdownPosition.width,
+              }),
             }}
           >
+            {/* Mobile handle */}
+            <div className="sm:hidden w-10 h-1 bg-augustus-600 rounded-full mx-auto mt-3 mb-2" />
+            
             {/* Search input */}
-            <div className="p-2 border-b border-augustus-700">
+            <div className="p-2 sm:p-2 border-b border-augustus-700">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-augustus-500" />
                 <input
@@ -893,14 +858,14 @@ export default function Settings() {
                   value={modelSearch}
                   onChange={(e) => setModelSearch(e.target.value)}
                   placeholder="Search models..."
-                  className="w-full pl-9 pr-4 py-2 bg-augustus-800 border border-augustus-700 rounded-lg text-white text-sm placeholder-augustus-500 focus:outline-none focus:border-accent"
+                  className="w-full pl-9 pr-4 py-2.5 sm:py-2 bg-augustus-800 border border-augustus-700 rounded-lg text-white text-sm placeholder-augustus-500 focus:outline-none focus:border-accent"
                   autoFocus
                 />
               </div>
             </div>
             
             {/* Models list */}
-            <div className="overflow-y-auto max-h-72">
+            <div className="overflow-y-auto max-h-[50vh] sm:max-h-72">
               {modelsLoading ? (
                 <div className="p-4 text-center">
                   <Loader2 className="w-5 h-5 animate-spin text-accent mx-auto" />
@@ -926,7 +891,7 @@ export default function Settings() {
                           setModelSearch('')
                         }}
                         className={clsx(
-                          'w-full px-3 py-2 text-left hover:bg-augustus-800 transition-colors flex items-center justify-between',
+                          'w-full px-3 py-3 sm:py-2 text-left hover:bg-augustus-800 active:bg-augustus-700 transition-colors flex items-center justify-between',
                           model.id === openrouterModel && 'bg-accent/10 border-l-2 border-accent'
                         )}
                       >
@@ -940,11 +905,6 @@ export default function Settings() {
                               {formatContextLength(model.context_length)}
                             </span>
                           )}
-                          {model.pricing && model.pricing.prompt > 0 && (
-                            <span className="px-1.5 py-0.5 bg-augustus-700 text-augustus-400 text-xs rounded">
-                              ${model.pricing.prompt.toFixed(2)}/M
-                            </span>
-                          )}
                         </div>
                       </button>
                     ))}
@@ -954,7 +914,7 @@ export default function Settings() {
             </div>
             
             {/* Model count */}
-            <div className="p-2 border-t border-augustus-700 text-xs text-augustus-500 text-center">
+            <div className="p-2 border-t border-augustus-700 text-xs text-augustus-500 text-center pb-safe">
               {filteredModels.length} model{filteredModels.length !== 1 ? 's' : ''} available
             </div>
           </div>

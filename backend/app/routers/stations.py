@@ -85,6 +85,12 @@ async def create_station(
         settings=request.settings,
     )
     
+    # Set cast_id if provided
+    if request.cast_id:
+        station.cast_id = request.cast_id
+        await db.commit()
+        await db.refresh(station)
+    
     # Generate first episode in background
     background_tasks.add_task(
         generate_episode_task,

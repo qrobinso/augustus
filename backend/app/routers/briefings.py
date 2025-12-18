@@ -13,6 +13,7 @@ from app.schemas.briefing import (
     BriefingResponse,
     BriefingListResponse,
     BriefingListenedUpdate,
+    BriefingPlaybackPositionUpdate,
 )
 from app.services.briefing import BriefingService
 
@@ -93,6 +94,12 @@ async def generate_briefing(
         topic_ids=request.topic_ids,
         max_duration_minutes=duration,
     )
+    
+    # Set cast_id if provided
+    if request.cast_id:
+        briefing.cast_id = request.cast_id
+        await db.commit()
+        await db.refresh(briefing)
     
     # Start background generation
     background_tasks.add_task(
@@ -180,6 +187,33 @@ async def update_listened_status(
         )
     
     updated = await service.update_listened_status(briefing_id, update.listened)
+    return BriefingResponse.model_validate(updated)
+
+
+@router.patch("/{briefing_id}/playback-position", response_model=BriefingResponse)
+async def update_playback_position(
+    briefing_id: str,
+    update: BriefingPlaybackPositionUpdate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update the playback position of a briefing (for resume functionality)."""
+    service = BriefingService(db)
+    briefing = await service.get_briefing(briefing_id)
+    
+    if not briefing:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Briefing not found",
+        )
+    
+    if briefing.user_id != user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied",
+        )
+    
+    updated = await service.update_playback_position(briefing_id, update.position)
     return BriefingResponse.model_validate(updated)
 
 

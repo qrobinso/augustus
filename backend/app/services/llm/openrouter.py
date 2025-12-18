@@ -1,12 +1,11 @@
 """OpenRouter LLM provider implementation."""
 
+import os
 import httpx
 from typing import Optional
 
 from app.config import get_settings
 from app.services.llm.base import LLMProvider, LLMResponse
-
-settings = get_settings()
 
 
 def _log_separator(title: str):
@@ -25,28 +24,70 @@ class OpenRouterProvider(LLMProvider):
         model: Optional[str] = None,
         base_url: str = "https://openrouter.ai/api/v1",
     ):
-        self.api_key = api_key or settings.openrouter_api_key
-        self.model = model or settings.openrouter_model
+        # Store explicit values if provided, otherwise None to read dynamically
+        self._explicit_api_key = api_key
+        self._explicit_model = model
         self.base_url = base_url
         self._client: Optional[httpx.AsyncClient] = None
-        
-        if not self.api_key:
+        self._cached_api_key: Optional[str] = None
+    
+    @property
+    def api_key(self) -> str:
+        """Get API key from explicit value or current settings."""
+        if self._explicit_api_key:
+            return self._explicit_api_key
+        # Read directly from environment (which is updated immediately) or fall back to settings
+        # This ensures we get the latest value without relying on cached Settings
+        api_key = os.environ.get("OPENROUTER_API_KEY")
+        if not api_key:
+            # Fall back to settings if not in environment
+            get_settings.cache_clear()  # Clear cache to get fresh settings
+            current_settings = get_settings()
+            api_key = current_settings.openrouter_api_key
+        if not api_key:
             raise ValueError("OpenRouter API key is required")
+        return api_key
+    
+    @property
+    def model(self) -> str:
+        """Get model from explicit value or current settings."""
+        if self._explicit_model:
+            return self._explicit_model
+        # Read directly from environment (which is updated immediately) or fall back to settings
+        # This ensures we get the latest value without relying on cached Settings
+        model = os.environ.get("OPENROUTER_MODEL")
+        if not model:
+            # Fall back to settings if not in environment
+            get_settings.cache_clear()  # Clear cache to get fresh settings
+            current_settings = get_settings()
+            model = current_settings.openrouter_model
+        return model or "anthropic/claude-3.5-sonnet"  # Default fallback
     
     @property
     def client(self) -> httpx.AsyncClient:
-        """Get or create HTTP client."""
-        if self._client is None:
+        """Get or create HTTP client, recreating if API key changed."""
+        current_api_key = self.api_key
+        
+        # Recreate client if API key changed
+        if self._client is None or self._cached_api_key != current_api_key:
+            # Close old client if it exists
+            if self._client is not None:
+                # Note: We can't await here, but the client will be closed when garbage collected
+                # or we can schedule it to close. For now, we'll just recreate it.
+                pass
+            
             self._client = httpx.AsyncClient(
                 base_url=self.base_url,
                 headers={
-                    "Authorization": f"Bearer {self.api_key}",
+                    "Authorization": f"Bearer {current_api_key}",
                     "HTTP-Referer": "https://github.com/augustus",
                     "X-Title": "Augustus",
                     "Content-Type": "application/json",
                 },
                 timeout=120.0,
             )
+            self._cached_api_key = current_api_key
+        
         return self._client
     
     async def generate(
@@ -137,4 +178,18 @@ def get_llm_provider() -> OpenRouterProvider:
     if _provider is None:
         _provider = OpenRouterProvider()
     return _provider
+
+
+def reset_llm_provider():
+    """Reset the LLM provider singleton to force recreation with new settings."""
+    global _provider
+    if _provider is not None:
+        # Clear cached API key so client will be recreated with new settings
+        _provider._cached_api_key = None
+        # Close the existing client if it exists
+        if _provider._client is not None:
+            # Schedule client close (can't await in sync function)
+            # The client will be properly closed when the provider is garbage collected
+            _provider._client = None
+        _provider = None
 

@@ -39,6 +39,10 @@ class DeepCastCreate(BaseModel):
         le=20,
         description="Number of sources to research",
     )
+    cast_id: Optional[str] = Field(
+        default=None,
+        description="Optional cast ID to use (uses default if not specified)",
+    )
 
 
 class DeepCastResponse(BaseModel):

@@ -263,6 +263,12 @@ class ScheduledBriefingService:
                     max_duration_minutes=schedule.max_duration_minutes,
                 )
                 
+                # Set cast_id from scheduled briefing if specified
+                if schedule.cast_id:
+                    briefing.cast_id = schedule.cast_id
+                    await db.commit()
+                    await db.refresh(briefing)
+                
                 # Update schedule's last_generated_at
                 schedule.last_generated_at = utc_now()
                 await self.db.commit()

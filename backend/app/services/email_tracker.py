@@ -62,3 +62,4 @@ class EmailTracker:
 
 # Global tracker instance
 email_tracker = EmailTracker()
+

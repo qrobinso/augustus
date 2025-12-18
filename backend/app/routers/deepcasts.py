@@ -77,6 +77,12 @@ async def create_deepcast(
         num_sources=request.num_sources,
     )
     
+    # Set cast_id if provided
+    if request.cast_id:
+        deepcast.cast_id = request.cast_id
+        await db.commit()
+        await db.refresh(deepcast)
+    
     # Start background generation
     background_tasks.add_task(
         generate_deepcast_task,
