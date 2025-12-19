@@ -127,6 +127,7 @@ export interface Topic {
   color?: string
   is_active: boolean
   use_newsapi: boolean
+  enable_site_generation: boolean
   created_at: string
   site_count: number
 }
@@ -466,6 +467,7 @@ export const topicsApi = {
     description?: string
     color?: string
     use_newsapi?: boolean
+    enable_site_generation?: boolean
   }) => {
     const { data } = await api.post<Topic>('/api/topics', options)
     return data
@@ -477,6 +479,7 @@ export const topicsApi = {
     color: string
     is_active: boolean
     use_newsapi: boolean
+    enable_site_generation: boolean
   }>) => {
     const { data } = await api.put<Topic>(`/api/topics/${id}`, options)
     return data
@@ -484,6 +487,12 @@ export const topicsApi = {
   
   delete: async (id: string) => {
     await api.delete(`/api/topics/${id}`)
+  },
+  
+  generateSites: async (topicId: string, count?: number) => {
+    const params = count ? `?count=${count}` : ''
+    const { data } = await api.post<{sites: Array<{name: string, url: string}>, total: number}>(`/api/topics/${topicId}/generate-sites${params}`)
+    return data
   },
 }
 

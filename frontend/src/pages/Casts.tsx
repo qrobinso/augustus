@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { 
   Users,
@@ -20,9 +21,17 @@ const PERSONALITY_OPTIONS = [
   'Friendly',
   'Informative',
   'Upbeat',
+  'The Provocateur/Truth-Teller',
+  'The Businessman/Everyman',
+  'The Scholar/Researcher',
+  'The Storyteller',
+  'The Skeptic',
+  'The Optimist',
+  'The Realist',
 ]
 
 export default function Casts() {
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [showForm, setShowForm] = useState(false)
   const [editingCast, setEditingCast] = useState<Cast | null>(null)
@@ -104,18 +113,23 @@ export default function Casts() {
   }
   
   return (
-    <div className="p-4 md:p-6 max-w-6xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
+    <div className="page-container">
+      {/* Header */}
+      <div className="mb-6 sm:mb-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold text-white mb-2">Casts</h1>
-          <p className="text-augustus-400">Manage your podcast host configurations</p>
+          <h1 className="text-2xl sm:text-3xl font-display font-semibold text-white mb-1 sm:mb-2">
+            Casts
+          </h1>
+          <p className="text-sm sm:text-base text-augustus-400">
+            Manage your podcast host configurations
+          </p>
         </div>
         <button
-          onClick={() => setShowForm(true)}
-          className="btn btn-primary flex items-center gap-2"
+          onClick={() => navigate('/casts/create')}
+          className="btn btn-primary flex items-center gap-2 w-full sm:w-auto"
         >
           <Plus className="w-5 h-5" />
-          New Cast
+          Create Cast
         </button>
       </div>
       
@@ -128,18 +142,18 @@ export default function Casts() {
       )}
       
       {casts.length === 0 ? (
-        <div className="bg-augustus-800/50 rounded-lg p-8 text-center">
-          <Users className="w-12 h-12 text-augustus-500 mx-auto mb-4" />
-          <p className="text-augustus-400 mb-4">No casts yet</p>
+        <div className="card text-center py-10 sm:py-12">
+          <Users className="w-10 sm:w-12 h-10 sm:h-12 text-augustus-600 mx-auto mb-3 sm:mb-4" />
+          <p className="text-sm sm:text-base text-augustus-400 mb-4">No casts yet. Create your first one!</p>
           <button
-            onClick={() => setShowForm(true)}
+            onClick={() => navigate('/casts/create')}
             className="btn btn-primary"
           >
             Create Your First Cast
           </button>
         </div>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {casts.map((cast) => (
             <div
               key={cast.id}
@@ -223,5 +237,6 @@ export default function Casts() {
     </div>
   )
 }
+
 
 

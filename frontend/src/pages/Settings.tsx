@@ -34,10 +34,36 @@ export default function Settings() {
   const [elevenlabsModel, setElevenlabsModel] = useState('eleven_turbo_v2_5')
   const [geminiKey, setGeminiKey] = useState('')
   const [geminiModel, setGeminiModel] = useState('gemini-2.5-flash-preview-tts')
-  const [briefingDuration, setBriefingDuration] = useState(5)
-  const [deepcastDuration, setDeepcastDuration] = useState(10)
-  const [stationUpdateDuration, setStationUpdateDuration] = useState(3)
+  // Duration slider values (1=Short/3min, 2=Medium/7min, 3=Long/25min)
+  const [briefingDurationSlider, setBriefingDurationSlider] = useState(2)
+  const [deepcastDurationSlider, setDeepcastDurationSlider] = useState(2)
+  const [stationUpdateDurationSlider, setStationUpdateDurationSlider] = useState(1)
   const [conversationComplexity, setConversationComplexity] = useState(3)
+  
+  // Helper functions to convert between slider values and minutes
+  const durationToSlider = (minutes: number): number => {
+    if (minutes <= 5) return 1 // Short (3 min)
+    if (minutes <= 15) return 2 // Medium (7 min)
+    return 3 // Long (25 min)
+  }
+  
+  const sliderToDuration = (sliderValue: number): number => {
+    switch (sliderValue) {
+      case 1: return 3  // Short
+      case 2: return 7  // Medium
+      case 3: return 25 // Long
+      default: return 7
+    }
+  }
+  
+  const getDurationLabel = (sliderValue: number): string => {
+    switch (sliderValue) {
+      case 1: return 'Short (3 min)'
+      case 2: return 'Medium (7 min)'
+      case 3: return 'Long (25 min)'
+      default: return 'Medium (7 min)'
+    }
+  }
   const [timezone, setTimezone] = useState('UTC')
   const [newsApiKey, setNewsApiKey] = useState('')
   const [resendApiKey, setResendApiKey] = useState('')
@@ -141,9 +167,9 @@ export default function Settings() {
       setTtsProvider(settings.tts_provider)
       setElevenlabsModel(settings.elevenlabs_model || 'eleven_turbo_v2_5')
       setGeminiModel(settings.gemini_model || 'gemini-2.5-flash-preview-tts')
-      setBriefingDuration(settings.briefing_duration_minutes)
-      setDeepcastDuration(settings.deepcast_duration_minutes)
-      setStationUpdateDuration(settings.station_update_duration_minutes)
+      setBriefingDurationSlider(durationToSlider(settings.briefing_duration_minutes))
+      setDeepcastDurationSlider(durationToSlider(settings.deepcast_duration_minutes))
+      setStationUpdateDurationSlider(durationToSlider(settings.station_update_duration_minutes))
       setConversationComplexity(settings.conversation_complexity || 3)
       setTimezone(settings.timezone || 'UTC')
       setUserName(settings.user_name || '')
@@ -201,9 +227,11 @@ export default function Settings() {
     if (ttsProvider !== settings?.tts_provider) updates.tts_provider = ttsProvider
     if (elevenlabsModel !== settings?.elevenlabs_model) updates.elevenlabs_model = elevenlabsModel
     if (geminiModel !== settings?.gemini_model) updates.gemini_model = geminiModel
+    const briefingDuration = sliderToDuration(briefingDurationSlider)
+    
     if (briefingDuration !== settings?.briefing_duration_minutes) updates.briefing_duration_minutes = briefingDuration
-    if (deepcastDuration !== settings?.deepcast_duration_minutes) updates.deepcast_duration_minutes = deepcastDuration
-    if (stationUpdateDuration !== settings?.station_update_duration_minutes) updates.station_update_duration_minutes = stationUpdateDuration
+    // DeepCast and Station Update durations are kept at their current values (not shown in UI)
+    // They will maintain their existing values from settings
     if (conversationComplexity !== settings?.conversation_complexity) updates.conversation_complexity = conversationComplexity
     if (timezone !== settings?.timezone) updates.timezone = timezone
     if (userName !== settings?.user_name) updates.user_name = userName
@@ -495,52 +523,42 @@ export default function Settings() {
           <div className="pt-4 border-t border-augustus-700">
             <h3 className="text-sm font-medium text-white mb-2 sm:mb-3">Content Duration</h3>
             <p className="text-xs text-augustus-400 mb-3 sm:mb-4">
-              Target duration for audio content (minutes)
+              Target duration for audio content
             </p>
             
-            <div className="grid grid-cols-3 gap-3 sm:gap-4">
+            <div>
+              {/* Daily Briefing Duration */}
               <div>
-                <label className="label text-xs sm:text-sm">Daily Briefing</label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    min={1}
-                    max={30}
-                    value={briefingDuration}
-                    onChange={(e) => setBriefingDuration(Math.max(1, Math.min(30, parseInt(e.target.value) || 5)))}
-                    className="input text-center"
-                  />
-                  <span className="text-augustus-400 text-xs sm:text-sm hidden sm:inline">min</span>
+                <div className="flex justify-between items-center mb-2">
+                  <label className="label text-xs sm:text-sm mb-0">Daily Briefing</label>
+                  <span className="text-xs sm:text-sm font-medium text-white">
+                    {getDurationLabel(briefingDurationSlider)}
+                  </span>
                 </div>
-              </div>
-              
-              <div>
-                <label className="label text-xs sm:text-sm">DeepCast</label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    min={5}
-                    max={60}
-                    value={deepcastDuration}
-                    onChange={(e) => setDeepcastDuration(Math.max(5, Math.min(60, parseInt(e.target.value) || 10)))}
-                    className="input text-center"
-                  />
-                  <span className="text-augustus-400 text-xs sm:text-sm hidden sm:inline">min</span>
+                <input
+                  type="range"
+                  min={1}
+                  max={3}
+                  step={1}
+                  value={briefingDurationSlider}
+                  onChange={(e) => setBriefingDurationSlider(parseInt(e.target.value))}
+                  className="w-full h-2 bg-augustus-700 rounded-lg appearance-none cursor-pointer accent-accent"
+                />
+                <div className="flex justify-between mt-1 px-1">
+                  <span className="text-xs text-augustus-500">Short</span>
+                  <span className="text-xs text-augustus-500">Medium</span>
+                  <span className="text-xs text-augustus-500">Long</span>
                 </div>
-              </div>
-              
-              <div>
-                <label className="label text-xs sm:text-sm">Station</label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    min={1}
-                    max={15}
-                    value={stationUpdateDuration}
-                    onChange={(e) => setStationUpdateDuration(Math.max(1, Math.min(15, parseInt(e.target.value) || 3)))}
-                    className="input text-center"
-                  />
-                  <span className="text-augustus-400 text-xs sm:text-sm hidden sm:inline">min</span>
+                <div className="flex justify-between mt-1 px-1">
+                  {[1, 2, 3].map((level) => (
+                    <div
+                      key={level}
+                      className={clsx(
+                        'w-2 h-2 rounded-full transition-colors',
+                        level <= briefingDurationSlider ? 'bg-accent' : 'bg-augustus-600'
+                      )}
+                    />
+                  ))}
                 </div>
               </div>
             </div>

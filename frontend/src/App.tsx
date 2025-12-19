@@ -5,8 +5,9 @@ import BriefingDetail from './pages/BriefingDetail'
 import DeepCasts from './pages/DeepCasts'
 import Stations from './pages/Stations'
 import Topics from './pages/Topics'
-import CustomSites from './pages/CustomSites'
+import CreateTopic from './pages/CreateTopic'
 import Casts from './pages/Casts'
+import CreateCast from './pages/CreateCast'
 import Settings from './pages/Settings'
 
 function App() {
@@ -19,8 +20,9 @@ function App() {
         <Route path="deepcasts" element={<DeepCasts />} />
         <Route path="stations" element={<Stations />} />
         <Route path="topics" element={<Topics />} />
-        <Route path="custom-sites" element={<CustomSites />} />
+        <Route path="topics/create" element={<CreateTopic />} />
         <Route path="casts" element={<Casts />} />
+        <Route path="casts/create" element={<CreateCast />} />
         <Route path="settings" element={<Settings />} />
       </Route>
     </Routes>

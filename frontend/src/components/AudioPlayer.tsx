@@ -1,4 +1,5 @@
 import { useRef, useEffect, useState, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { 
   Play, 
@@ -16,6 +17,7 @@ import { useStore } from '../store/useStore'
 import { briefingsApi } from '../api/client'
 
 export default function AudioPlayer() {
+  const navigate = useNavigate()
   const audioRef = useRef<HTMLAudioElement>(null)
   const progressRef = useRef<HTMLDivElement>(null)
   const [volume, setVolume] = useState(1)
@@ -172,14 +174,6 @@ export default function AudioPlayer() {
     return `${mins}:${secs.toString().padStart(2, '0')}`
   }
   
-  const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const time = parseFloat(e.target.value)
-    if (audioRef.current) {
-      audioRef.current.currentTime = time
-    }
-    setCurrentTime(time)
-  }
-  
   // Touch-friendly seek handling
   const handleProgressTouch = (e: React.TouchEvent | React.MouseEvent) => {
     if (!progressRef.current || !duration) return
@@ -231,7 +225,7 @@ export default function AudioPlayer() {
   const progress = duration ? (currentTime / duration) * 100 : 0
   
   return (
-    <div className="p-3 sm:p-4">
+    <div className="px-2 py-2 sm:px-3 sm:py-3 md:p-4">
       <audio
         ref={audioRef}
         src={currentAudio.audioUrl}
@@ -240,8 +234,8 @@ export default function AudioPlayer() {
       
       {/* Chapters panel - replaces transcript when chapters are available */}
       {showChapters && currentAudio.chapters && currentAudio.chapters.length > 0 && (
-        <div className="mb-3 max-h-40 sm:max-h-48 overflow-auto bg-augustus-950/50 rounded-lg p-3 sm:p-4">
-          <div className="space-y-2">
+        <div className="mb-2 sm:mb-3 max-h-32 sm:max-h-40 md:max-h-48 overflow-auto bg-augustus-950/50 rounded-lg p-2 sm:p-3 md:p-4">
+          <div className="space-y-1 sm:space-y-2">
             {currentAudio.chapters.map((chapter, index) => {
               // Find active chapter based on current time
               const isActive = currentTime >= chapter.start_time && 
@@ -257,21 +251,21 @@ export default function AudioPlayer() {
                     }
                   }}
                   className={clsx(
-                    'w-full text-left p-2 sm:p-3 rounded-lg transition-all duration-200 active:scale-[0.98]',
+                    'w-full text-left p-1.5 sm:p-2 md:p-3 rounded-lg transition-all duration-200 active:scale-[0.98] min-h-[44px] sm:min-h-[36px]',
                     isActive
                       ? 'bg-accent/25 ring-1 ring-accent text-white'
                       : 'bg-augustus-900/50 hover:bg-augustus-800/50 text-augustus-200'
                   )}
                 >
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-2">
                     <span className={clsx(
-                      'text-xs sm:text-sm font-medium',
+                      'text-xs sm:text-sm font-medium truncate flex-1',
                       isActive ? 'text-white' : 'text-augustus-200'
                     )}>
                       {chapter.title}
                     </span>
                     <span className={clsx(
-                      'text-xs font-mono ml-2',
+                      'text-xs font-mono flex-shrink-0',
                       isActive ? 'text-accent' : 'text-augustus-500'
                     )}>
                       {formatTime(chapter.start_time)}
@@ -286,65 +280,83 @@ export default function AudioPlayer() {
       
       {/* Transcript panel - fallback when no chapters */}
       {showChapters && (!currentAudio.chapters || currentAudio.chapters.length === 0) && currentAudio.transcript && (
-        <div className="mb-3 max-h-40 sm:max-h-48 overflow-auto bg-augustus-950/50 rounded-lg p-3 sm:p-4 text-sm text-augustus-300">
+        <div className="mb-2 sm:mb-3 max-h-32 sm:max-h-40 md:max-h-48 overflow-auto bg-augustus-950/50 rounded-lg p-2 sm:p-3 md:p-4 text-augustus-300">
           <pre className="whitespace-pre-wrap font-sans text-xs sm:text-sm">{currentAudio.transcript}</pre>
         </div>
       )}
       
       {/* Mobile-first compact layout */}
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-2 sm:gap-2.5 md:gap-3">
         {/* Top row: Track info + main controls */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-2.5 md:gap-3">
           {/* Play/pause button - large touch target */}
           <button
             onClick={handlePlayPause}
-            className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-accent hover:bg-accent-600 text-white flex items-center justify-center flex-shrink-0 active:scale-95 transition-transform"
+            className="w-11 h-11 sm:w-12 sm:h-12 md:w-14 md:h-14 rounded-full bg-accent hover:bg-accent-600 text-white flex items-center justify-center flex-shrink-0 active:scale-95 transition-transform touch-target"
+            aria-label={isPlaying ? 'Pause' : 'Play'}
           >
             {isPlaying ? (
-              <Pause className="w-6 h-6 sm:w-7 sm:h-7" />
+              <Pause className="w-5 h-5 sm:w-6 sm:h-6 md:w-7 md:h-7" />
             ) : (
-              <Play className="w-6 h-6 sm:w-7 sm:h-7 ml-0.5" />
+              <Play className="w-5 h-5 sm:w-6 sm:h-6 md:w-7 md:h-7 ml-0.5" />
             )}
           </button>
           
           {/* Track info */}
           <div className="flex-1 min-w-0">
-            <h4 className="font-medium text-white truncate text-sm sm:text-base">{currentAudio.title}</h4>
-            <p className="text-xs sm:text-sm text-augustus-500 capitalize">{currentAudio.type}</p>
+            {currentAudio.type === 'briefing' && currentAudio.id ? (
+              <button
+                onClick={() => navigate(`/briefing/${currentAudio.id}`)}
+                className="text-left w-full min-h-[44px] sm:min-h-0 flex flex-col justify-center"
+              >
+                <h4 className="font-medium text-white truncate text-sm sm:text-base hover:text-accent transition-colors cursor-pointer">
+                  {currentAudio.title}
+                </h4>
+                <p className="text-xs text-augustus-500 capitalize mt-0.5">{currentAudio.type}</p>
+              </button>
+            ) : (
+              <div className="min-h-[44px] sm:min-h-0 flex flex-col justify-center">
+                <h4 className="font-medium text-white truncate text-sm sm:text-base">{currentAudio.title}</h4>
+                <p className="text-xs text-augustus-500 capitalize mt-0.5">{currentAudio.type}</p>
+              </div>
+            )}
           </div>
           
-          {/* Skip controls - visible on larger screens or always on mobile */}
-          <div className="flex items-center gap-1">
+          {/* Skip controls - compact on mobile */}
+          <div className="flex items-center gap-0.5 sm:gap-1">
             <button
               onClick={() => skip(-15)}
-              className="btn-icon btn btn-ghost p-2"
+              className="btn-icon btn btn-ghost p-1.5 sm:p-2 min-h-[44px] min-w-[44px] sm:min-h-[36px] sm:min-w-[36px] touch-target"
               title="Back 15s"
+              aria-label="Back 15 seconds"
             >
-              <SkipBack className="w-5 h-5" />
+              <SkipBack className="w-4 h-4 sm:w-5 sm:h-5" />
             </button>
             <button
               onClick={() => skip(30)}
-              className="btn-icon btn btn-ghost p-2"
+              className="btn-icon btn btn-ghost p-1.5 sm:p-2 min-h-[44px] min-w-[44px] sm:min-h-[36px] sm:min-w-[36px] touch-target"
               title="Forward 30s"
+              aria-label="Forward 30 seconds"
             >
-              <SkipForward className="w-5 h-5" />
+              <SkipForward className="w-4 h-4 sm:w-5 sm:h-5" />
             </button>
           </div>
           
           {/* Close button */}
           <button
             onClick={handleClose}
-            className="btn-icon btn btn-ghost p-2"
+            className="btn-icon btn btn-ghost p-1.5 sm:p-2 min-h-[44px] min-w-[44px] sm:min-h-[36px] sm:min-w-[36px] touch-target"
             title="Close player"
+            aria-label="Close player"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4 sm:w-5 sm:h-5" />
           </button>
         </div>
         
         {/* Progress bar - touch-optimized */}
         <div 
           ref={progressRef}
-          className="relative h-10 flex items-center cursor-pointer touch-none"
+          className="relative h-8 sm:h-10 flex items-center cursor-pointer touch-none -mx-1 px-1"
           onClick={handleProgressTouch}
           onTouchStart={(e) => {
             setIsDragging(true)
@@ -356,29 +368,29 @@ export default function AudioPlayer() {
           onTouchEnd={() => setIsDragging(false)}
         >
           {/* Background track */}
-          <div className="absolute inset-x-0 h-2 bg-augustus-800 rounded-full">
+          <div className="absolute inset-x-0 h-2.5 sm:h-2 bg-augustus-800 rounded-full">
             {/* Progress fill */}
             <div 
               className="h-full bg-accent rounded-full transition-all duration-100"
               style={{ width: `${progress}%` }}
             />
-            {/* Thumb indicator */}
+            {/* Thumb indicator - larger on mobile for easier dragging */}
             <div 
               className={clsx(
-                'absolute top-1/2 -translate-y-1/2 w-4 h-4 bg-white rounded-full shadow-lg transition-transform',
+                'absolute top-1/2 -translate-y-1/2 w-5 h-5 sm:w-4 sm:h-4 bg-white rounded-full shadow-lg transition-transform touch-none',
                 isDragging && 'scale-125'
               )}
-              style={{ left: `calc(${progress}% - 8px)` }}
+              style={{ left: `calc(${progress}% - 10px)` }}
             />
           </div>
         </div>
         
         {/* Bottom row: Time + additional controls */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2">
           {/* Time display */}
-          <div className="flex items-center gap-2 text-xs sm:text-sm font-mono text-augustus-500">
+          <div className="flex items-center gap-1 sm:gap-2 text-xs font-mono text-augustus-500">
             <span>{formatTime(currentTime)}</span>
-            <span>/</span>
+            <span className="text-augustus-600">/</span>
             <span>{formatTime(duration)}</span>
           </div>
           
@@ -387,8 +399,9 @@ export default function AudioPlayer() {
             {/* Speed button */}
             <button
               onClick={cyclePlaybackRate}
-              className="btn btn-ghost px-2 sm:px-3 py-1 text-xs sm:text-sm font-mono min-h-[36px]"
+              className="btn btn-ghost px-2 py-1.5 sm:px-3 sm:py-1 text-xs sm:text-sm font-mono min-h-[44px] sm:min-h-[36px] touch-target"
               title="Playback speed"
+              aria-label={`Playback speed: ${playbackRate}x`}
             >
               {playbackRate}x
             </button>
@@ -398,6 +411,7 @@ export default function AudioPlayer() {
               <button
                 onClick={() => setIsMuted(!isMuted)}
                 className="btn-icon btn btn-ghost p-2"
+                aria-label={isMuted ? 'Unmute' : 'Mute'}
               >
                 {isMuted ? (
                   <VolumeX className="w-5 h-5" />
@@ -420,6 +434,7 @@ export default function AudioPlayer() {
                            [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 
                            [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-augustus-300 
                            [&::-webkit-slider-thumb]:rounded-full"
+                aria-label="Volume"
               />
             </div>
             
@@ -428,15 +443,16 @@ export default function AudioPlayer() {
               <button
                 onClick={() => setShowChapters(!showChapters)}
                 className={clsx(
-                  'btn-icon btn btn-ghost p-2',
+                  'btn-icon btn btn-ghost p-1.5 sm:p-2 min-h-[44px] min-w-[44px] sm:min-h-[36px] sm:min-w-[36px] touch-target',
                   showChapters && 'text-accent'
                 )}
                 title={currentAudio.chapters && currentAudio.chapters.length > 0 ? "Toggle chapters" : "Toggle transcript"}
+                aria-label={showChapters ? 'Hide chapters' : 'Show chapters'}
               >
                 {showChapters ? (
-                  <ChevronDown className="w-5 h-5" />
+                  <ChevronDown className="w-4 h-4 sm:w-5 sm:h-5" />
                 ) : (
-                  <ChevronUp className="w-5 h-5" />
+                  <ChevronUp className="w-4 h-4 sm:w-5 sm:h-5" />
                 )}
               </button>
             ) : null}

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { 
@@ -53,10 +53,20 @@ export default function Dashboard() {
     return saved !== null ? JSON.parse(saved) : true
   })
   
-  // Save accordion state to localStorage
+  // Filters accordion state - persisted to localStorage
+  const [filtersExpanded, setFiltersExpanded] = useState(() => {
+    const saved = localStorage.getItem('filtersExpanded')
+    return saved !== null ? JSON.parse(saved) : true
+  })
+  
+  // Save accordion states to localStorage
   useEffect(() => {
     localStorage.setItem('scheduledBriefingsExpanded', JSON.stringify(scheduledExpanded))
   }, [scheduledExpanded])
+  
+  useEffect(() => {
+    localStorage.setItem('filtersExpanded', JSON.stringify(filtersExpanded))
+  }, [filtersExpanded])
   
   // Check if there's a briefing in progress to determine poll interval
   const hasBriefingInProgress = (briefings: Briefing[] | undefined) => 
@@ -221,6 +231,131 @@ export default function Dashboard() {
     return formatCompactDate(dateStr, timezone)
   }
   
+  // Prepare animation items for the generation progress
+  const animationItems = useMemo(() => {
+    if (!briefingInProgress) return []
+    
+    const items: Array<{ type: 'topic' | 'source' | 'article' | 'step'; text: string }> = []
+    
+    // Add selected topics
+    const selectedTopics = topics.filter(t => selectedTopicIds.includes(t.id))
+    selectedTopics.forEach(topic => {
+      items.push({ type: 'topic', text: topic.name })
+    })
+    
+    // Add sources from briefing if available
+    if (briefingInProgress.sources && briefingInProgress.sources.length > 0) {
+      briefingInProgress.sources.slice(0, 5).forEach(source => {
+        items.push({ type: 'source', text: source.title })
+      })
+    }
+    
+    // Add generic generation steps
+    items.push({ type: 'step', text: 'Gathering news articles...' })
+    items.push({ type: 'step', text: 'Analyzing stories...' })
+    items.push({ type: 'step', text: 'Writing script...' })
+    items.push({ type: 'step', text: 'Generating audio...' })
+    
+    return items
+  }, [briefingInProgress, topics, selectedTopicIds])
+  
+  // Animated item component
+  const AnimatedGenerationItem = ({ items }: { items: Array<{ type: string; text: string }> }) => {
+    const [currentIndex, setCurrentIndex] = useState(0)
+    const [fadeState, setFadeState] = useState<'in' | 'out'>('in')
+    const intervalRef = useRef<number | null>(null)
+    const timeoutRef = useRef<number | null>(null)
+    const itemsRef = useRef(items)
+    const isInitializedRef = useRef(false)
+    
+    // Update items ref without restarting animation
+    useEffect(() => {
+      itemsRef.current = items
+      // Ensure current index is valid if items changed
+      if (items.length > 0 && currentIndex >= items.length) {
+        setCurrentIndex(0)
+      }
+    }, [items, currentIndex])
+    
+    useEffect(() => {
+      if (items.length === 0) {
+        // Clear any existing intervals
+        if (intervalRef.current) {
+          clearInterval(intervalRef.current)
+          intervalRef.current = null
+        }
+        if (timeoutRef.current) {
+          clearTimeout(timeoutRef.current)
+          timeoutRef.current = null
+        }
+        isInitializedRef.current = false
+        return
+      }
+      
+      // Only initialize animation once - never restart it
+      if (!isInitializedRef.current) {
+        isInitializedRef.current = true
+        // Start with fade in
+        setFadeState('in')
+        
+        intervalRef.current = setInterval(() => {
+          // Fade out
+          setFadeState('out')
+          
+          // After fade out completes, change item and fade in
+          timeoutRef.current = setTimeout(() => {
+            setCurrentIndex((prev) => {
+              const currentItems = itemsRef.current
+              if (currentItems.length === 0) return 0
+              return (prev + 1) % currentItems.length
+            })
+            setFadeState('in')
+          }, 500) // Wait for fade out animation to complete
+        }, 2500) // Change every 2.5 seconds (2s visible + 0.5s fade)
+      }
+    }, []) // Empty deps - only run once on mount
+    
+    // Cleanup on unmount
+    useEffect(() => {
+      return () => {
+        if (intervalRef.current) {
+          clearInterval(intervalRef.current)
+          intervalRef.current = null
+        }
+        if (timeoutRef.current) {
+          clearTimeout(timeoutRef.current)
+          timeoutRef.current = null
+        }
+        isInitializedRef.current = false
+      }
+    }, [])
+    
+    if (items.length === 0) return null
+    
+    // Ensure index is valid
+    const safeIndex = currentIndex >= items.length ? 0 : currentIndex
+    const currentItem = items[safeIndex]
+    
+    return (
+      <div className="relative h-8 sm:h-10 flex items-center overflow-hidden">
+        <div
+          key={`${safeIndex}-${currentItem.text}`}
+          className={clsx(
+            'absolute inset-0 flex items-center gap-2 transition-opacity duration-500 ease-in-out',
+            fadeState === 'in' ? 'opacity-100' : 'opacity-0'
+          )}
+        >
+          {currentItem.type === 'topic' && <Tag className="w-4 h-4 text-augustus-400 flex-shrink-0" />}
+          {currentItem.type === 'source' && <FileText className="w-4 h-4 text-augustus-400 flex-shrink-0" />}
+          {(currentItem.type === 'article' || currentItem.type === 'step') && <Sparkles className="w-4 h-4 text-yellow-400 flex-shrink-0" />}
+          <span className="text-xs sm:text-sm text-augustus-300 truncate">
+            {currentItem.text}
+          </span>
+        </div>
+      </div>
+    )
+  }
+  
   return (
     <div className="page-container">
       {/* Header */}
@@ -241,7 +376,10 @@ export default function Dashboard() {
         </h2>
         
         <div className="mb-4">
-          <p className="text-xs sm:text-sm text-augustus-400 mb-2">Select topics to include:</p>
+          <div className="flex items-center gap-2 mb-2">
+            <span className="flex items-center justify-center w-6 h-6 rounded-full bg-accent text-white text-xs font-semibold flex-shrink-0">1</span>
+            <p className="text-xs sm:text-sm text-augustus-400">Select topics to include:</p>
+          </div>
           {topicsLoading ? (
             <div className="flex items-center gap-2 text-augustus-500">
               <Loader2 className="w-4 h-4 animate-spin" />
@@ -274,6 +412,13 @@ export default function Dashboard() {
                   {topic.name}
                 </button>
               ))}
+              <button
+                onClick={() => navigate('/topics/create')}
+                className="px-3 py-1.5 rounded-full text-xs sm:text-sm font-medium transition-all flex items-center gap-1.5 min-h-[36px] bg-augustus-800 text-augustus-300 hover:bg-augustus-700 active:bg-augustus-600 border border-augustus-700 hover:border-augustus-600"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Create Topic
+              </button>
             </div>
           )}
           {selectedTopicIds.length === 0 && topics.length > 0 && (
@@ -286,9 +431,12 @@ export default function Dashboard() {
         {/* Cast selector */}
         {casts.length > 1 && (
           <div className="mb-4">
-            <label className="block text-xs sm:text-sm text-augustus-400 mb-2">
-              Cast
-            </label>
+            <div className="flex items-center gap-2 mb-2">
+              <span className="flex items-center justify-center w-6 h-6 rounded-full bg-accent text-white text-xs font-semibold flex-shrink-0">2</span>
+              <label className="text-xs sm:text-sm text-augustus-400">
+                Select cast:
+              </label>
+            </div>
             <select
               value={selectedCastId || defaultCast?.id || ''}
               onChange={(e) => setSelectedCastId(e.target.value || undefined)}
@@ -314,6 +462,13 @@ export default function Dashboard() {
                   <p className="text-xs sm:text-sm text-augustus-400 mb-2 sm:mb-3 truncate">
                     {briefingInProgress.title}
                   </p>
+                  
+                  {/* Animated sources/articles */}
+                  {animationItems.length > 0 && (
+                    <div className="mb-2 sm:mb-3">
+                      <AnimatedGenerationItem items={animationItems} />
+                    </div>
+                  )}
                   
                   {/* Progress bar */}
                   {briefingInProgress.extra_data?.progress && (
@@ -353,34 +508,40 @@ export default function Dashboard() {
             </div>
           </div>
         ) : (
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
-            <button
-              onClick={handleGenerate}
-              disabled={generateMutation.isPending}
-              className="btn btn-primary flex items-center justify-center gap-2"
-            >
-              {generateMutation.isPending ? (
-                <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  Starting...
-                </>
-              ) : (
-                <>
-                  <Sparkles className="w-5 h-5" />
-                  Create Briefing Now
-                </>
-              )}
-            </button>
-            <button
-              onClick={() => {
-                setEditingSchedule(null)
-                setShowScheduleForm(true)
-              }}
-              className="btn btn-secondary flex items-center justify-center gap-2"
-            >
-              <Plus className="w-4 h-4" />
-              Add to Schedule
-            </button>
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <span className="flex items-center justify-center w-6 h-6 rounded-full bg-accent text-white text-xs font-semibold flex-shrink-0">3</span>
+              <p className="text-xs sm:text-sm text-augustus-400">Choose when to generate:</p>
+            </div>
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
+              <button
+                onClick={handleGenerate}
+                disabled={generateMutation.isPending}
+                className="btn btn-primary flex items-center justify-center gap-2"
+              >
+                {generateMutation.isPending ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    Starting...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-5 h-5" />
+                    Create Briefing Now
+                  </>
+                )}
+              </button>
+              <button
+                onClick={() => {
+                  setEditingSchedule(null)
+                  setShowScheduleForm(true)
+                }}
+                className="btn btn-secondary flex items-center justify-center gap-2"
+              >
+                <Plus className="w-4 h-4" />
+                Add to Schedule
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -527,19 +688,42 @@ export default function Dashboard() {
                 </div>
               )
             })}
-          </div>
-        )}
+              </div>
+            )}
           </div>
         )}
       </div>
       
       {/* Briefings list */}
       <div className="space-y-3 sm:space-y-4">
-        {/* Filter and pagination controls */}
-        <div className="card mb-3 sm:mb-4">
-          <div className="flex flex-col gap-3 sm:gap-4">
-            {/* Filters section */}
-            <div className="flex flex-col gap-3 sm:gap-2.5">
+        {/* Filter controls */}
+        <div className="card mb-6 sm:mb-8">
+          {/* Filters Accordion Header */}
+          <button
+            onClick={() => setFiltersExpanded(!filtersExpanded)}
+            className="w-full flex items-center justify-between gap-2 text-left"
+          >
+            <h2 className="text-base sm:text-lg font-semibold text-white flex items-center gap-2">
+              <Tag className="w-5 h-5 text-accent" />
+              Filters
+              {(listenedFilter !== undefined || filterCastId !== undefined || filterTopicIds.length > 0) && (
+                <span className="text-xs sm:text-sm font-normal text-augustus-500">
+                  (Active)
+                </span>
+              )}
+            </h2>
+            <ChevronDown 
+              className={clsx(
+                'w-5 h-5 text-augustus-400 transition-transform duration-200',
+                filtersExpanded && 'rotate-180'
+              )}
+            />
+          </button>
+          
+          {/* Filters Accordion Content */}
+          {filtersExpanded && (
+            <div className="mt-3 sm:mt-4">
+              <div className="flex flex-col gap-3 sm:gap-2.5">
               {/* Listened filter */}
               <div className="flex flex-col sm:flex-row sm:items-center gap-2">
                 <span className="text-xs sm:text-sm font-medium text-augustus-300 flex-shrink-0 sm:w-16">Status</span>
@@ -692,38 +876,9 @@ export default function Dashboard() {
                   Clear All Filters
                 </button>
               )}
+              </div>
             </div>
-            
-            {/* Pagination row */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-3 sm:pt-2 border-t border-augustus-800">
-              {data && data.total > pageSize && (
-                <div className="flex items-center justify-center sm:justify-end gap-2 w-full sm:w-auto">
-                  <button
-                    onClick={() => setCurrentPage((p) => Math.max(0, p - 1))}
-                    disabled={currentPage === 0}
-                    className="btn btn-ghost px-3 sm:px-3 py-2 sm:py-1.5 text-xs sm:text-sm disabled:opacity-50 min-h-[44px] sm:min-h-[32px]"
-                  >
-                    Prev
-                  </button>
-                  <span className="text-xs sm:text-sm text-augustus-400 px-2">
-                    {currentPage + 1} / {Math.ceil(data.total / pageSize)}
-                  </span>
-                  <button
-                    onClick={() => setCurrentPage((p) => p + 1)}
-                    disabled={(currentPage + 1) * pageSize >= data.total}
-                    className="btn btn-ghost px-3 sm:px-3 py-2 sm:py-1.5 text-xs sm:text-sm disabled:opacity-50 min-h-[44px] sm:min-h-[32px]"
-                  >
-                    Next
-                  </button>
-                </div>
-              )}
-              {data && (
-                <span className="text-xs sm:text-sm text-augustus-500 text-center sm:text-right">
-                  {data.total} {data.total === 1 ? 'briefing' : 'briefings'}
-                </span>
-              )}
-            </div>
-          </div>
+          )}
         </div>
         
         {isLoading ? (
@@ -923,7 +1078,6 @@ export default function Dashboard() {
         initialTopicIds={selectedTopicIds.length > 0 ? selectedTopicIds : undefined}
         initialCastId={selectedCastId}
         editingSchedule={editingSchedule}
-        initialTopicIds={selectedTopicIds}
       />
     </div>
   )

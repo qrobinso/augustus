@@ -71,13 +71,86 @@ LANGUAGE & COMPLEXITY LEVEL: {level['name']} ({level['description']})
 
 
 # Personality descriptions mapping
+# Each personality includes: core trait, voice, role, and personality parameters
 PERSONALITY_DESCRIPTIONS = {
-    "Casual": "relaxed, conversational, approachable",
-    "Professional": "formal, authoritative, clear",
-    "Analytical": "curious, insightful, asks probing questions",
-    "Friendly": "warm, approachable, engaging",
-    "Informative": "clear, educational, thorough",
-    "Upbeat": "energetic, positive, enthusiastic",
+    "Casual": {
+        "core_trait": "Relaxed and approachable conversationalist",
+        "voice": "Natural, easy-going, uses everyday language",
+        "role": "Makes complex topics accessible, keeps things light",
+        "personality_params": "Medium confidence, high relatability, low formality",
+    },
+    "Professional": {
+        "core_trait": "Formal and authoritative expert",
+        "voice": "Clear, measured, uses precise language",
+        "role": "Provides authoritative analysis and context",
+        "personality_params": "High confidence, medium empathy, structured delivery",
+    },
+    "Analytical": {
+        "core_trait": "Curious intellectual who digs deep",
+        "voice": "Thoughtful, precise, asks probing questions",
+        "role": "Challenges assumptions, provides deep analysis",
+        "personality_params": "High curiosity, medium confidence, analytical thinking",
+    },
+    "Friendly": {
+        "core_trait": "Warm and engaging communicator",
+        "voice": "Warm, inviting, uses inclusive language",
+        "role": "Creates connection, makes listeners feel welcome",
+        "personality_params": "High empathy, high relatability, positive energy",
+    },
+    "Informative": {
+        "core_trait": "Clear and educational storyteller",
+        "voice": "Clear, structured, educational tone",
+        "role": "Explains concepts thoroughly, ensures understanding",
+        "personality_params": "High clarity, medium confidence, patient delivery",
+    },
+    "Upbeat": {
+        "core_trait": "Energetic and positive enthusiast",
+        "voice": "Energetic, enthusiastic, uses positive language",
+        "role": "Maintains energy, keeps things engaging and fun",
+        "personality_params": "High energy, high positivity, infectious enthusiasm",
+    },
+    "The Provocateur/Truth-Teller": {
+        "core_trait": "Unfiltered cultural critic with strong opinions",
+        "voice": "Direct, confrontational when needed, uses street vernacular mixed with intellectual references",
+        "role": "Challenges guests and co-hosts, asks uncomfortable questions, delivers hard truths",
+        "personality_params": "High confidence, medium empathy, willing to interrupt, references pop culture and current events constantly. Generates controversy but from a place of stated principles (authenticity, accountability)",
+    },
+    "The Businessman/Everyman": {
+        "core_trait": "Practical, success-oriented, relatable family person",
+        "voice": "Smoother, more diplomatic, occasionally defensive",
+        "role": "Bridges street credibility with aspirational lifestyle, focuses on business/money angles, provides practical advice",
+        "personality_params": "Medium confidence, high relatability, conflict-avoidant but will defend themselves, focuses on money/business angles. Sometimes plays straight person to provocations",
+    },
+    "The Scholar/Researcher": {
+        "core_trait": "Academic-minded deep thinker",
+        "voice": "Precise, uses academic references, occasionally verbose",
+        "role": "Provides historical context, cites sources, offers scholarly perspective",
+        "personality_params": "High knowledge, medium confidence, low interruption tendency, references studies and data",
+    },
+    "The Storyteller": {
+        "core_trait": "Narrative-driven communicator",
+        "voice": "Engaging, uses vivid descriptions, builds narrative arcs",
+        "role": "Frames stories compellingly, creates emotional connection",
+        "personality_params": "High creativity, medium confidence, strong narrative sense, uses metaphors and analogies",
+    },
+    "The Skeptic": {
+        "core_trait": "Questioning and cautious analyst",
+        "voice": "Cautious, asks 'but what if', uses qualifying language",
+        "role": "Challenges claims, asks for evidence, provides counterpoints",
+        "personality_params": "Medium confidence, high critical thinking, low trust in claims, demands evidence",
+    },
+    "The Optimist": {
+        "core_trait": "Hopeful and solution-focused",
+        "voice": "Positive, forward-looking, solution-oriented",
+        "role": "Finds silver linings, focuses on possibilities and solutions",
+        "personality_params": "High positivity, medium confidence, solution-focused, avoids dwelling on negatives",
+    },
+    "The Realist": {
+        "core_trait": "Pragmatic and grounded observer",
+        "voice": "Straightforward, no-nonsense, practical",
+        "role": "Provides grounded perspective, cuts through hype",
+        "personality_params": "Medium confidence, high pragmatism, low tolerance for fluff, focuses on what actually matters",
+    },
 }
 
 
@@ -107,35 +180,71 @@ def build_briefing_system_prompt(
     for i, member in enumerate(cast_members):
         name = member.get("name", f"HOST{i+1}")
         personality = member.get("personality", "Casual")
-        personality_desc = PERSONALITY_DESCRIPTIONS.get(personality, "conversational")
+        personality_data = PERSONALITY_DESCRIPTIONS.get(personality)
+        
+        # Handle both old string format and new dict format for backward compatibility
+        if isinstance(personality_data, str):
+            # Legacy format - convert to dict structure
+            personality_data = {
+                "core_trait": personality_data,
+                "voice": personality_data,
+                "role": "Contributes to the discussion",
+                "personality_params": "Medium confidence, medium relatability",
+            }
+        elif personality_data is None:
+            # Fallback for unknown personality
+            personality_data = {
+                "core_trait": "conversational",
+                "voice": "natural and engaging",
+                "role": "Contributes to the discussion",
+                "personality_params": "Medium confidence, medium relatability",
+            }
         
         host_names.append(name)
+        
+        # Build detailed personality description
+        core_trait = personality_data.get("core_trait", "")
+        voice = personality_data.get("voice", "")
+        role = personality_data.get("role", "")
+        personality_params = personality_data.get("personality_params", "")
         
         if num_hosts == 1:
             # Single host - narrator style
             host_descriptions.append(
-                f"{name}: You are the podcast host - {personality_desc}. "
-                f"You provide the main narrative and context, explaining complex topics clearly. "
-                f"Keep the tone engaging and informative while maintaining your {personality_desc} style."
+                f"{name}: You are the podcast host. "
+                f"Core trait: {core_trait}. "
+                f"Voice: {voice}. "
+                f"Role: {role}. You provide the main narrative and context, explaining complex topics clearly. "
+                f"Personality parameters: {personality_params}. "
+                f"Keep the tone engaging and informative while maintaining your distinctive style."
             )
         elif num_hosts == 2:
             # Two hosts - conversation style
             if i == 0:
                 host_descriptions.append(
-                    f"{name}: The lead anchor - {personality_desc}. "
-                    "Provides the main narrative and context. Keeps the tone engaging while being informative."
+                    f"{name}: The lead anchor. "
+                    f"Core trait: {core_trait}. "
+                    f"Voice: {voice}. "
+                    f"Role: {role}. Provides the main narrative and context. Keeps the tone engaging while being informative. "
+                    f"Personality parameters: {personality_params}."
                 )
             else:
                 host_descriptions.append(
-                    f"{name}: The co-host - {personality_desc}. "
-                    "Adds depth and unique perspectives. Asks insightful questions and offers analysis."
+                    f"{name}: The co-host. "
+                    f"Core trait: {core_trait}. "
+                    f"Voice: {voice}. "
+                    f"Role: {role}. Adds depth and unique perspectives. Asks insightful questions and offers analysis. "
+                    f"Personality parameters: {personality_params}."
                 )
         else:
             # Three hosts - panel style
             roles = ["lead anchor", "analyst", "contributor"]
             host_descriptions.append(
-                f"{name}: The {roles[i]} - {personality_desc}. "
-                "Contributes to the discussion with your unique perspective and style."
+                f"{name}: The {roles[i]}. "
+                f"Core trait: {core_trait}. "
+                f"Voice: {voice}. "
+                f"Role: {role}. Contributes to the discussion with your unique perspective and style. "
+                f"Personality parameters: {personality_params}."
             )
     
     # Build context for introduction (briefing title OR topics)
@@ -202,7 +311,7 @@ Keep it SHORT (1-2 sentences max for the intro). Don't list the date in the open
         host_intro = f"You are a team of two expert podcast hosts ({host_names[0]} and {host_names[1]}) creating insightful daily audio briefings."
         style_note = "Your Style:\n- Casual and informative - like smart friends having an engaging conversation about the news\n"
     else:
-        format_example = f"TITLE: Tech & Business Update - Dec 15\n{host_names[0]}: What's up everybody, welcome back to {show_name}! I'm {host_names[0]}, got {other_hosts} with me. Ready to dive in?\n{host_names[1]}: Let's do it. We've got some interesting stuff today.\n{host_names[2]}: Yeah, there's a lot happening...\n[CHAPTER: Tech News]\n{host_names[0]}: First up..."
+        format_example = f"TITLE: Tech & Business Update - Dec 15\n{host_names[0]}: What's up everybody, welcome back to {show_name}! I'm {host_names[0]}, got {other_hosts} with me. Ready to dive in?\n{host_names[1]}: Let's do it. We've got some interesting stuff today.\n{host_names[2]}: Yeah, there's a lot happening...\n[CHAPTER: Tech News]\n{host_names[1]}: First up...\n{host_names[0]}: That's interesting because...\n{host_names[2]}: I think what's really important here is..."
         host_intro = f"You are a team of three expert podcast hosts ({host_names[0]}, {host_names[1]}, and {host_names[2]}) creating insightful daily audio briefings."
         style_note = "Your Style:\n- Engaging panel discussion - like knowledgeable friends having a dynamic conversation about the news\n"
     
@@ -228,6 +337,7 @@ Guidelines:
 - Vary sentence length for natural rhythm
 - Use direct transitions like "Speaking of which...", "Here's what happened...", "The key point is..."
 - Sound like you're genuinely interested and engaged, not just reading a script
+{f"- CRITICAL FOR {num_hosts}+ HOSTS: Mix up the order and frequency of who speaks. Don't always go in the same sequence (e.g., {host_names[0]} -> {host_names[1]} -> {host_names[2]}). Vary it naturally - sometimes {host_names[1]} might speak twice in a row, or {host_names[2]} might jump in before {host_names[1]}. Make it feel like a real conversation where people naturally interject and respond, not a rigid rotation. Different hosts should speak different amounts based on their personality and the topic at hand." if num_hosts > 2 else ""}
 
 AVOID:
 - Fluffy language, filler words, or unnecessary embellishment (e.g., avoid phrases like "incredibly fascinating", "absolutely amazing", "truly remarkable", "simply incredible")
@@ -1038,4 +1148,66 @@ def format_station_update_prompt(
         system_prompt = STATION_UPDATE_SYSTEM_PROMPT + complexity_instruction
     
     return system_prompt, user_prompt
+
+
+SITE_GENERATION_SYSTEM_PROMPT = """You are an expert news source curator. Your task is to identify reputable, high-quality news sources, blogs, RSS feeds, websites, and relevant Reddit subreddits that regularly publish content about specific topics.
+
+When suggesting sources, prioritize:
+1. Reputable, well-established sources with good editorial standards
+2. Sources that publish regularly and consistently
+3. A variety of sources (not all from the same publisher or network)
+4. Main page URLs or RSS feed URLs (prefer main pages over specific article URLs)
+5. Sources that are accessible and commonly used
+6. Include up to 3 relevant Reddit subreddits (format: https://www.reddit.com/r/subredditname/) that are active and relevant to the topic
+
+Return your suggestions in the exact JSON format specified."""
+
+
+SITE_GENERATION_PROMPT_TEMPLATE = """Generate a list of {count} reputable news sources, blogs, RSS feeds, websites, and Reddit subreddits that regularly publish content about: "{topic_name}"
+
+Focus on:
+- Reputable sources with good editorial standards
+- Sources that publish regularly (daily, weekly, or multiple times per week)
+- A variety of sources from different publishers/networks
+- Main page URLs or RSS feed URLs (not specific article URLs)
+- Well-known, accessible sources
+- Include up to 3 relevant Reddit subreddits (format URLs as: https://www.reddit.com/r/subredditname/) that are active and directly related to the topic
+
+Return your response as a JSON object with this exact format:
+{{
+  "sites": [
+    {{
+      "name": "Source Name",
+      "url": "https://example.com"
+    }},
+    {{
+      "name": "r/subredditname",
+      "url": "https://www.reddit.com/r/subredditname/"
+    }},
+    ...
+  ]
+}}
+
+Only include the JSON object in your response, no additional text or explanation."""
+
+
+def format_site_generation_prompt(
+    topic_name: str,
+    count: int = 10,
+) -> tuple[str, str]:
+    """Format site generation prompt to suggest news sources for a topic.
+    
+    Args:
+        topic_name: The name of the topic to generate sites for
+        count: Number of sites to generate (default: 10)
+    
+    Returns:
+        Tuple of (system_prompt, user_prompt)
+    """
+    user_prompt = SITE_GENERATION_PROMPT_TEMPLATE.format(
+        topic_name=topic_name,
+        count=count,
+    )
+    
+    return SITE_GENERATION_SYSTEM_PROMPT, user_prompt
 

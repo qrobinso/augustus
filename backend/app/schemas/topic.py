@@ -27,6 +27,10 @@ class TopicCreate(BaseModel):
         default=True,
         description="Whether to include NewsAPI results for this topic",
     )
+    enable_site_generation: Optional[bool] = Field(
+        default=True,
+        description="Whether to enable AI site generation for this topic",
+    )
 
 
 class TopicUpdate(BaseModel):
@@ -42,6 +46,10 @@ class TopicUpdate(BaseModel):
         default=None,
         description="Whether to include NewsAPI results for this topic",
     )
+    enable_site_generation: Optional[bool] = Field(
+        default=None,
+        description="Whether to enable AI site generation for this topic",
+    )
 
 
 class TopicResponse(BaseModel):
@@ -54,6 +62,7 @@ class TopicResponse(BaseModel):
     color: Optional[str] = None
     is_active: bool
     use_newsapi: bool
+    enable_site_generation: bool
     created_at: datetime
     site_count: int = 0  # Count of linked custom sites
     

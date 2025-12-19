@@ -115,3 +115,4 @@ async def restore_default_cast(
     cast = await service.restore_default_cast(user.id)
     return CastResponse.model_validate(cast)
 
+

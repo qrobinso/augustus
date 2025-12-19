@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react'
-import { Outlet, NavLink, useLocation } from 'react-router-dom'
+import { Outlet, NavLink, useLocation, Link } from 'react-router-dom'
 import { 
   LayoutDashboard, 
-  Globe,
   Tag,
   Settings,
   Waves,
@@ -17,7 +16,6 @@ import { useStore } from '../store/useStore'
 const navItems = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/topics', icon: Tag, label: 'Topics' },
-  { to: '/custom-sites', icon: Globe, label: 'Sites' },
   { to: '/casts', icon: Users, label: 'Casts' },
   { to: '/settings', icon: Settings, label: 'Settings' },
 ]
@@ -26,7 +24,6 @@ const navItems = [
 const mobileNavItems = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Home' },
   { to: '/topics', icon: Tag, label: 'Topics' },
-  { to: '/custom-sites', icon: Globe, label: 'Sites' },
   { to: '/casts', icon: Users, label: 'Casts' },
   { to: '/settings', icon: Settings, label: 'Settings' },
 ]
@@ -57,12 +54,12 @@ export default function Layout() {
     <div className="h-[100dvh] flex flex-col md:flex-row overflow-hidden">
       {/* Mobile Header */}
       <header className="md:hidden flex items-center justify-between px-4 py-3 bg-augustus-900/80 backdrop-blur-xl border-b border-augustus-800/50 flex-shrink-0 pt-safe">
-        <div className="flex items-center gap-3">
+        <Link to="/dashboard" className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity">
           <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-accent to-accent-700 flex items-center justify-center">
             <Waves className="w-5 h-5 text-white" />
           </div>
           <h1 className="font-display text-lg font-semibold text-white">Augustus</h1>
-        </div>
+        </Link>
         <button
           onClick={() => setSidebarOpen(true)}
           className="btn-icon btn btn-ghost"
@@ -93,7 +90,7 @@ export default function Layout() {
       >
         {/* Logo */}
         <div className="p-6 border-b border-augustus-800/50 flex items-center justify-between pt-safe">
-          <div className="flex items-center gap-3">
+          <Link to="/dashboard" className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity flex-1">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-accent to-accent-700 flex items-center justify-center">
               <Waves className="w-6 h-6 text-white" />
             </div>
@@ -101,7 +98,7 @@ export default function Layout() {
               <h1 className="font-display text-xl font-semibold text-white">Augustus</h1>
               <p className="text-xs text-augustus-500">Audio Intelligence</p>
             </div>
-          </div>
+          </Link>
           {/* Close button - mobile only */}
           <button
             onClick={() => setSidebarOpen(false)}

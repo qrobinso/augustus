@@ -1,9 +1,10 @@
 """Topics API router."""
 
+import json
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
@@ -18,6 +19,8 @@ from app.schemas.topic import (
     TopicResponse,
     TopicListResponse,
 )
+from app.services.llm.openrouter import get_llm_provider
+from app.services.llm.prompts import format_site_generation_prompt
 
 router = APIRouter()
 
@@ -39,6 +42,7 @@ async def ensure_default_topics(user_id: str, db: AsyncSession) -> None:
                 color=topic_data["color"],
                 is_active=True,
                 use_newsapi=True,  # Default to True for default topics
+                enable_site_generation=True,  # Default to True for default topics
             )
             db.add(topic)
         await db.commit()
@@ -55,6 +59,7 @@ def _topic_to_response(topic: Topic, site_count: int = 0) -> TopicResponse:
         color=topic.color,
         is_active=topic.is_active,
         use_newsapi=topic.use_newsapi,
+        enable_site_generation=topic.enable_site_generation,
         created_at=topic.created_at,
         site_count=site_count,
     )
@@ -124,6 +129,7 @@ async def create_topic(
         color=request.color,
         is_active=True,
         use_newsapi=request.use_newsapi if request.use_newsapi is not None else True,
+        enable_site_generation=request.enable_site_generation if request.enable_site_generation is not None else True,
     )
     
     db.add(topic)
@@ -218,6 +224,8 @@ async def update_topic(
         topic.is_active = request.is_active
     if request.use_newsapi is not None:
         topic.use_newsapi = request.use_newsapi
+    if request.enable_site_generation is not None:
+        topic.enable_site_generation = request.enable_site_generation
     
     await db.commit()
     await db.refresh(topic)
@@ -257,6 +265,118 @@ async def delete_topic(
     
     await db.delete(topic)
     await db.commit()
+
+
+@router.post("/{topic_id}/generate-sites")
+async def generate_sites(
+    topic_id: str,
+    count: int = Query(default=10, ge=1, le=20),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Generate site suggestions for a topic using AI."""
+    # Verify topic exists and belongs to user
+    result = await db.execute(
+        select(Topic).where(Topic.id == topic_id)
+    )
+    topic = result.scalar_one_or_none()
+    
+    if not topic:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Topic not found",
+        )
+    
+    if topic.user_id != user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied",
+        )
+    
+    if not topic.enable_site_generation:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Site generation is disabled for this topic",
+        )
+    
+    # Get existing sites for this topic to avoid duplicates
+    existing_sites_result = await db.execute(
+        select(CustomSite.url).where(CustomSite.topic_id == topic_id)
+    )
+    existing_urls = {url.lower() for url in existing_sites_result.scalars().all()}
+    
+    try:
+        # Get LLM provider
+        llm = get_llm_provider()
+        
+        # Format prompt
+        system_prompt, user_prompt = format_site_generation_prompt(
+            topic_name=topic.name,
+            count=count,
+        )
+        
+        # Generate suggestions
+        response = await llm.generate(
+            prompt=user_prompt,
+            system_prompt=system_prompt,
+            max_tokens=2048,
+            temperature=0.7,
+        )
+        
+        # Parse JSON response
+        content = response.content.strip()
+        
+        # Extract JSON from the response (handle markdown code blocks)
+        if "```json" in content:
+            content = content.split("```json")[1].split("```")[0].strip()
+        elif "```" in content:
+            content = content.split("```")[1].split("```")[0].strip()
+        
+        try:
+            data = json.loads(content)
+            sites = data.get("sites", [])
+        except json.JSONDecodeError:
+            # Try to extract JSON object from text
+            import re
+            json_match = re.search(r'\{[^{}]*"sites"[^{}]*\[[^\]]*\][^{}]*\}', content, re.DOTALL)
+            if json_match:
+                data = json.loads(json_match.group())
+                sites = data.get("sites", [])
+            else:
+                raise ValueError("Could not parse JSON from LLM response")
+        
+        # Filter out duplicates and validate
+        suggested_sites = []
+        for site in sites:
+            name = site.get("name", "").strip()
+            url = site.get("url", "").strip()
+            
+            if not name or not url:
+                continue
+            
+            # Basic URL validation
+            if not url.startswith(("http://", "https://")):
+                continue
+            
+            # Check for duplicates
+            if url.lower() in existing_urls:
+                continue
+            
+            suggested_sites.append({
+                "name": name,
+                "url": url,
+            })
+        
+        return {
+            "sites": suggested_sites,
+            "total": len(suggested_sites),
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate site suggestions: {str(e)}",
+        )
 
 
 
