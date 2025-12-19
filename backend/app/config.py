@@ -65,12 +65,6 @@ class Settings(BaseSettings):
     gemini_api_key: Optional[str] = None
     gemini_model: str = "gemini-2.5-flash-preview-tts"
     
-    # Voice settings (used by ElevenLabs, Piper, and Gemini)
-    # For ElevenLabs: use voice IDs like "21m00Tcm4TlvDq8ikWAM" (Rachel) or voice names
-    # For Piper: use voice names like "en_US-lessac-medium"
-    # For Gemini: use voice names like "Kore", "Puck", etc.
-    tts_voice_host1: str = "21m00Tcm4TlvDq8ikWAM"  # Rachel (ElevenLabs) / en_US-lessac-medium (Piper) / Kore (Gemini)
-    tts_voice_host2: str = "AZnzlk1XvdvUeBnXmlld"  # Domi (ElevenLabs) / en_US-amy-medium (Piper) / Puck (Gemini)
     
     # Content Duration Settings (in minutes)
     briefing_duration_minutes: int = 5  # Daily briefing duration

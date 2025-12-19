@@ -114,3 +114,4 @@ class BriefingQueue:
 # Global queue instance
 briefing_queue = BriefingQueue()
 
+

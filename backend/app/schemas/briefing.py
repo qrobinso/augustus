@@ -2,7 +2,14 @@
 
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, Field, computed_field
+from pydantic import BaseModel, Field, model_validator
+
+
+class ChapterSchema(BaseModel):
+    """Schema for podcast chapters."""
+    title: str
+    start_time: float
+    end_time: Optional[float] = None
 
 
 class BriefingBase(BaseModel):
@@ -49,6 +56,7 @@ class BriefingResponse(BriefingBase):
     audio_url: Optional[str] = None
     audio_filename: Optional[str] = None
     duration_seconds: Optional[float] = None
+    cast_id: Optional[str] = None
     extra_data: dict = Field(default={})
     sources: list = []
     status: str
@@ -58,10 +66,29 @@ class BriefingResponse(BriefingBase):
     listened: bool = False
     listened_at: Optional[datetime] = None
     playback_position: Optional[float] = None
+    chapters: list[ChapterSchema] = Field(default_factory=list)
     
     model_config = {
         "from_attributes": True,
     }
+    
+    @model_validator(mode='after')
+    def extract_chapters(self):
+        """Extract chapters from extra_data."""
+        chapters_data = self.extra_data.get("chapters", [])
+        if isinstance(chapters_data, list) and chapters_data:
+            try:
+                self.chapters = [
+                    ChapterSchema(**ch) if isinstance(ch, dict) else ch 
+                    for ch in chapters_data
+                ]
+            except Exception as e:
+                # If validation fails, log and use empty list
+                print(f"[BriefingSchema] Error extracting chapters: {e}")
+                self.chapters = []
+        else:
+            self.chapters = []
+        return self
 
 
 class BriefingListenedUpdate(BaseModel):

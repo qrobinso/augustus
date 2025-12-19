@@ -1,6 +1,7 @@
 """Google Gemini TTS provider."""
 
 import asyncio
+import subprocess
 import tempfile
 import wave
 from pathlib import Path
@@ -11,6 +12,7 @@ from google.genai import types
 
 from app.config import get_settings
 from app.services.tts.base import TTSProvider, TTSResult, Voice, SegmentTiming
+from app.utils.audio import concatenate_audio_files, convert_to_mp3 as audio_convert_to_mp3
 
 
 class GeminiProvider(TTSProvider):
@@ -102,11 +104,18 @@ class GeminiProvider(TTSProvider):
 
         response = await asyncio.to_thread(_call_gemini)
         
-        if not response.candidates or not response.candidates[0].content.parts:
-            raise RuntimeError("Gemini TTS failed to generate audio")
+        if not response or not hasattr(response, 'candidates') or not response.candidates:
+            raise RuntimeError("Gemini TTS failed: No response or candidates")
+        
+        candidate = response.candidates[0]
+        if not candidate or not hasattr(candidate, 'content') or not candidate.content:
+            raise RuntimeError("Gemini TTS failed: No content in response candidate")
+        
+        if not hasattr(candidate.content, 'parts') or not candidate.content.parts:
+            raise RuntimeError("Gemini TTS failed: No parts in response content")
 
-        audio_part = response.candidates[0].content.parts[0]
-        if not hasattr(audio_part, 'inline_data') or not audio_part.inline_data:
+        audio_part = candidate.content.parts[0]
+        if not audio_part or not hasattr(audio_part, 'inline_data') or not audio_part.inline_data:
             raise RuntimeError("Gemini TTS response did not contain audio data")
             
         data = audio_part.inline_data.data
@@ -151,14 +160,13 @@ class GeminiProvider(TTSProvider):
         voice_map: Optional[dict[str, str]] = None,
     ) -> TTSResult:
         """Synthesize a multi-speaker conversation by segments to maintain timings."""
-        # Get fresh settings each time
-        settings = get_settings()
-        
         if voice_map is None:
+            # Use default voices (should always be passed from cast, but fallback just in case)
             voice_map = {
-                "HOST1": settings.tts_voice_host1,
-                "HOST2": settings.tts_voice_host2,
+                "HOST1": "Kore",
+                "HOST2": "Puck",
             }
+            print(f"[Gemini] WARNING: No voice_map provided, using defaults")
 
         segment_paths = []
         segment_data = []
@@ -183,6 +191,12 @@ class GeminiProvider(TTSProvider):
                 print(f"[Gemini] Generating segment {segment_index+1}/{len(script)} ({speaker})...")
                 result = await self.synthesize(text, voice_id, temp_path)
                 
+                # Verify the file was created and is readable
+                if not temp_path.exists():
+                    raise RuntimeError(f"Segment file was not created: {temp_path}")
+                if temp_path.stat().st_size == 0:
+                    raise RuntimeError(f"Segment file is empty: {temp_path}")
+                
                 segment_paths.append(temp_path)
                 segment_data.append({
                     "index": segment_index,
@@ -191,6 +205,23 @@ class GeminiProvider(TTSProvider):
                     "duration": result.duration_seconds,
                 })
                 segment_index += 1
+            
+            # Verify all segment files are valid WAV files before concatenation
+            print(f"[Gemini] Verifying {len(segment_paths)} segment files...")
+            for i, seg_path in enumerate(segment_paths):
+                try:
+                    with wave.open(str(seg_path), 'rb') as wf:
+                        channels = wf.getnchannels()
+                        sampwidth = wf.getsampwidth()
+                        framerate = wf.getframerate()
+                        frames = wf.getnframes()
+                        print(f"[Gemini]   Segment {i}: {channels}ch, {sampwidth*8}bit, {framerate}Hz, {frames} frames")
+                        # Verify format matches expected (1 channel, 16-bit, 24kHz)
+                        if channels != 1 or sampwidth != 2 or framerate != 24000:
+                            print(f"[Gemini]   WARNING: Segment {i} format mismatch - expected 1ch 16bit 24kHz, got {channels}ch {sampwidth*8}bit {framerate}Hz")
+                except Exception as e:
+                    print(f"[Gemini]   ERROR: Could not verify segment {i}: {e}")
+                    raise RuntimeError(f"Invalid WAV file for segment {i}: {seg_path} - {e}")
             
             # Concatenate all segments
             if segment_paths:
@@ -241,14 +272,6 @@ class GeminiProvider(TTSProvider):
 
     def _resolve_voice_id(self, voice_id: str) -> str:
         """Resolve voice alias to actual voice ID."""
-        # Get fresh settings each time
-        settings = get_settings()
-        
-        if voice_id == "host1":
-            return self._resolve_voice_id(settings.tts_voice_host1)
-        if voice_id == "host2":
-            return self._resolve_voice_id(settings.tts_voice_host2)
-            
         # If it's a known Gemini voice, return it
         if voice_id in self.VOICES:
             return voice_id
@@ -257,66 +280,92 @@ class GeminiProvider(TTSProvider):
         return "Kore"
 
     async def _convert_to_mp3(self, wav_path: Path, mp3_path: Path):
-        """Convert WAV to MP3 using ffmpeg."""
-        try:
-            process = await asyncio.create_subprocess_exec(
-                "ffmpeg", "-y", "-i", str(wav_path),
-                "-acodec", "libmp3lame", "-q:a", "2",
-                str(mp3_path),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            await process.communicate()
-        except Exception as e:
-            print(f"[Gemini] Conversion to MP3 failed: {e}")
-            # If ffmpeg fails, just copy the wav (though it won't be mp3)
-            import shutil
-            shutil.copy(wav_path, mp3_path)
+        """Convert WAV to MP3 using common audio utility."""
+        # Use VBR quality 2 (equivalent to high quality)
+        # Note: audio_convert_to_mp3 uses bitrate, but we can use it as fallback
+        # For better quality, we could enhance the utility function, but this works
+        success = await audio_convert_to_mp3(wav_path, mp3_path, bitrate="192k")
+        if not success:
+            # Fallback: try with a custom command for VBR
+            try:
+                cmd = [
+                    "ffmpeg", "-y", "-i", str(wav_path),
+                    "-acodec", "libmp3lame", "-q:a", "2",
+                    str(mp3_path),
+                ]
+                
+                def run_ffmpeg():
+                    return subprocess.run(
+                        cmd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                    )
+                
+                result = await asyncio.to_thread(run_ffmpeg)
+                if result.returncode != 0:
+                    raise RuntimeError(f"ffmpeg conversion failed: {result.stderr}")
+            except Exception as e:
+                print(f"[Gemini] Conversion to MP3 failed: {e}")
+                # If ffmpeg fails, just copy the wav (though it won't be mp3)
+                import shutil
+                shutil.copy(wav_path, mp3_path)
 
     async def _concatenate_audio(self, segments: list[Path], output_path: Path):
-        """Concatenate audio segments using ffmpeg."""
-        try:
-            list_file = output_path.parent / "_gemini_concat_list.txt"
-            with open(list_file, "w") as f:
-                for seg in segments:
-                    # Use forward slashes for ffmpeg compatibility on Windows
-                    f.write(f"file '{str(seg.absolute()).replace(chr(92), '/')}'\n")
+        """Concatenate audio segments using common audio utility."""
+        is_mp3 = output_path.suffix.lower() == ".mp3"
+        
+        if is_mp3:
+            # Two-step process: concatenate to WAV first, then convert to MP3
+            # This is more reliable than trying to do both in one step
+            temp_wav_output = output_path.with_suffix(".wav")
             
-            # For Gemini, segments are WAV, so we concatenate them into the final output path
-            # If output_path is .mp3, we convert during concatenation or after
-            is_mp3 = output_path.suffix.lower() == ".mp3"
+            print(f"[Gemini] Step 1: Concatenating {len(segments)} WAV segments...")
+            # Re-encode to ensure format consistency (all segments are PCM 16-bit 24kHz mono)
+            success = await concatenate_audio_files(
+                segments,
+                temp_wav_output,
+                reencode=True,
+                sample_rate=24000,
+                channels=1,
+            )
             
-            if is_mp3:
-                # Concatenate and convert to mp3
-                process = await asyncio.create_subprocess_exec(
-                    "ffmpeg", "-y", "-f", "concat", "-safe", "0",
-                    "-i", str(list_file),
-                    "-acodec", "libmp3lame", "-q:a", "2",
-                    str(output_path),
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-            else:
-                # Just concatenate
-                process = await asyncio.create_subprocess_exec(
-                    "ffmpeg", "-y", "-f", "concat", "-safe", "0",
-                    "-i", str(list_file),
-                    "-c", "copy",
-                    str(output_path),
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                
-            await process.communicate()
-            if list_file.exists():
-                list_file.unlink()
-                
-        except Exception as e:
-            print(f"[Gemini] Concatenation failed: {e}")
-            # Fallback: copy first segment
-            if segments:
-                import shutil
-                shutil.copy(segments[0], output_path)
+            if not success:
+                raise RuntimeError("Failed to concatenate WAV segments")
+            
+            if not temp_wav_output.exists():
+                raise RuntimeError(f"Concatenated WAV file was not created: {temp_wav_output}")
+            
+            # Step 2: Convert WAV to MP3
+            print(f"[Gemini] Step 2: Converting WAV to MP3...")
+            success = await audio_convert_to_mp3(temp_wav_output, output_path, bitrate="192k")
+            
+            # Clean up temp WAV file
+            if temp_wav_output.exists():
+                try:
+                    temp_wav_output.unlink()
+                except Exception:
+                    pass
+            
+            if not success:
+                raise RuntimeError("Failed to convert concatenated WAV to MP3")
+        else:
+            # Single step: concatenate WAV files
+            print(f"[Gemini] Concatenating {len(segments)} WAV segments...")
+            # Re-encode to ensure format consistency
+            success = await concatenate_audio_files(
+                segments,
+                output_path,
+                reencode=True,
+                sample_rate=24000,
+                channels=1,
+            )
+            
+            if not success:
+                raise RuntimeError("Failed to concatenate WAV segments")
+        
+        output_size = output_path.stat().st_size
+        print(f"[Gemini] Successfully concatenated {len(segments)} segments into {output_path.name} ({output_size} bytes)")
 
     async def _get_audio_duration(self, audio_path: Path) -> float:
         """Get audio duration in seconds."""
@@ -328,17 +377,25 @@ class GeminiProvider(TTSProvider):
                     return frames / float(rate)
             else:
                 # Try ffprobe
-                process = await asyncio.create_subprocess_exec(
+                cmd = [
                     "ffprobe", "-v", "error",
                     "-show_entries", "format=duration",
                     "-of", "default=noprint_wrappers=1:nokey=1",
                     str(audio_path),
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                stdout, _ = await process.communicate()
-                if stdout:
-                    return float(stdout.decode().strip())
+                ]
+                
+                # Use subprocess.run wrapped in asyncio.to_thread for Windows compatibility
+                def run_ffprobe():
+                    return subprocess.run(
+                        cmd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                    )
+                
+                result = await asyncio.to_thread(run_ffprobe)
+                if result.returncode == 0 and result.stdout:
+                    return float(result.stdout.strip())
                 return 0.0
         except Exception:
             return 0.0

@@ -169,17 +169,13 @@ class ElevenLabsProvider(TTSProvider):
         voice_map: Optional[dict[str, str]] = None,
     ) -> TTSResult:
         """Synthesize a multi-speaker conversation."""
-        # Get voice settings from config
-        from app.config import get_settings
-        current_settings = get_settings()
-        
         if voice_map is None:
-            # Use configured voices from settings
+            # Use default voices (should always be passed from cast, but fallback just in case)
             voice_map = {
-                "HOST1": current_settings.tts_voice_host1,
-                "HOST2": current_settings.tts_voice_host2,
+                "HOST1": "21m00Tcm4TlvDq8ikWAM",  # Rachel
+                "HOST2": "AZnzlk1XvdvUeBnXmlld",  # Domi
             }
-            print(f"[ElevenLabs] Using voices - HOST1: {voice_map['HOST1']}, HOST2: {voice_map['HOST2']}")
+            print(f"[ElevenLabs] WARNING: No voice_map provided, using defaults")
         
         # Generate audio for each segment and track durations
         segment_paths = []

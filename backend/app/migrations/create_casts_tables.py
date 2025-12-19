@@ -139,9 +139,9 @@ async def migrate():
         result = await conn.execute(text("SELECT id FROM users"))
         user_ids = [row[0] for row in result.fetchall()]
         
-        # Get voice IDs from settings
-        voice_host1 = settings.tts_voice_host1
-        voice_host2 = settings.tts_voice_host2
+        # Use Gemini voices as defaults
+        voice_host1 = "Kore"
+        voice_host2 = "Puck"
         
         for user_id in user_ids:
             # Check if user already has a default cast
@@ -208,4 +208,5 @@ async def migrate():
 
 if __name__ == "__main__":
     asyncio.run(migrate())
+
 

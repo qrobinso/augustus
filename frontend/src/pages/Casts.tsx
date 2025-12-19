@@ -7,7 +7,7 @@ import {
   Trash2,
   Pencil,
   Star,
-  X
+  RotateCcw
 } from 'lucide-react'
 import clsx from 'clsx'
 import { castsApi, Cast } from '../api/client'
@@ -46,6 +46,13 @@ export default function Casts() {
     },
   })
   
+  const restoreDefaultMutation = useMutation({
+    mutationFn: () => castsApi.restoreDefault(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['casts'] })
+    },
+  })
+  
   const casts = data?.casts || []
   
   const handleDelete = async (cast: Cast) => {
@@ -62,11 +69,13 @@ export default function Casts() {
     setDefaultMutation.mutate(cast.id)
   }
   
-  const handleEdit = (cast: Cast) => {
-    if (cast.is_default) {
-      alert('Cannot edit the default cast')
-      return
+  const handleRestoreDefault = () => {
+    if (confirm('Restore the default cast to "Alex and Sam" with default voices?')) {
+      restoreDefaultMutation.mutate()
     }
+  }
+  
+  const handleEdit = (cast: Cast) => {
     setEditingCast(cast)
     setShowForm(true)
   }
@@ -152,23 +161,21 @@ export default function Casts() {
                   )}
                 </div>
                 <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleEdit(cast)}
+                    className="btn-icon btn btn-ghost"
+                    title="Edit"
+                  >
+                    <Pencil className="w-4 h-4" />
+                  </button>
                   {!cast.is_default && (
-                    <>
-                      <button
-                        onClick={() => handleEdit(cast)}
-                        className="btn-icon btn btn-ghost"
-                        title="Edit"
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(cast)}
-                        className="btn-icon btn btn-ghost text-red-400 hover:text-red-300"
-                        title="Delete"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </>
+                    <button
+                      onClick={() => handleDelete(cast)}
+                      className="btn-icon btn btn-ghost text-red-400 hover:text-red-300"
+                      title="Delete"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   )}
                 </div>
               </div>
@@ -188,7 +195,20 @@ export default function Casts() {
                 ))}
               </div>
               
-              {!cast.is_default && (
+              {cast.is_default ? (
+                <button
+                  onClick={handleRestoreDefault}
+                  disabled={restoreDefaultMutation.isPending}
+                  className="mt-4 w-full btn btn-sm btn-ghost text-xs flex items-center justify-center gap-2"
+                >
+                  {restoreDefaultMutation.isPending ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <RotateCcw className="w-3 h-3" />
+                  )}
+                  Restore Defaults
+                </button>
+              ) : (
                 <button
                   onClick={() => handleSetDefault(cast)}
                   className="mt-4 w-full btn btn-sm btn-ghost text-xs"
@@ -203,4 +223,5 @@ export default function Casts() {
     </div>
   )
 }
+
 

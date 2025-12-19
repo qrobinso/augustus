@@ -34,8 +34,6 @@ export default function Settings() {
   const [elevenlabsModel, setElevenlabsModel] = useState('eleven_turbo_v2_5')
   const [geminiKey, setGeminiKey] = useState('')
   const [geminiModel, setGeminiModel] = useState('gemini-2.5-flash-preview-tts')
-  const [voiceHost1, setVoiceHost1] = useState('21m00Tcm4TlvDq8ikWAM')
-  const [voiceHost2, setVoiceHost2] = useState('AZnzlk1XvdvUeBnXmlld')
   const [briefingDuration, setBriefingDuration] = useState(5)
   const [deepcastDuration, setDeepcastDuration] = useState(10)
   const [stationUpdateDuration, setStationUpdateDuration] = useState(3)
@@ -143,8 +141,6 @@ export default function Settings() {
       setTtsProvider(settings.tts_provider)
       setElevenlabsModel(settings.elevenlabs_model || 'eleven_turbo_v2_5')
       setGeminiModel(settings.gemini_model || 'gemini-2.5-flash-preview-tts')
-      setVoiceHost1(settings.tts_voice_host1)
-      setVoiceHost2(settings.tts_voice_host2)
       setBriefingDuration(settings.briefing_duration_minutes)
       setDeepcastDuration(settings.deepcast_duration_minutes)
       setStationUpdateDuration(settings.station_update_duration_minutes)
@@ -205,8 +201,6 @@ export default function Settings() {
     if (ttsProvider !== settings?.tts_provider) updates.tts_provider = ttsProvider
     if (elevenlabsModel !== settings?.elevenlabs_model) updates.elevenlabs_model = elevenlabsModel
     if (geminiModel !== settings?.gemini_model) updates.gemini_model = geminiModel
-    if (voiceHost1 !== settings?.tts_voice_host1) updates.tts_voice_host1 = voiceHost1
-    if (voiceHost2 !== settings?.tts_voice_host2) updates.tts_voice_host2 = voiceHost2
     if (briefingDuration !== settings?.briefing_duration_minutes) updates.briefing_duration_minutes = briefingDuration
     if (deepcastDuration !== settings?.deepcast_duration_minutes) updates.deepcast_duration_minutes = deepcastDuration
     if (stationUpdateDuration !== settings?.station_update_duration_minutes) updates.station_update_duration_minutes = stationUpdateDuration
@@ -496,54 +490,6 @@ export default function Settings() {
               </div>
             </>
           )}
-          
-          {/* Voice Configuration */}
-          <div className="pt-4 border-t border-augustus-700">
-            <h3 className="text-sm font-medium text-white mb-2 sm:mb-3">Voice Configuration</h3>
-            <p className="text-xs text-augustus-400 mb-3 sm:mb-4">
-              {ttsProvider === 'elevenlabs' 
-                ? 'Enter ElevenLabs voice IDs'
-                : ttsProvider === 'gemini'
-                  ? 'Enter Gemini voice names (e.g., Kore, Puck, Charon)'
-                  : 'Enter Piper voice names'}
-            </p>
-            
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="label">Host 1 Voice (Alex)</label>
-                <input
-                  type="text"
-                  value={voiceHost1}
-                  onChange={(e) => setVoiceHost1(e.target.value)}
-                  placeholder={
-                    ttsProvider === 'elevenlabs' 
-                      ? '21m00Tcm4TlvDq8ikWAM' 
-                      : ttsProvider === 'gemini'
-                        ? 'Kore'
-                        : 'en_US-lessac-medium'
-                  }
-                  className="input"
-                />
-              </div>
-              
-              <div>
-                <label className="label">Host 2 Voice (Sam)</label>
-                <input
-                  type="text"
-                  value={voiceHost2}
-                  onChange={(e) => setVoiceHost2(e.target.value)}
-                  placeholder={
-                    ttsProvider === 'elevenlabs' 
-                      ? 'AZnzlk1XvdvUeBnXmlld' 
-                      : ttsProvider === 'gemini'
-                        ? 'Puck'
-                        : 'en_US-amy-medium'
-                  }
-                  className="input"
-                />
-              </div>
-            </div>
-          </div>
           
           {/* Duration Configuration */}
           <div className="pt-4 border-t border-augustus-700">

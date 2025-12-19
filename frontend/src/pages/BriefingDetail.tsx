@@ -1,6 +1,6 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useRef, useEffect, useState, useCallback } from 'react'
+import { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import { 
   ArrowLeft, 
   Play, 
@@ -18,7 +18,7 @@ import {
   Check
 } from 'lucide-react'
 import clsx from 'clsx'
-import { briefingsApi, settingsApi, SegmentTiming } from '../api/client'
+import { briefingsApi, settingsApi, castsApi, SegmentTiming } from '../api/client'
 import { useStore } from '../store/useStore'
 import { formatFullDate } from '../utils/timezone'
 
@@ -52,6 +52,23 @@ export default function BriefingDetail() {
   
   const timezone = settings?.timezone || 'UTC'
   
+  // Fetch cast information if cast_id exists (always fetch to get actual names)
+  const { data: cast } = useQuery({
+    queryKey: ['cast', briefing?.cast_id],
+    queryFn: () => castsApi.get(briefing!.cast_id!),
+    enabled: !!briefing?.cast_id,
+  })
+  
+  // Fallback: fetch all casts to get the default one if no cast_id on the briefing
+  const { data: castsData } = useQuery({
+    queryKey: ['casts'],
+    queryFn: () => castsApi.list(),
+    enabled: !!briefing && !briefing.cast_id && !briefing.extra_data?.cast_member_names,
+  })
+  
+  // Use the specific cast, or fall back to the default cast
+  const effectiveCast = cast || castsData?.casts?.find(c => c.is_default)
+  
   // Mutation for updating listened status
   const listenedMutation = useMutation({
     mutationFn: ({ listened }: { listened: boolean }) => 
@@ -68,6 +85,62 @@ export default function BriefingDetail() {
   
   // Get segment timings from extra_data
   const segmentTimings: SegmentTiming[] = briefing?.extra_data?.segment_timings || []
+  
+  // Get chapters from briefing
+  const chapters = briefing?.chapters || []
+  
+  // Debug: log chapters to console
+  useEffect(() => {
+    if (briefing) {
+      console.log('[BriefingDetail] Briefing chapters:', chapters)
+      console.log('[BriefingDetail] Briefing extra_data:', briefing.extra_data)
+    }
+  }, [briefing, chapters])
+  
+  // Get cast member names mapping from extra_data (HOST1 -> name, HOST2 -> name, etc.)
+  const castMemberNamesFromExtraData = briefing?.extra_data?.cast_member_names as Record<string, string> | undefined
+  
+  // Build cast member names mapping from cast data if not in extra_data
+  // Use useMemo to ensure it updates reactively when cast data loads
+  const castMemberNames = useMemo(() => {
+    if (castMemberNamesFromExtraData) {
+      return castMemberNamesFromExtraData
+    }
+    if (effectiveCast && effectiveCast.members && effectiveCast.members.length > 0) {
+      const mapping: Record<string, string> = {}
+      const sortedMembers = [...effectiveCast.members].sort((a, b) => a.order - b.order)
+      sortedMembers.forEach((member, index) => {
+        mapping[`HOST${index + 1}`] = member.name
+      })
+      return mapping
+    }
+    return undefined
+  }, [castMemberNamesFromExtraData, effectiveCast])
+  
+  // Helper function to get cast member name for a speaker
+  const getCastMemberName = useCallback((speaker: string): string => {
+    const speakerUpper = speaker.toUpperCase()
+    
+    // First try the mapping from extra_data or cast
+    if (castMemberNames && castMemberNames[speakerUpper]) {
+      return castMemberNames[speakerUpper]
+    }
+    
+    // If we have cast data but mapping not built yet (shouldn't happen, but just in case)
+    if (effectiveCast && effectiveCast.members && effectiveCast.members.length > 0) {
+      const hostMatch = speakerUpper.match(/^HOST(\d+)$/)
+      if (hostMatch) {
+        const hostNum = parseInt(hostMatch[1], 10)
+        const sortedMembers = [...effectiveCast.members].sort((a, b) => a.order - b.order)
+        if (hostNum > 0 && hostNum <= sortedMembers.length) {
+          return sortedMembers[hostNum - 1].name
+        }
+      }
+    }
+    
+    // Final fallback: return the speaker identifier as-is (should rarely happen)
+    return speakerUpper
+  }, [castMemberNames, effectiveCast])
   
   // Find the active segment based on current time
   const findActiveSegment = useCallback((time: number): number | null => {
@@ -149,6 +222,7 @@ export default function BriefingDetail() {
         title: briefing.title,
         audioUrl: briefing.audio_url,
         transcript: briefing.transcript,
+        chapters: briefing.chapters,
         initialPosition: briefing.playback_position || undefined,
       })
       setIsPlaying(true)
@@ -167,6 +241,7 @@ export default function BriefingDetail() {
         title: briefing.title,
         audioUrl: briefing.audio_url,
         transcript: briefing.transcript,
+        chapters: briefing.chapters,
         initialPosition: startSeconds,  // Use the segment start as initial position
       })
       setIsPlaying(true)
@@ -212,16 +287,119 @@ export default function BriefingDetail() {
     return `${mins}:${secs.toString().padStart(2, '0')}`
   }
   
+  // Find the active chapter based on current time
+  const findActiveChapter = useCallback((time: number): number | null => {
+    for (let i = 0; i < chapters.length; i++) {
+      const chapter = chapters[i]
+      if (time >= chapter.start_time && (chapter.end_time === undefined || time < chapter.end_time)) {
+        return i
+      }
+    }
+    // If past all chapters, return last one
+    if (chapters.length > 0 && time >= chapters[chapters.length - 1].start_time) {
+      return chapters.length - 1
+    }
+    return null
+  }, [chapters])
+  
+  // Track active chapter for highlighting
+  const [activeChapterIndex, setActiveChapterIndex] = useState<number | null>(null)
+  
+  // Update active chapter based on audio playback
+  useEffect(() => {
+    if (!briefing?.audio_filename || !isThisBriefingLoaded) {
+      setActiveChapterIndex(null)
+      return
+    }
+    
+    const findAudioElement = () => {
+      const audioElements = document.querySelectorAll('audio')
+      for (const el of audioElements) {
+        if (el.src.includes(briefing.audio_filename || '')) {
+          return el
+        }
+      }
+      return null
+    }
+    
+    const audio = findAudioElement()
+    if (!audio) return
+    
+    const handleTimeUpdate = () => {
+      const time = audio.currentTime
+      const newActiveIndex = findActiveChapter(time)
+      setActiveChapterIndex(newActiveIndex)
+    }
+    
+    handleTimeUpdate()
+    audio.addEventListener('timeupdate', handleTimeUpdate)
+    
+    return () => {
+      audio.removeEventListener('timeupdate', handleTimeUpdate)
+    }
+  }, [briefing?.audio_filename, isThisBriefingLoaded, findActiveChapter])
+  
   // Format transcript with proper styling for HOST1/HOST2
   // Uses segment timings if available for clickable timestamps
+  // Integrates chapters as breaks within the transcript
   const formatTranscript = () => {
     // If we have segment timings, use them for clickable transcript
     if (segmentTimings.length > 0) {
-      return segmentTimings.map((segment, index) => {
+      const elements: JSX.Element[] = []
+      
+      segmentTimings.forEach((segment, index) => {
         const isHost1 = segment.speaker.toUpperCase() === 'HOST1'
         const isActive = activeSegmentIndex === index
         
-        return (
+        // Check if a chapter starts at this segment's start time
+        const chapterForSegment = chapters.find(
+          ch => Math.abs(ch.start_time - segment.start_seconds) < 1.0 // Within 1 second
+        )
+        const chapterIndex = chapterForSegment ? chapters.indexOf(chapterForSegment) : null
+        const isChapterActive = chapterIndex !== null && activeChapterIndex === chapterIndex
+        
+        // Insert chapter header before this segment if it matches
+        if (chapterForSegment) {
+          elements.push(
+            <div
+              key={`chapter-${chapterIndex}`}
+              onClick={() => handleSeekToSegment(chapterForSegment.start_time)}
+              className={clsx(
+                'mb-4 sm:mb-6 mt-6 sm:mt-8 pt-4 sm:pt-6 border-t border-augustus-700 cursor-pointer transition-all duration-300 active:scale-[0.99]',
+                isChapterActive && isThisBriefingLoaded
+                  ? 'border-accent/50'
+                  : 'hover:border-augustus-600'
+              )}
+            >
+              <div className="flex items-center justify-between">
+                <h3 className={clsx(
+                  'text-base sm:text-lg font-semibold',
+                  isChapterActive && isThisBriefingLoaded ? 'text-accent' : 'text-augustus-300'
+                )}>
+                  {chapterForSegment.title}
+                </h3>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handleSeekToSegment(chapterForSegment.start_time)
+                  }}
+                  className={clsx(
+                    'flex items-center gap-1 px-2 py-1 rounded text-xs font-mono transition-colors',
+                    isChapterActive && isThisBriefingLoaded
+                      ? 'bg-accent/40 text-white'
+                      : 'bg-augustus-800/50 text-augustus-400 hover:bg-augustus-700/50'
+                  )}
+                >
+                  <Play className="w-3 h-3" />
+                  {formatTimestamp(chapterForSegment.start_time)}
+                </button>
+              </div>
+            </div>
+          )
+        }
+        
+        // Add the segment
+        elements.push(
           <div 
             key={index}
             ref={(el) => {
@@ -257,7 +435,7 @@ export default function BriefingDetail() {
                   'font-semibold text-xs sm:text-sm uppercase tracking-wide',
                   isHost1 ? 'text-accent' : 'text-purple-400'
                 )}>
-                  {isHost1 ? 'Alex' : 'Sam'}
+                  {getCastMemberName(segment.speaker)}
                 </span>
               </div>
               <button
@@ -287,6 +465,8 @@ export default function BriefingDetail() {
           </div>
         )
       })
+      
+      return elements
     }
     
     // Fallback: parse transcript text if no segment timings
@@ -303,8 +483,8 @@ export default function BriefingDetail() {
         return
       }
       
-      // Check for HOST1: or HOST2: prefix
-      const hostMatch = trimmed.match(/^(HOST[12]):\s*(.*)$/i)
+      // Check for HOST1:, HOST2:, HOST3:, etc. prefix
+      const hostMatch = trimmed.match(/^(HOST\d+):\s*(.*)$/i)
       if (hostMatch) {
         const [, host, content] = hostMatch
         const isHost1 = host.toUpperCase() === 'HOST1'
@@ -317,7 +497,7 @@ export default function BriefingDetail() {
               'font-semibold text-xs sm:text-sm uppercase tracking-wide',
               isHost1 ? 'text-accent' : 'text-purple-400'
             )}>
-              {isHost1 ? 'Alex' : 'Sam'}
+              {getCastMemberName(host)}
             </span>
             <p className="text-augustus-200 mt-1 text-sm sm:text-base">{content}</p>
           </div>

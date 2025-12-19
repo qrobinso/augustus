@@ -42,6 +42,8 @@ export default function Dashboard() {
   const [showScheduleForm, setShowScheduleForm] = useState(false)
   const [editingSchedule, setEditingSchedule] = useState<ScheduledBriefing | null>(null)
   const [listenedFilter, setListenedFilter] = useState<boolean | undefined>(undefined)
+  const [filterCastId, setFilterCastId] = useState<string | undefined>(undefined)
+  const [filterTopicIds, setFilterTopicIds] = useState<string[]>([])
   const [currentPage, setCurrentPage] = useState(0)
   const pageSize = 10
   
@@ -61,8 +63,14 @@ export default function Dashboard() {
     briefings?.some((b) => b.status === 'pending' || b.status === 'generating')
   
   const { data, isLoading, error } = useQuery({
-    queryKey: ['briefings', listenedFilter, currentPage],
-    queryFn: () => briefingsApi.list(pageSize, currentPage * pageSize, listenedFilter),
+    queryKey: ['briefings', listenedFilter, filterCastId, filterTopicIds, currentPage],
+    queryFn: () => briefingsApi.list(
+      pageSize, 
+      currentPage * pageSize, 
+      listenedFilter,
+      filterCastId,
+      filterTopicIds.length > 0 ? filterTopicIds : undefined
+    ),
     refetchInterval: (query) => {
       // Poll more frequently (2s) when a briefing is in progress, otherwise every 10s
       return hasBriefingInProgress(query.state.data?.briefings) ? 2000 : 10000
@@ -72,7 +80,7 @@ export default function Dashboard() {
   // Reset to first page when filter changes
   useEffect(() => {
     setCurrentPage(0)
-  }, [listenedFilter])
+  }, [listenedFilter, filterCastId, filterTopicIds])
   
   // Fetch settings for timezone
   const { data: settings } = useQuery({
@@ -109,8 +117,9 @@ export default function Dashboard() {
   )
   
   const generateMutation = useMutation({
-    mutationFn: (topicIds?: string[]) => briefingsApi.generate({ 
-      topic_ids: topicIds && topicIds.length > 0 ? topicIds : undefined 
+    mutationFn: (options?: { topicIds?: string[]; castId?: string }) => briefingsApi.generate({ 
+      topic_ids: options?.topicIds && options.topicIds.length > 0 ? options.topicIds : undefined,
+      cast_id: options?.castId,
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['briefings'] })
@@ -168,6 +177,7 @@ export default function Dashboard() {
         title: briefing.title,
         audioUrl: briefing.audio_url,
         transcript: briefing.transcript,
+        chapters: briefing.chapters,
         initialPosition: briefing.playback_position || undefined,
       })
       setIsPlaying(true)
@@ -274,20 +284,19 @@ export default function Dashboard() {
         </div>
         
         {/* Cast selector */}
-        {casts.length > 0 && (
+        {casts.length > 1 && (
           <div className="mb-4">
             <label className="block text-xs sm:text-sm text-augustus-400 mb-2">
-              Cast (optional - uses default if not selected)
+              Cast
             </label>
             <select
-              value={selectedCastId || ''}
+              value={selectedCastId || defaultCast?.id || ''}
               onChange={(e) => setSelectedCastId(e.target.value || undefined)}
               className="input w-full"
             >
-              <option value="">Default ({defaultCast?.name || 'Alex and Sam'})</option>
               {casts.map((cast) => (
                 <option key={cast.id} value={cast.id}>
-                  {cast.name} {cast.is_default && '(Default)'}
+                  {cast.name}{cast.is_default ? ' ★' : ''}
                 </option>
               ))}
             </select>
@@ -528,70 +537,192 @@ export default function Dashboard() {
       <div className="space-y-3 sm:space-y-4">
         {/* Filter and pagination controls */}
         <div className="card mb-3 sm:mb-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
-            <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0">
-              <span className="text-xs sm:text-sm text-augustus-400 flex-shrink-0">Filter:</span>
-              <div className="flex items-center gap-1.5 sm:gap-2">
-                <button
-                  onClick={() => setListenedFilter(undefined)}
-                  className={clsx(
-                    'px-2.5 sm:px-3 py-1.5 rounded-full text-xs sm:text-sm font-medium transition-all whitespace-nowrap min-h-[32px]',
-                    listenedFilter === undefined
-                      ? 'bg-accent text-white'
-                      : 'bg-augustus-800 text-augustus-300 hover:bg-augustus-700 active:bg-augustus-600'
-                  )}
-                >
-                  All
-                </button>
-                <button
-                  onClick={() => setListenedFilter(true)}
-                  className={clsx(
-                    'px-2.5 sm:px-3 py-1.5 rounded-full text-xs sm:text-sm font-medium transition-all flex items-center gap-1 whitespace-nowrap min-h-[32px]',
-                    listenedFilter === true
-                      ? 'bg-accent text-white'
-                      : 'bg-augustus-800 text-augustus-300 hover:bg-augustus-700 active:bg-augustus-600'
-                  )}
-                >
-                  <CheckCircle className="w-3 h-3" />
-                  <span className="hidden sm:inline">Listened</span>
-                </button>
-                <button
-                  onClick={() => setListenedFilter(false)}
-                  className={clsx(
-                    'px-2.5 sm:px-3 py-1.5 rounded-full text-xs sm:text-sm font-medium transition-all flex items-center gap-1 whitespace-nowrap min-h-[32px]',
-                    listenedFilter === false
-                      ? 'bg-accent text-white'
-                      : 'bg-augustus-800 text-augustus-300 hover:bg-augustus-700 active:bg-augustus-600'
-                  )}
-                >
-                  <Circle className="w-3 h-3" />
-                  <span className="hidden sm:inline">Unlistened</span>
-                </button>
+          <div className="flex flex-col gap-3 sm:gap-4">
+            {/* Filters section */}
+            <div className="flex flex-col gap-3 sm:gap-2.5">
+              {/* Listened filter */}
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                <span className="text-xs sm:text-sm font-medium text-augustus-300 flex-shrink-0 sm:w-16">Status</span>
+                <div className="flex items-center gap-2 overflow-x-auto scroll-smooth pb-1 sm:pb-0 -mx-1 px-1 sm:mx-0 sm:px-0">
+                  <button
+                    onClick={() => setListenedFilter(undefined)}
+                    className={clsx(
+                      'px-3 sm:px-3 py-2 sm:py-1.5 rounded-full text-xs sm:text-sm font-medium transition-all whitespace-nowrap flex-shrink-0',
+                      'min-h-[44px] sm:min-h-[32px] flex items-center justify-center',
+                      'active:scale-95',
+                      listenedFilter === undefined
+                        ? 'bg-accent text-white shadow-lg shadow-accent/20'
+                        : 'bg-augustus-800 text-augustus-300 hover:bg-augustus-700 active:bg-augustus-600'
+                    )}
+                  >
+                    All
+                  </button>
+                  <button
+                    onClick={() => setListenedFilter(true)}
+                    className={clsx(
+                      'px-3 sm:px-3 py-2 sm:py-1.5 rounded-full text-xs sm:text-sm font-medium transition-all flex items-center gap-1.5 whitespace-nowrap flex-shrink-0',
+                      'min-h-[44px] sm:min-h-[32px] justify-center',
+                      'active:scale-95',
+                      listenedFilter === true
+                        ? 'bg-accent text-white shadow-lg shadow-accent/20'
+                        : 'bg-augustus-800 text-augustus-300 hover:bg-augustus-700 active:bg-augustus-600'
+                    )}
+                  >
+                    <CheckCircle className="w-4 h-4 sm:w-3 sm:h-3" />
+                    <span>Listened</span>
+                  </button>
+                  <button
+                    onClick={() => setListenedFilter(false)}
+                    className={clsx(
+                      'px-3 sm:px-3 py-2 sm:py-1.5 rounded-full text-xs sm:text-sm font-medium transition-all flex items-center gap-1.5 whitespace-nowrap flex-shrink-0',
+                      'min-h-[44px] sm:min-h-[32px] justify-center',
+                      'active:scale-95',
+                      listenedFilter === false
+                        ? 'bg-accent text-white shadow-lg shadow-accent/20'
+                        : 'bg-augustus-800 text-augustus-300 hover:bg-augustus-700 active:bg-augustus-600'
+                    )}
+                  >
+                    <Circle className="w-4 h-4 sm:w-3 sm:h-3" />
+                    <span>Unlistened</span>
+                  </button>
+                </div>
               </div>
+              
+              {/* Cast filter */}
+              {casts.length > 0 && (
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                  <span className="text-xs sm:text-sm font-medium text-augustus-300 flex-shrink-0 sm:w-16">Cast</span>
+                  <div className="flex items-center gap-2 overflow-x-auto scroll-smooth pb-1 sm:pb-0 -mx-1 px-1 sm:mx-0 sm:px-0">
+                    <button
+                      onClick={() => setFilterCastId(undefined)}
+                      className={clsx(
+                        'px-3 sm:px-3 py-2 sm:py-1.5 rounded-full text-xs sm:text-sm font-medium transition-all whitespace-nowrap flex-shrink-0',
+                        'min-h-[44px] sm:min-h-[32px] flex items-center justify-center',
+                        'active:scale-95',
+                        filterCastId === undefined
+                          ? 'bg-accent text-white shadow-lg shadow-accent/20'
+                          : 'bg-augustus-800 text-augustus-300 hover:bg-augustus-700 active:bg-augustus-600'
+                      )}
+                    >
+                      All Casts
+                    </button>
+                    {casts.map((cast) => (
+                      <button
+                        key={cast.id}
+                        onClick={() => setFilterCastId(cast.id)}
+                        className={clsx(
+                          'px-3 sm:px-3 py-2 sm:py-1.5 rounded-full text-xs sm:text-sm font-medium transition-all whitespace-nowrap flex-shrink-0',
+                          'min-h-[44px] sm:min-h-[32px] flex items-center justify-center',
+                          'active:scale-95',
+                          filterCastId === cast.id
+                            ? 'bg-accent text-white shadow-lg shadow-accent/20'
+                            : 'bg-augustus-800 text-augustus-300 hover:bg-augustus-700 active:bg-augustus-600'
+                        )}
+                      >
+                        {cast.name}{cast.is_default ? ' ★' : ''}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
+              {/* Topics filter */}
+              {topics.length > 0 && (
+                <div className="flex flex-col sm:flex-row sm:items-start gap-2">
+                  <span className="text-xs sm:text-sm font-medium text-augustus-300 flex-shrink-0 sm:w-16 sm:pt-1.5">Topics</span>
+                  <div className="flex flex-wrap items-center gap-2 overflow-x-auto scroll-smooth pb-1 sm:pb-0 -mx-1 px-1 sm:mx-0 sm:px-0">
+                    <button
+                      onClick={() => setFilterTopicIds([])}
+                      className={clsx(
+                        'px-3 sm:px-3 py-2 sm:py-1.5 rounded-full text-xs sm:text-sm font-medium transition-all whitespace-nowrap flex-shrink-0',
+                        'min-h-[44px] sm:min-h-[32px] flex items-center justify-center',
+                        'active:scale-95',
+                        filterTopicIds.length === 0
+                          ? 'bg-accent text-white shadow-lg shadow-accent/20'
+                          : 'bg-augustus-800 text-augustus-300 hover:bg-augustus-700 active:bg-augustus-600'
+                      )}
+                    >
+                      All Topics
+                    </button>
+                    {topics.map((topic) => (
+                      <button
+                        key={topic.id}
+                        onClick={() => {
+                          setFilterTopicIds((prev) =>
+                            prev.includes(topic.id)
+                              ? prev.filter((id) => id !== topic.id)
+                              : [...prev, topic.id]
+                          )
+                        }}
+                        className={clsx(
+                          'px-3 sm:px-3 py-2 sm:py-1.5 rounded-full text-xs sm:text-sm font-medium transition-all flex items-center gap-1.5 whitespace-nowrap flex-shrink-0',
+                          'min-h-[44px] sm:min-h-[32px] justify-center',
+                          'active:scale-95',
+                          filterTopicIds.includes(topic.id)
+                            ? 'text-white shadow-lg'
+                            : 'bg-augustus-800 text-augustus-300 hover:bg-augustus-700 active:bg-augustus-600'
+                        )}
+                        style={filterTopicIds.includes(topic.id) ? {
+                          backgroundColor: topic.color || '#3B82F6',
+                          boxShadow: `0 4px 14px 0 ${topic.color || '#3B82F6'}40`,
+                        } : undefined}
+                      >
+                        <span
+                          className="w-2.5 h-2.5 sm:w-2 sm:h-2 rounded-full flex-shrink-0"
+                          style={{ backgroundColor: topic.color || '#3B82F6' }}
+                        />
+                        {topic.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
+              {/* Clear filters button - show on mobile when filters are active */}
+              {(listenedFilter !== undefined || filterCastId !== undefined || filterTopicIds.length > 0) && (
+                <button
+                  onClick={() => {
+                    setListenedFilter(undefined)
+                    setFilterCastId(undefined)
+                    setFilterTopicIds([])
+                  }}
+                  className="sm:hidden px-4 py-2 rounded-lg text-xs font-medium bg-augustus-800 text-augustus-300 hover:bg-augustus-700 active:bg-augustus-600 transition-all active:scale-95 flex items-center justify-center gap-1.5 min-h-[44px] border border-augustus-700"
+                >
+                  <XCircle className="w-4 h-4" />
+                  Clear All Filters
+                </button>
+              )}
             </div>
             
-            {/* Pagination - simplified on mobile */}
-            {data && data.total > pageSize && (
-              <div className="flex items-center justify-center sm:justify-end gap-2">
-                <button
-                  onClick={() => setCurrentPage((p) => Math.max(0, p - 1))}
-                  disabled={currentPage === 0}
-                  className="btn btn-ghost px-2.5 sm:px-3 py-1.5 text-xs sm:text-sm disabled:opacity-50"
-                >
-                  Prev
-                </button>
-                <span className="text-xs sm:text-sm text-augustus-400">
-                  {currentPage + 1} / {Math.ceil(data.total / pageSize)}
+            {/* Pagination row */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-3 sm:pt-2 border-t border-augustus-800">
+              {data && data.total > pageSize && (
+                <div className="flex items-center justify-center sm:justify-end gap-2 w-full sm:w-auto">
+                  <button
+                    onClick={() => setCurrentPage((p) => Math.max(0, p - 1))}
+                    disabled={currentPage === 0}
+                    className="btn btn-ghost px-3 sm:px-3 py-2 sm:py-1.5 text-xs sm:text-sm disabled:opacity-50 min-h-[44px] sm:min-h-[32px]"
+                  >
+                    Prev
+                  </button>
+                  <span className="text-xs sm:text-sm text-augustus-400 px-2">
+                    {currentPage + 1} / {Math.ceil(data.total / pageSize)}
+                  </span>
+                  <button
+                    onClick={() => setCurrentPage((p) => p + 1)}
+                    disabled={(currentPage + 1) * pageSize >= data.total}
+                    className="btn btn-ghost px-3 sm:px-3 py-2 sm:py-1.5 text-xs sm:text-sm disabled:opacity-50 min-h-[44px] sm:min-h-[32px]"
+                  >
+                    Next
+                  </button>
+                </div>
+              )}
+              {data && (
+                <span className="text-xs sm:text-sm text-augustus-500 text-center sm:text-right">
+                  {data.total} {data.total === 1 ? 'briefing' : 'briefings'}
                 </span>
-                <button
-                  onClick={() => setCurrentPage((p) => p + 1)}
-                  disabled={(currentPage + 1) * pageSize >= data.total}
-                  className="btn btn-ghost px-2.5 sm:px-3 py-1.5 text-xs sm:text-sm disabled:opacity-50"
-                >
-                  Next
-                </button>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </div>
         

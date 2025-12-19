@@ -69,3 +69,4 @@ class CastListResponse(BaseModel):
     """Schema for listing casts."""
     casts: list[CastResponse]
 
+

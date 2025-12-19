@@ -104,3 +104,14 @@ async def set_default_cast(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cast not found")
     return CastResponse.model_validate(cast)
 
+
+@router.post("/default/restore", response_model=CastResponse)
+async def restore_default_cast(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Restore the default cast to its original values (Alex and Sam with Kore/Puck voices)."""
+    service = CastService(db)
+    cast = await service.restore_default_cast(user.id)
+    return CastResponse.model_validate(cast)
+

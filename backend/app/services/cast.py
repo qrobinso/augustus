@@ -6,12 +6,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from app.config import get_settings
 from app.models.cast import Cast, CastMember
 from app.models.user import User
 from app.schemas.cast import CastCreate, CastUpdate
-
-settings = get_settings()
 
 
 class CastService:
@@ -132,10 +129,8 @@ class CastService:
         if default_cast:
             return default_cast
         
-        # Create default cast using env vars
-        voice_host1 = settings.tts_voice_host1
-        voice_host2 = settings.tts_voice_host2
-        
+        # Create default cast with standard voices
+        # Gemini voices: Kore (female) and Puck (male) - these are good defaults
         cast = Cast(
             id=str(uuid.uuid4()),
             user_id=user_id,
@@ -145,12 +140,12 @@ class CastService:
         self.db.add(cast)
         await self.db.flush()
         
-        # Create default members
+        # Create default members with Gemini voices
         alex = CastMember(
             id=str(uuid.uuid4()),
             cast_id=cast.id,
             name="Alex",
-            voice_id=voice_host1,
+            voice_id="Kore",  # Gemini voice
             personality="Casual",
             order=0,
         )
@@ -158,7 +153,7 @@ class CastService:
             id=str(uuid.uuid4()),
             cast_id=cast.id,
             name="Sam",
-            voice_id=voice_host2,
+            voice_id="Puck",  # Gemini voice
             personality="Analytical",
             order=1,
         )
@@ -190,10 +185,6 @@ class CastService:
         cast = await self.get_cast(cast_id, user_id)
         if not cast:
             return None
-        
-        # Prevent updating default cast
-        if cast.is_default:
-            raise ValueError("Cannot update the default cast")
         
         # Update cast name if provided
         if cast_data.name is not None:
@@ -292,4 +283,59 @@ class CastService:
         )
         for cast in result.scalars().all():
             cast.is_default = False
+    
+    async def restore_default_cast(self, user_id: str) -> Cast:
+        """Restore the default cast to its original values.
+        
+        Args:
+            user_id: The user ID
+            
+        Returns:
+            Restored Cast instance
+        """
+        # Find the default cast
+        result = await self.db.execute(
+            select(Cast)
+            .where(Cast.user_id == user_id, Cast.is_default == True)
+            .options(selectinload(Cast.members))
+        )
+        default_cast = result.scalar_one_or_none()
+        
+        if not default_cast:
+            # No default cast exists, create one
+            return await self.get_default_cast(user_id)
+        
+        # Update cast name
+        default_cast.name = "Alex and Sam"
+        
+        # Delete existing members
+        for member in default_cast.members:
+            await self.db.delete(member)
+        
+        # Create default members with Gemini voices
+        alex = CastMember(
+            id=str(uuid.uuid4()),
+            cast_id=default_cast.id,
+            name="Alex",
+            voice_id="Kore",  # Gemini voice
+            personality="Casual",
+            order=0,
+        )
+        sam = CastMember(
+            id=str(uuid.uuid4()),
+            cast_id=default_cast.id,
+            name="Sam",
+            voice_id="Puck",  # Gemini voice
+            personality="Analytical",
+            order=1,
+        )
+        self.db.add(alex)
+        self.db.add(sam)
+        
+        await self.db.commit()
+        await self.db.refresh(default_cast)
+        await self.db.refresh(default_cast, ["members"])
+        
+        return default_cast
+
 

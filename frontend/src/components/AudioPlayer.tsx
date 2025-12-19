@@ -21,7 +21,7 @@ export default function AudioPlayer() {
   const [volume, setVolume] = useState(1)
   const [isMuted, setIsMuted] = useState(false)
   const [playbackRate, setPlaybackRate] = useState(1)
-  const [showTranscript, setShowTranscript] = useState(false)
+  const [showChapters, setShowChapters] = useState(false)
   const [hasMarkedListened, setHasMarkedListened] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
   const [hasSetInitialPosition, setHasSetInitialPosition] = useState(false)
@@ -238,8 +238,54 @@ export default function AudioPlayer() {
         preload="metadata"
       />
       
-      {/* Transcript panel */}
-      {showTranscript && currentAudio.transcript && (
+      {/* Chapters panel - replaces transcript when chapters are available */}
+      {showChapters && currentAudio.chapters && currentAudio.chapters.length > 0 && (
+        <div className="mb-3 max-h-40 sm:max-h-48 overflow-auto bg-augustus-950/50 rounded-lg p-3 sm:p-4">
+          <div className="space-y-2">
+            {currentAudio.chapters.map((chapter, index) => {
+              // Find active chapter based on current time
+              const isActive = currentTime >= chapter.start_time && 
+                               (chapter.end_time === undefined || currentTime < chapter.end_time)
+              
+              return (
+                <button
+                  key={index}
+                  onClick={() => {
+                    if (audioRef.current) {
+                      audioRef.current.currentTime = chapter.start_time
+                      setCurrentTime(chapter.start_time)
+                    }
+                  }}
+                  className={clsx(
+                    'w-full text-left p-2 sm:p-3 rounded-lg transition-all duration-200 active:scale-[0.98]',
+                    isActive
+                      ? 'bg-accent/25 ring-1 ring-accent text-white'
+                      : 'bg-augustus-900/50 hover:bg-augustus-800/50 text-augustus-200'
+                  )}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className={clsx(
+                      'text-xs sm:text-sm font-medium',
+                      isActive ? 'text-white' : 'text-augustus-200'
+                    )}>
+                      {chapter.title}
+                    </span>
+                    <span className={clsx(
+                      'text-xs font-mono ml-2',
+                      isActive ? 'text-accent' : 'text-augustus-500'
+                    )}>
+                      {formatTime(chapter.start_time)}
+                    </span>
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+      
+      {/* Transcript panel - fallback when no chapters */}
+      {showChapters && (!currentAudio.chapters || currentAudio.chapters.length === 0) && currentAudio.transcript && (
         <div className="mb-3 max-h-40 sm:max-h-48 overflow-auto bg-augustus-950/50 rounded-lg p-3 sm:p-4 text-sm text-augustus-300">
           <pre className="whitespace-pre-wrap font-sans text-xs sm:text-sm">{currentAudio.transcript}</pre>
         </div>
@@ -377,23 +423,23 @@ export default function AudioPlayer() {
               />
             </div>
             
-            {/* Transcript toggle */}
-            {currentAudio.transcript && (
+            {/* Chapters/Transcript toggle */}
+            {(currentAudio.chapters && currentAudio.chapters.length > 0) || currentAudio.transcript ? (
               <button
-                onClick={() => setShowTranscript(!showTranscript)}
+                onClick={() => setShowChapters(!showChapters)}
                 className={clsx(
                   'btn-icon btn btn-ghost p-2',
-                  showTranscript && 'text-accent'
+                  showChapters && 'text-accent'
                 )}
-                title="Toggle transcript"
+                title={currentAudio.chapters && currentAudio.chapters.length > 0 ? "Toggle chapters" : "Toggle transcript"}
               >
-                {showTranscript ? (
+                {showChapters ? (
                   <ChevronDown className="w-5 h-5" />
                 ) : (
                   <ChevronUp className="w-5 h-5" />
                 )}
               </button>
-            )}
+            ) : null}
           </div>
         </div>
       </div>

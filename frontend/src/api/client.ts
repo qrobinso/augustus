@@ -26,6 +26,12 @@ export interface BriefingProgress {
   percent: number
 }
 
+export interface Chapter {
+  title: string
+  start_time: number
+  end_time?: number
+}
+
 export interface Briefing {
   id: string
   user_id: string
@@ -38,6 +44,7 @@ export interface Briefing {
   extra_data: Record<string, unknown> & {
     segment_timings?: SegmentTiming[]
     progress?: BriefingProgress | null
+    cast_member_names?: Record<string, string>
   }
   sources: Array<{
     title: string
@@ -51,6 +58,7 @@ export interface Briefing {
   listened: boolean
   listened_at?: string
   playback_position?: number
+  chapters?: Chapter[]
 }
 
 export interface DeepCast {
@@ -196,8 +204,6 @@ export interface AppSettings {
   elevenlabs_model: string
   gemini_api_key?: string
   gemini_model: string
-  tts_voice_host1: string
-  tts_voice_host2: string
   briefing_duration_minutes: number
   deepcast_duration_minutes: number
   station_update_duration_minutes: number
@@ -257,13 +263,25 @@ export interface ModelOption {
 
 // API functions
 export const briefingsApi = {
-  list: async (limit = 10, offset = 0, listened?: boolean) => {
+  list: async (
+    limit = 10, 
+    offset = 0, 
+    listened?: boolean,
+    cast_id?: string,
+    topic_ids?: string[]
+  ) => {
     const params = new URLSearchParams({
       limit: String(limit),
       offset: String(offset),
     })
     if (listened !== undefined) {
       params.set('listened', String(listened))
+    }
+    if (cast_id) {
+      params.set('cast_id', cast_id)
+    }
+    if (topic_ids && topic_ids.length > 0) {
+      topic_ids.forEach(id => params.append('topic_ids', id))
     }
     const { data } = await api.get<{ briefings: Briefing[]; total: number }>(
       `/api/briefings?${params}`
@@ -482,8 +500,6 @@ export const settingsApi = {
     elevenlabs_api_key: string
     gemini_api_key: string
     gemini_model: string
-    tts_voice_host1: string
-    tts_voice_host2: string
     briefing_duration_minutes: number
     deepcast_duration_minutes: number
     station_update_duration_minutes: number
@@ -591,6 +607,11 @@ export const castsApi = {
   
   setDefault: async (id: string) => {
     const { data } = await api.post<Cast>(`/api/casts/${id}/set-default`)
+    return data
+  },
+  
+  restoreDefault: async () => {
+    const { data } = await api.post<Cast>('/api/casts/default/restore')
     return data
   },
 }

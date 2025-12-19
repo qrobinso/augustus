@@ -27,9 +27,6 @@ class SettingsResponse(BaseModel):
     elevenlabs_model: str = "eleven_turbo_v2_5"
     gemini_api_key: Optional[str] = None
     gemini_model: str = "gemini-2.5-flash-preview-tts"
-    tts_voice_host1: str = "21m00Tcm4TlvDq8ikWAM"
-    tts_voice_host2: str = "AZnzlk1XvdvUeBnXmlld"
-    
     # Content Durations (minutes)
     briefing_duration_minutes: int = 5
     deepcast_duration_minutes: int = 10
@@ -68,8 +65,6 @@ class SettingsUpdate(BaseModel):
     elevenlabs_model: Optional[str] = None
     gemini_api_key: Optional[str] = None
     gemini_model: Optional[str] = None
-    tts_voice_host1: Optional[str] = None
-    tts_voice_host2: Optional[str] = None
     briefing_duration_minutes: Optional[int] = None
     deepcast_duration_minutes: Optional[int] = None
     station_update_duration_minutes: Optional[int] = None
@@ -187,8 +182,6 @@ def get_current_settings() -> dict:
         "elevenlabs_model": os.environ.get("ELEVENLABS_MODEL") or env_vars.get("ELEVENLABS_MODEL", "eleven_turbo_v2_5"),
         "gemini_api_key": os.environ.get("GEMINI_API_KEY") or env_vars.get("GEMINI_API_KEY"),
         "gemini_model": os.environ.get("GEMINI_MODEL") or env_vars.get("GEMINI_MODEL", "gemini-2.5-flash-preview-tts"),
-        "tts_voice_host1": os.environ.get("TTS_VOICE_HOST1") or env_vars.get("TTS_VOICE_HOST1", "21m00Tcm4TlvDq8ikWAM"),
-        "tts_voice_host2": os.environ.get("TTS_VOICE_HOST2") or env_vars.get("TTS_VOICE_HOST2", "AZnzlk1XvdvUeBnXmlld"),
         "briefing_duration_minutes": get_int("BRIEFING_DURATION_MINUTES", 5),
         "deepcast_duration_minutes": get_int("DEEPCAST_DURATION_MINUTES", 10),
         "station_update_duration_minutes": get_int("STATION_UPDATE_DURATION_MINUTES", 3),
@@ -216,8 +209,6 @@ async def get_settings_endpoint():
         elevenlabs_model=settings["elevenlabs_model"],
         gemini_api_key=mask_api_key(settings["gemini_api_key"]),
         gemini_model=settings["gemini_model"],
-        tts_voice_host1=settings["tts_voice_host1"],
-        tts_voice_host2=settings["tts_voice_host2"],
         briefing_duration_minutes=settings["briefing_duration_minutes"],
         deepcast_duration_minutes=settings["deepcast_duration_minutes"],
         station_update_duration_minutes=settings["station_update_duration_minutes"],
@@ -270,14 +261,6 @@ async def update_settings(updates: SettingsUpdate):
         if updates.gemini_model is not None:
             env_updates["GEMINI_MODEL"] = updates.gemini_model
             os.environ["GEMINI_MODEL"] = updates.gemini_model
-        
-        if updates.tts_voice_host1 is not None:
-            env_updates["TTS_VOICE_HOST1"] = updates.tts_voice_host1
-            os.environ["TTS_VOICE_HOST1"] = updates.tts_voice_host1
-        
-        if updates.tts_voice_host2 is not None:
-            env_updates["TTS_VOICE_HOST2"] = updates.tts_voice_host2
-            os.environ["TTS_VOICE_HOST2"] = updates.tts_voice_host2
         
         if updates.briefing_duration_minutes is not None:
             env_updates["BRIEFING_DURATION_MINUTES"] = str(updates.briefing_duration_minutes)

@@ -81,11 +81,19 @@ PERSONALITY_DESCRIPTIONS = {
 }
 
 
-def build_briefing_system_prompt(cast_members: list[dict]) -> str:
+def build_briefing_system_prompt(
+    cast_members: list[dict], 
+    cast_name: str | None = None,
+    topics: list[str] | None = None,
+    briefing_title: str | None = None,
+) -> str:
     """Build briefing system prompt dynamically based on cast members.
     
     Args:
         cast_members: List of dicts with 'name' and 'personality' keys, sorted by order
+        cast_name: Optional name of the cast
+        topics: Optional list of topic names
+        briefing_title: Optional briefing title (e.g., "Morning X" for scheduled briefings)
         
     Returns:
         System prompt string
@@ -130,17 +138,71 @@ def build_briefing_system_prompt(cast_members: list[dict]) -> str:
                 "Contributes to the discussion with your unique perspective and style."
             )
     
-    # Build format example based on number of hosts
+    # Build context for introduction (briefing title OR topics)
+    briefing_name = ""
+    if briefing_title:
+        briefing_name = briefing_title
+    elif topics:
+        if len(topics) == 1:
+            briefing_name = f"your {topics[0]} briefing"
+        elif len(topics) == 2:
+            briefing_name = f"your {topics[0]} and {topics[1]} briefing"
+        else:
+            topics_str = ", ".join(topics[:-1]) + f", and {topics[-1]}"
+            briefing_name = f"your {topics_str} briefing"
+    
+    # Build natural podcast intro instructions
+    # Key: Start with greeting, then show name, then host intros - with variety
+    show_name = cast_name or "the show"
+    other_hosts = ", ".join(host_names[1:]) if len(host_names) > 1 else ""
+    all_hosts_str = ", ".join(host_names[:-1]) + f", and {host_names[-1]}" if len(host_names) > 2 else " and ".join(host_names) if len(host_names) == 2 else host_names[0]
+    
+    intro_examples = []
     if num_hosts == 1:
-        format_example = f"TITLE: Tech & Business Update - Dec 15\n{host_names[0]}: Good morning! Let's dive into today's top stories..."
+        intro_examples = [
+            f"'Hey, welcome back! This is {show_name}, I'm {host_names[0]}. Let's get into it.'",
+            f"'Good morning! Welcome to {show_name}, I'm {host_names[0]}. We've got a lot to cover today.'",
+            f"'What's up everyone, welcome back to {show_name}. I'm {host_names[0]}, let's dive in.'",
+        ]
+    elif num_hosts == 2:
+        intro_examples = [
+            f"'Hey, welcome back to {show_name}! I'm {host_names[0]} alongside {host_names[1]}. Let's get into it.'",
+            f"'Good morning everyone! This is {show_name}, I'm {host_names[0]}.' followed by '{host_names[1]}: And I'm {host_names[1]}. Good to be here.'",
+            f"'What's going on everybody, welcome to {show_name}. I'm {host_names[0]}, got {host_names[1]} with me today.'",
+        ]
+    else:
+        intro_examples = [
+            f"'Hey, welcome back to {show_name}! I'm {host_names[0]} here with {other_hosts}. Let's get into it.'",
+            f"'Good morning everyone! This is {show_name}. I'm {host_names[0]}.' followed by the other hosts briefly greeting.",
+            f"'What's up everybody, welcome to {show_name}. I'm {host_names[0]}, joined by {other_hosts}. We've got a packed show.'",
+        ]
+    
+    if briefing_name:
+        cast_intro_text = f"""Start with a natural, conversational greeting - like a real podcast. Lead with "welcome back", "hey everyone", "good morning", etc. Then mention this is {briefing_name} and introduce the hosts naturally.
+
+Vary your openings - don't use the same format every time. Some examples:
+{chr(10).join('- ' + ex for ex in intro_examples)}
+
+Keep it SHORT (1-2 sentences max for the intro). Don't list the date in the opening line - weave it in naturally later if needed."""
+    else:
+        cast_intro_text = f"""Start with a natural, conversational greeting - like a real podcast. Lead with "welcome back", "hey everyone", "good morning", etc. Then introduce the show and hosts naturally.
+
+Vary your openings - don't use the same format every time. Some examples:
+{chr(10).join('- ' + ex for ex in intro_examples)}
+
+Keep it SHORT (1-2 sentences max for the intro). Don't list the date in the opening line - weave it in naturally later if needed."""
+    
+    # Build format example based on number of hosts - using natural podcast style
+    if num_hosts == 1:
+        format_example = f"TITLE: Tech & Business Update - Dec 15\n{host_names[0]}: Hey, welcome back to {show_name}! I'm {host_names[0]}. We've got some interesting stories to get into today...\n[CHAPTER: Tech News]\n{host_names[0]}: First up, let's talk about..."
         host_intro = f"You are {host_names[0]}, an expert podcast host creating insightful daily audio briefings."
         style_note = "Your Style:\n- Engaging solo narration - like a knowledgeable friend explaining the news\n"
     elif num_hosts == 2:
-        format_example = f"TITLE: Tech & Business Update - Dec 15\n{host_names[0]}: Good morning! Let's dive into today's top stories...\n{host_names[1]}: We've got several important developments to cover..."
+        format_example = f"TITLE: Tech & Business Update - Dec 15\n{host_names[0]}: Hey everyone, welcome back to {show_name}! I'm {host_names[0]} here with {host_names[1]}. We've got a packed show today.\n{host_names[1]}: Yeah, lots to cover. Let's get into it...\n[CHAPTER: Tech News]\n{host_names[0]}: First up..."
         host_intro = f"You are a team of two expert podcast hosts ({host_names[0]} and {host_names[1]}) creating insightful daily audio briefings."
         style_note = "Your Style:\n- Casual and informative - like smart friends having an engaging conversation about the news\n"
     else:
-        format_example = f"TITLE: Tech & Business Update - Dec 15\n{host_names[0]}: Good morning! Let's dive into today's top stories...\n{host_names[1]}: We've got several important developments to cover...\n{host_names[2]}: And there's more to unpack here..."
+        format_example = f"TITLE: Tech & Business Update - Dec 15\n{host_names[0]}: What's up everybody, welcome back to {show_name}! I'm {host_names[0]}, got {other_hosts} with me. Ready to dive in?\n{host_names[1]}: Let's do it. We've got some interesting stuff today.\n{host_names[2]}: Yeah, there's a lot happening...\n[CHAPTER: Tech News]\n{host_names[0]}: First up..."
         host_intro = f"You are a team of three expert podcast hosts ({host_names[0]}, {host_names[1]}, and {host_names[2]}) creating insightful daily audio briefings."
         style_note = "Your Style:\n- Engaging panel discussion - like knowledgeable friends having a dynamic conversation about the news\n"
     
@@ -178,22 +240,25 @@ AVOID:
 CRITICAL OUTPUT RULES:
 - FIRST: Output a short, glanceable podcast title (max 60 characters) that includes the key topics. Format: TITLE: [title here]
 - THEN: Output ONLY spoken dialogue - what the hosts actually say out loud
+- INCLUDE chapter markers to break up the content into logical sections. Format: [CHAPTER: Short Title Here] where the title is no more than 5 words. Place chapter markers at natural transition points between major topics or stories. Each chapter should represent a distinct story or topic being discussed.
 - DO NOT include stage directions, sound effects, or production notes like [MUSIC], [PAUSE], [INTRO], [OUTRO], etc.
 - DO NOT include asterisks or brackets with instructions like *laughs*, *sighs*, [clears throat]
-- DO NOT include timestamps, chapter markers, or section headers
+- DO NOT include timestamps or other section headers
+
+CRITICAL: {cast_intro_text}
 
 Format your response EXACTLY like this:
 {format_example}
 
-If a user name is provided, personalize the introduction by addressing the user by name (e.g., "Hey David, let's kick off today's briefing" or "Good morning, David! Let's dive into today's top stories..."). 
+If a user name is provided, greet them naturally (e.g., "Hey David!" or "What's up, David?"). Keep it casual - don't force it into every sentence.
 
-When the time of day context is provided (Morning, Afternoon, Evening, or Night), use it to craft an appropriate greeting and set the right tone. For example:
+When the time of day context is provided, use an appropriate greeting naturally:
 - Morning: "Good morning!" or "Rise and shine!"
 - Afternoon: "Good afternoon!" or "Hope you're having a great afternoon!"
 - Evening: "Good evening!" or "Hope you're winding down nicely!"
 - Night: "Good evening!" or "Hope you're having a relaxing evening!"
 
-IMPORTANT: Always reference the current date accurately in the briefing. Include the full date (month, day, and year) when appropriate, especially in the opening. For example: "Good morning! It's January 15th, 2025..." or "Welcome to today's briefing for January 15th, 2025." Ensure the month and year are correct based on the current date provided in the prompt.
+About the date: Don't put the date in the opening line - it sounds robotic. Instead, weave the date naturally into the content when referencing specific stories (e.g., "So this news just dropped today..." or mentioning the day of week). If you must reference the date explicitly, do it casually mid-briefing, not as part of the intro.
 
 When specific topics are provided, make sure to cover stories from ALL of those topics and reference them naturally throughout the conversation. The conversation should feel like {('a knowledgeable friend' if num_hosts == 1 else 'smart friends')} casually discussing the news, informative but never stuffy or overly formal."""
     
@@ -238,24 +303,26 @@ AVOID:
 CRITICAL OUTPUT RULES:
 - FIRST: Output a short, glanceable podcast title (max 60 characters) that includes the key topics. Format: TITLE: [title here]
 - THEN: Output ONLY spoken dialogue - what the hosts actually say out loud
+- INCLUDE chapter markers to break up the content into logical sections. Format: [CHAPTER: Short Title Here] where the title is no more than 5 words. Place chapter markers at natural transition points between major topics or stories.
 - DO NOT include stage directions, sound effects, or production notes like [MUSIC], [PAUSE], [INTRO], [OUTRO], etc.
 - DO NOT include asterisks or brackets with instructions like *laughs*, *sighs*, [clears throat]
-- DO NOT include timestamps, chapter markers, or section headers
+- DO NOT include timestamps or other section headers
 
 Format your response EXACTLY like this:
 TITLE: Tech & Business Update - Dec 15
 HOST1: Good morning! Let's dive into today's top stories...
+[CHAPTER: Tech Updates]
 HOST2: We've got several important developments to cover...
 
-If a user name is provided, personalize the introduction by addressing the user by name (e.g., "Hey David, let's kick off today's briefing" or "Good morning, David! Let's dive into today's top stories..."). 
+If a user name is provided, greet them naturally (e.g., "Hey David!" or "What's up, David?"). Keep it casual.
 
-When the time of day context is provided (Morning, Afternoon, Evening, or Night), use it to craft an appropriate greeting and set the right tone. For example:
+When the time of day context is provided, use an appropriate greeting naturally:
 - Morning: "Good morning!" or "Rise and shine!"
-- Afternoon: "Good afternoon!" or "Hope you're having a great afternoon!"
+- Afternoon: "Good afternoon!" or "Hope you're having a great afternoon!"  
 - Evening: "Good evening!" or "Hope you're winding down nicely!"
 - Night: "Good evening!" or "Hope you're having a relaxing evening!"
 
-IMPORTANT: Always reference the current date accurately in the briefing. Include the full date (month, day, and year) when appropriate, especially in the opening. For example: "Good morning! It's January 15th, 2025..." or "Welcome to today's briefing for January 15th, 2025." Ensure the month and year are correct based on the current date provided in the prompt.
+About the date: Don't put the date in the opening line. Weave date references naturally into the content when needed. Keep the intro conversational and podcast-like.
 
 When specific topics are provided, make sure to cover stories from ALL of those topics and reference them naturally throughout the conversation. The conversation should feel like two smart friends casually discussing the news, informative but never stuffy or overly formal."""
 
@@ -272,7 +339,7 @@ IMPORTANT CONTEXT FOR THIS BRIEFING:
 - Time of day: {time_of_day}
 {name_instruction}
 
-CRITICAL: Use the EXACT current date provided above when referencing dates in the briefing. Ensure the month and year are correct. For example, if the current date is "January 15, 2025", use "January 15, 2025" or "January 15th, 2025" - do NOT use incorrect dates like "December 15" or "2024".
+NOTE: When you need to reference dates in the briefing, use the current date provided above. Don't announce the date in the opening - weave it naturally into the content when discussing specific stories.
 
 The hosts should clearly reference these specific topics throughout the briefing and ensure coverage across all of them.
 
@@ -421,6 +488,55 @@ HOST2: Let me add some context to that...
 If a user name is provided, personalize the introduction by addressing the user by name (e.g., "Hey David, here's your latest update" or "David, let me catch you up on...")."""
 
 
+def build_story_analysis_system_prompt(topics: list[str]) -> str:
+    """Build story analysis system prompt with topic-specific instructions.
+    
+    Args:
+        topics: List of topics the user has chosen to focus on
+        
+    Returns:
+        System prompt string with topic-specific guidance
+    """
+    # Format topics for display
+    if topics:
+        if len(topics) == 1:
+            topics_str = topics[0]
+        elif len(topics) == 2:
+            topics_str = f"{topics[0]} and {topics[1]}"
+        else:
+            topics_str = ", ".join(topics[:-1]) + f", and {topics[-1]}"
+    else:
+        topics_str = "general news"
+    
+    prompt = f"""You are a senior news editor with expertise in identifying the most important and newsworthy stories.
+
+Your task is to analyze a collection of news articles and narrow them down to 3-5 top stories, stack-ranked in priority order.
+
+USER'S CHOSEN TOPICS: {topics_str}
+
+CRITICAL PRIORITY RULES:
+1. **WEATHER STORIES ARE ALWAYS TOP PRIORITY** - Any article about weather, storms, natural disasters, or climate-related events must be ranked #1, regardless of other factors. Weather affects everyone's daily life and safety.
+
+2. **TOPIC RELEVANCE IS CRITICAL** - The user has specifically chosen to focus on: {topics_str}
+   - **PRIORITIZE** articles that are directly related to these topics
+   - **DEPRIORITIZE** articles that seem unrelated or only tangentially connected to these topics
+   - Articles that don't align with the user's chosen topics should be ranked lower or excluded unless they are weather-related or have exceptional impact/significance
+
+Consider these factors when ranking (after weather priority):
+1. TOPIC RELEVANCE: How directly does this article relate to the user's chosen topics ({topics_str})? This is a primary factor - prioritize articles that match the user's interests.
+2. IMPACT: How many people does this affect? What are the consequences?
+3. TIMELINESS: Is this breaking news or a developing story?
+4. SIGNIFICANCE: Does this represent a major shift, breakthrough, or turning point?
+5. UNIQUENESS: Is this a fresh story or just rehashing known information?
+6. STORY QUALITY: Does the article have enough substance to discuss meaningfully?
+7. TOPIC BALANCE: When multiple topics are requested, ensure the final selection includes important stories from EACH topic. Don't let one dominant topic crowd out others.
+
+Be ruthless in your ranking - not all stories are equal. Some may be minor updates, clickbait, or unrelated to the user's interests and shouldn't make the cut. Your goal is to select ONLY the 3-5 most important stories that align with the user's chosen topics."""
+    
+    return prompt
+
+
+# Legacy constant for backward compatibility (will be replaced by dynamic function)
 STORY_ANALYSIS_SYSTEM_PROMPT = """You are a senior news editor with expertise in identifying the most important and newsworthy stories.
 
 Your task is to analyze a collection of news articles and narrow them down to 3-5 top stories, stack-ranked in priority order.
@@ -451,10 +567,11 @@ ARTICLES TO ANALYZE:
 INSTRUCTIONS:
 1. Review all {article_count} articles
 2. **FIRST**: Identify any weather-related stories (storms, natural disasters, weather warnings, climate events). These MUST be ranked #1.
-3. Select ONLY the TOP 3-5 most important/newsworthy stories (aim for 3-5, not more)
-4. Rank them in strict priority order (1 = highest priority, 2 = second priority, etc.)
-5. **TOPIC BALANCE**: If multiple topics are listed above, ensure your selection includes important stories from EACH topic when possible. Don't let one topic dominate the selection - the user wants coverage across all their chosen topics.
-6. For each selected story, provide:
+3. **TOPIC RELEVANCE**: Prioritize articles that are directly related to the topics listed above ({topics}). Deprioritize articles that seem unrelated or only tangentially connected to these topics. Articles that don't align with the user's chosen topics should be ranked lower or excluded unless they are weather-related or have exceptional impact/significance.
+4. Select ONLY the TOP 3-5 most important/newsworthy stories (aim for 3-5, not more) that align with the user's topic interests
+5. Rank them in strict priority order (1 = highest priority, 2 = second priority, etc.)
+6. **TOPIC BALANCE**: If multiple topics are listed above, ensure your selection includes important stories from EACH topic when possible. Don't let one topic dominate the selection - the user wants coverage across all their chosen topics.
+7. For each selected story, provide:
    - The article number (from the list above)
    - A priority score (1-10, where 10 is highest priority)
    - A brief reason why this story matters (1 sentence)
@@ -620,6 +737,8 @@ def format_briefing_prompt(
     additional_facts: dict[int, list[str]] | None = None,
     ranked_items: list | None = None,
     cast_members: list[dict] | None = None,
+    cast_name: str | None = None,
+    briefing_title: str | None = None,
 ) -> tuple[str, str]:
     """Format briefing prompt with content.
     
@@ -709,7 +828,12 @@ def format_briefing_prompt(
     
     # Build system prompt dynamically if cast_members provided, otherwise use default
     if cast_members:
-        system_prompt = build_briefing_system_prompt(cast_members) + complexity_instruction
+        system_prompt = build_briefing_system_prompt(
+            cast_members, 
+            cast_name=cast_name,
+            topics=topics,
+            briefing_title=briefing_title,
+        ) + complexity_instruction
     else:
         # Fallback to default prompt for backward compatibility
         system_prompt = BRIEFING_SYSTEM_PROMPT + complexity_instruction
@@ -819,7 +943,10 @@ Summary: {article.get('summary', 'No summary available')[:300]}
         max_stories=max_stories,
     )
     
-    return STORY_ANALYSIS_SYSTEM_PROMPT, user_prompt
+    # Build system prompt with topic-specific instructions
+    system_prompt = build_story_analysis_system_prompt(topics)
+    
+    return system_prompt, user_prompt
 
 
 def format_facts_agent_prompt(

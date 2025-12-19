@@ -28,6 +28,11 @@ from app.utils.timezone import utc_now, local_now, format_local_datetime
 settings = get_settings()
 
 
+class BriefingCancelledException(Exception):
+    """Exception raised when a briefing generation is cancelled."""
+    pass
+
+
 class BriefingService:
     """Service for generating daily audio briefings."""
     
@@ -36,11 +41,28 @@ class BriefingService:
         self.llm = get_llm_provider()
         self.news = get_news_service()
     
+    async def _check_cancelled(self, briefing_id: str) -> None:
+        """Check if briefing has been cancelled and raise exception if so.
+        
+        Args:
+            briefing_id: The briefing ID to check
+            
+        Raises:
+            BriefingCancelledException: If the briefing has been cancelled
+        """
+        result = await self.db.execute(
+            select(Briefing).where(Briefing.id == briefing_id)
+        )
+        briefing = result.scalar_one_or_none()
+        if briefing and briefing.status == "cancelled":
+            raise BriefingCancelledException("Briefing was cancelled by user")
+    
     async def create_briefing(
         self,
         user_id: str,
         topic_ids: Optional[list[str]] = None,
         max_duration_minutes: int = 10,
+        name: Optional[str] = None,
     ) -> Briefing:
         """Create a new briefing record.
         
@@ -48,13 +70,17 @@ class BriefingService:
             user_id: The user ID creating the briefing
             topic_ids: List of topic IDs to include in the briefing
             max_duration_minutes: Target duration in minutes
+            name: Optional name for the briefing (used for scheduled briefings)
         """
         # Use local time for the title display
         local_date = local_now()
         date_str = local_date.strftime('%B %d, %Y')
         
-        # Generate a descriptive title based on topics
-        title = await self._generate_briefing_title(user_id, topic_ids, date_str)
+        # Use provided name if available, otherwise generate a descriptive title based on topics
+        if name:
+            title = name
+        else:
+            title = await self._generate_briefing_title(user_id, topic_ids, date_str)
         
         briefing = Briefing(
             id=str(uuid.uuid4()),
@@ -154,11 +180,12 @@ class BriefingService:
         try:
             # Update status and initialize progress
             briefing.status = "generating"
+            total_steps = 8
             briefing.extra_data = {
                 **briefing.extra_data,
                 "progress": {
                     "step": 1,
-                    "total_steps": 7,
+                    "total_steps": total_steps,
                     "step_name": "Fetching news sources",
                     "percent": 0,
                 },
@@ -168,22 +195,17 @@ class BriefingService:
             # Helper to update progress
             async def update_progress(step: int, step_name: str, percent: int = None):
                 # Check if cancelled
-                result = await self.db.execute(
-                    select(Briefing).where(Briefing.id == briefing_id)
-                )
-                current = result.scalar_one_or_none()
-                if current and current.status == "cancelled":
-                    raise Exception("Briefing was cancelled")
+                await self._check_cancelled(briefing_id)
                 
                 # Calculate percent based on step if not provided
                 if percent is None:
-                    percent = int((step - 1) / 7 * 100)
+                    percent = int((step - 1) / total_steps * 100)
                 
                 briefing.extra_data = {
                     **briefing.extra_data,
                     "progress": {
                         "step": step,
-                        "total_steps": 7,
+                        "total_steps": total_steps,
                         "step_name": step_name,
                         "percent": percent,
                     },
@@ -205,8 +227,10 @@ class BriefingService:
             rss_items = []
             if any_use_newsapi:
                 await update_progress(1, "Fetching RSS feeds", 5)
+                await self._check_cancelled(briefing_id)
                 print("[Briefing] Fetching news from RSS feeds...")
                 rss_items = await self.news.fetch_all_feeds()
+                await self._check_cancelled(briefing_id)
             else:
                 await update_progress(1, "Skipping RSS feeds (only using custom sites)", 5)
                 print("[Briefing] Skipping RSS feeds - all topics have use_newsapi=False (using custom sites only)")
@@ -215,8 +239,10 @@ class BriefingService:
             newsapi_items = []
             if newsapi_topic_names:
                 await update_progress(2, "Fetching news from NewsAPI", 20)
+                await self._check_cancelled(briefing_id)
                 print("[Briefing] Fetching news from NewsAPI...")
                 fetched_newsapi_items = await self.news.fetch_newsapi(topics=newsapi_topic_names)
+                await self._check_cancelled(briefing_id)
                 
                 # Filter NewsAPI items to ensure they only match topics with use_newsapi=True
                 # NewsAPI items have category set to topic name (lowercase)
@@ -232,11 +258,14 @@ class BriefingService:
             
             # Step 3: Fetch from custom sites
             await update_progress(3, "Fetching custom sites", 35)
+            await self._check_cancelled(briefing_id)
             print("[Briefing] Fetching from custom sites...")
             custom_site_items = await self._fetch_custom_site_articles(
                 briefing.user_id,
                 topic_ids,
+                briefing_id=briefing_id,
             )
+            await self._check_cancelled(briefing_id)
             print(f"[Briefing] Found {len(custom_site_items)} articles from custom sites")
             
             # Combine articles from all sources
@@ -263,14 +292,17 @@ class BriefingService:
             
             # Step 4: Analyze and rank stories with LLM to narrow down to 3-5 top stories
             await update_progress(4, "Analyzing and ranking stories", 50)
+            await self._check_cancelled(briefing_id)
             if len(news_items) > 3:
                 # Always use story analysis when we have more than 3 articles to narrow down to 3-5
                 print(f"[Briefing] Analyzing {len(news_items)} stories to narrow down to 3-5 top stories...")
                 ranked_items, analysis_summary = await self._analyze_and_rank_stories(
+                    briefing_id=briefing_id,
                     news_items=news_items,
                     topics=topic_names if topic_names else ["technology", "business", "science"],
                     max_stories=target_story_count,
                 )
+                await self._check_cancelled(briefing_id)
                 # Ensure we have 3-5 stories (take top 5 max)
                 ranked_items = ranked_items[:5]
                 print(f"[Briefing] Selected {len(ranked_items)} top stories (stack-ranked in priority order)")
@@ -289,13 +321,16 @@ class BriefingService:
             # Store sources (the ranked/prioritized stories - should be 3-5)
             briefing.sources = [item.to_dict() for item in ranked_items]
             
-            # Step 5: Generate additional facts for each article
-            await update_progress(5, "Generating additional facts", 60)
+            # Step 5: Gather additional facts for each article
+            await update_progress(5, "Gathering additional facts", 60)
+            await self._check_cancelled(briefing_id)
             print("[Briefing] Generating additional facts for articles...")
             additional_facts = await self._generate_additional_facts(
+                briefing_id=briefing_id,
                 ranked_items=ranked_items,
                 topics=topic_names if topic_names else ["technology", "business", "science"],
             )
+            await self._check_cancelled(briefing_id)
             print(f"[Briefing] Generated facts for {len(additional_facts)} articles")
             
             # Step 6: Load cast for this briefing
@@ -308,6 +343,10 @@ class BriefingService:
                     cast = await cast_service.get_default_cast(briefing.user_id)
             else:
                 cast = await cast_service.get_default_cast(briefing.user_id)
+            
+            # Save the cast_id to the briefing so it can be looked up later
+            if cast and not briefing.cast_id:
+                briefing.cast_id = cast.id
             
             # Prepare cast members for prompt
             cast_members = []
@@ -323,6 +362,7 @@ class BriefingService:
             
             # Step 7: Generate podcast script with LLM
             await update_progress(7, "Writing podcast script", 70)
+            await self._check_cancelled(briefing_id)
             user_name = get_settings().user_name
             system_prompt, user_prompt = format_briefing_prompt(
                 content=news_content,
@@ -332,6 +372,8 @@ class BriefingService:
                 additional_facts=additional_facts,
                 ranked_items=ranked_items,
                 cast_members=cast_members,
+                cast_name=cast.name,
+                briefing_title=briefing.title,
             )
             
             response = await self.llm.generate(
@@ -340,6 +382,7 @@ class BriefingService:
                 max_tokens=4096,
                 temperature=0.7,
             )
+            await self._check_cancelled(briefing_id)
             
             # Extract title and script from response
             content = response.content.strip()
@@ -370,7 +413,17 @@ class BriefingService:
             else:
                 print(f"[Briefing] No valid title found in LLM response, keeping existing title: {briefing.title}")
             
-            briefing.transcript = script
+            # Extract chapters from script, or derive from stories if none found
+            chapters = self._extract_chapters(script)
+            
+            # Remove chapter markers from transcript before storing (keep clean transcript for display)
+            clean_transcript = re.sub(r'\[CHAPTER:\s*.+?\]', '', script).strip()
+            briefing.transcript = clean_transcript
+            
+            # If no chapters found in script, derive them from the stories
+            if not chapters and ranked_items:
+                chapters = self._derive_chapters_from_stories(ranked_items)
+                print(f"[Briefing] Derived {len(chapters)} chapters from stories")
             
             # Parse script into segments using cast member names
             segments = self._parse_script(script, cast_members)
@@ -378,25 +431,39 @@ class BriefingService:
             # Build voice_map from cast members
             voice_map = {}
             host_mapping = {}  # Map cast member names to HOST1/HOST2/HOST3
+            host_to_name = {}  # Map HOST1/HOST2/HOST3 to cast member names
             for i, member in enumerate(cast_members):
                 host_key = f"HOST{i+1}"
                 voice_map[host_key] = member["voice_id"]
                 voice_map[member["name"]] = member["voice_id"]  # Also map by name
                 host_mapping[member["name"]] = host_key
+                host_to_name[host_key] = member["name"]
             
             print(f"[Briefing] Voice map: {voice_map}")
             
             # Step 8: Generate audio
             await update_progress(8, "Generating audio", 85)
+            await self._check_cancelled(briefing_id)
             audio_filename = f"briefing_{briefing.id}.mp3"
             audio_path = Path(settings.audio_storage_path) / audio_filename
             audio_path.parent.mkdir(parents=True, exist_ok=True)
             
-            tts_result = await TTSFactory.synthesize_conversation(
-                script=segments,
-                output_path=audio_path,
-                voice_map=voice_map,  # Use cast voice IDs
-            )
+            try:
+                tts_result = await TTSFactory.synthesize_conversation(
+                    script=segments,
+                    output_path=audio_path,
+                    voice_map=voice_map,  # Use cast voice IDs
+                )
+                await self._check_cancelled(briefing_id)
+            except BriefingCancelledException:
+                # Clean up partial audio file if cancelled
+                if audio_path.exists():
+                    try:
+                        audio_path.unlink()
+                        print(f"[Briefing] Cleaned up partial audio file: {audio_path}")
+                    except Exception as e:
+                        print(f"[Briefing] Failed to clean up audio file: {e}")
+                raise
             
             # Build segment timings for the transcript
             segment_timings = []
@@ -415,6 +482,13 @@ class BriefingService:
             else:
                 print("[Briefing] WARNING: No segment timings returned from TTS")
             
+            # Map chapters to audio timestamps using segment timings
+            if chapters and segment_timings:
+                chapters = self._map_chapters_to_timestamps(chapters, script, segment_timings, tts_result.duration_seconds)
+                print(f"[Briefing] Mapped {len(chapters)} chapters to timestamps")
+            elif chapters:
+                print(f"[Briefing] WARNING: Found {len(chapters)} chapters but no segment timings to map them")
+            
             # Update briefing
             briefing.audio_filename = audio_filename
             briefing.duration_seconds = tts_result.duration_seconds
@@ -424,14 +498,20 @@ class BriefingService:
             # Reassign extra_data to ensure SQLAlchemy detects the change
             # (in-place mutations like .update() aren't detected on JSON fields)
             new_extra_data = dict(briefing.extra_data) if briefing.extra_data else {}
+            # Preserve topic_ids - use existing ones if present, otherwise use the ones passed in
+            if "topic_ids" not in new_extra_data or not new_extra_data.get("topic_ids"):
+                new_extra_data["topic_ids"] = topic_ids or []
             new_extra_data.update({
                 "model": response.model,
                 "usage": response.usage,
                 "tts_voice": tts_result.voice_id,
                 "segment_timings": segment_timings,
+                "chapters": chapters,  # Store chapters with timestamps
                 "story_analysis": analysis_summary,
                 "stories_analyzed": len(news_items),
                 "stories_selected": len(ranked_items),
+                "cast_member_names": host_to_name,  # Map HOST1/HOST2 to actual names
+                "topic_ids": new_extra_data.get("topic_ids", topic_ids or []),  # Explicitly preserve topic_ids
             })
             briefing.extra_data = new_extra_data
             
@@ -440,9 +520,23 @@ class BriefingService:
             
             return briefing
             
+        except BriefingCancelledException:
+            # Briefing was cancelled - status already set to cancelled
+            briefing.error_message = "Cancelled by user"
+            await self.db.commit()
+            raise
         except Exception as e:
-            briefing.status = "failed"
-            briefing.error_message = str(e)
+            # Check if cancelled during exception handling
+            result = await self.db.execute(
+                select(Briefing).where(Briefing.id == briefing_id)
+            )
+            current = result.scalar_one_or_none()
+            if current and current.status == "cancelled":
+                briefing.error_message = "Cancelled by user"
+                briefing.status = "cancelled"
+            else:
+                briefing.status = "failed"
+                briefing.error_message = str(e)
             await self.db.commit()
             raise
     
@@ -456,6 +550,8 @@ class BriefingService:
         Returns:
             List of segments with 'speaker' and 'text' keys
         """
+        # Remove chapter markers from script for parsing (they're extracted separately)
+        clean_script = re.sub(r'\[CHAPTER:\s*.+?\]', '', script)
         segments = []
         
         if cast_members:
@@ -467,7 +563,7 @@ class BriefingService:
             pattern_parts = "|".join(escaped_names)
             pattern = rf'^({pattern_parts}):\s*(.+?)(?=^({pattern_parts}):|\Z)'
             
-            matches = re.findall(pattern, script, re.MULTILINE | re.DOTALL | re.IGNORECASE)
+            matches = re.findall(pattern, clean_script, re.MULTILINE | re.DOTALL | re.IGNORECASE)
             
             # Map cast member names to HOST identifiers
             name_to_host = {}
@@ -491,17 +587,17 @@ class BriefingService:
                 if cast_members:
                     segments.append({
                         "speaker": "HOST1",
-                        "text": script,
+                        "text": clean_script,
                     })
                 else:
                     segments.append({
                         "speaker": "HOST1",
-                        "text": script,
+                        "text": clean_script,
                     })
         else:
             # Legacy parsing for backward compatibility
             pattern = r'^(HOST[12]):\s*(.+?)(?=^HOST[12]:|\Z)'
-            matches = re.findall(pattern, script, re.MULTILINE | re.DOTALL)
+            matches = re.findall(pattern, clean_script, re.MULTILINE | re.DOTALL)
             
             if matches:
                 for speaker, text in matches:
@@ -515,10 +611,195 @@ class BriefingService:
                 # Fallback: treat entire script as single speaker
                 segments.append({
                     "speaker": "HOST1",
-                    "text": script,
+                    "text": clean_script,
                 })
         
         return segments
+    
+    def _extract_chapters(self, script: str) -> list[dict]:
+        """Extract chapter markers from script.
+        
+        Args:
+            script: The script text to parse
+            
+        Returns:
+            List of chapters with title and start_time (will be mapped to timestamps later)
+        """
+        chapters = []
+        
+        # Find all chapter markers
+        pattern = r'\[CHAPTER:\s*(.+?)\]'
+        matches = re.finditer(pattern, script)
+        
+        for match in matches:
+            chapters.append({
+                "title": match.group(1).strip(),
+                "start_time": 0.0,  # Will be updated after audio generation
+                "end_time": None,
+            })
+        
+        return chapters
+    
+    def _derive_chapters_from_stories(self, ranked_items: list) -> list[dict]:
+        """Derive chapters from the stories included in the briefing.
+        
+        Args:
+            ranked_items: List of NewsItem objects that were included in the briefing
+            
+        Returns:
+            List of chapters with titles derived from story titles
+        """
+        chapters = []
+        
+        for item in ranked_items:
+            # Use the story title as the chapter title (truncate if too long)
+            title = item.title
+            if len(title) > 60:
+                title = title[:57] + "..."
+            
+            chapters.append({
+                "title": title,
+                "start_time": 0.0,  # Will be mapped to timestamps later
+                "end_time": None,
+            })
+        
+        return chapters
+    
+    def _map_chapters_to_timestamps(
+        self, 
+        chapters: list[dict], 
+        script: str, 
+        segment_timings: list[dict],
+        duration_seconds: float
+    ) -> list[dict]:
+        """Map chapter markers to actual audio timestamps using segment timings.
+        
+        Args:
+            chapters: List of chapters with title and start_time=0.0
+            script: The original script text
+            segment_timings: List of segment timing dicts with start_seconds, end_seconds, text
+            duration_seconds: Total duration of the audio
+            
+        Returns:
+            List of chapters with updated start_time and end_time
+        """
+        if not chapters or not segment_timings:
+            return chapters
+        
+        # Find chapter marker positions in the script
+        chapter_positions = []
+        pattern = r'\[CHAPTER:\s*(.+?)\]'
+        for match in re.finditer(pattern, script):
+            chapter_positions.append({
+                "title": match.group(1).strip(),
+                "position": match.start(),  # Character position in script
+            })
+        
+        # If no chapter markers found in script, chapters were likely derived from stories
+        # Map them evenly across segments based on chapter index
+        if not chapter_positions:
+            mapped_chapters = []
+            num_segments = len(segment_timings)
+            num_chapters = len(chapters)
+            
+            print(f"[Briefing] Mapping {num_chapters} chapters to {num_segments} segments (no chapter markers found)")
+            
+            if num_segments == 0:
+                print("[Briefing] WARNING: No segments available for chapter mapping")
+                return chapters
+            
+            # Distribute chapters across segments
+            for i, chapter in enumerate(chapters):
+                # Calculate which segment this chapter should map to
+                # Distribute chapters evenly across segments
+                if num_chapters > 1:
+                    segment_index = int((i / (num_chapters - 1)) * (num_segments - 1))
+                else:
+                    segment_index = 0
+                segment_index = min(segment_index, num_segments - 1)  # Ensure valid index
+                
+                segment = segment_timings[segment_index]
+                start_time = segment.get("start_seconds", 0.0)
+                
+                print(f"[Briefing] Chapter '{chapter['title'][:50]}...' mapped to segment {segment_index} at {start_time:.2f}s")
+                
+                # Set end_time to next chapter's start_time, or duration if last chapter
+                end_time = duration_seconds if i == num_chapters - 1 else None
+                
+                mapped_chapters.append({
+                    "title": chapter["title"],
+                    "start_time": start_time,
+                    "end_time": end_time,
+                })
+            
+            # Update previous chapter's end_time
+            for i in range(len(mapped_chapters) - 1):
+                if mapped_chapters[i + 1]["start_time"] is not None:
+                    mapped_chapters[i]["end_time"] = mapped_chapters[i + 1]["start_time"]
+            
+            print(f"[Briefing] Successfully mapped {len(mapped_chapters)} chapters")
+            return mapped_chapters
+        
+        # Remove chapter markers from script to match segment text
+        # This helps us find the correct segment
+        script_without_chapters = re.sub(r'\[CHAPTER:\s*.+?\]', '', script)
+        
+        # Build a mapping by finding which segment starts after each chapter marker
+        # We track cumulative text position in the cleaned script
+        mapped_chapters = []
+        current_text_pos = 0
+        
+        for i, chapter_pos in enumerate(chapter_positions):
+            # Find position in cleaned script (accounting for removed chapter markers)
+            # Count characters before this chapter marker in original script
+            text_before_marker = script[:chapter_pos["position"]]
+            # Remove chapter markers from text before this marker
+            text_before_cleaned = re.sub(r'\[CHAPTER:\s*.+?\]', '', text_before_marker)
+            target_pos_in_cleaned = len(text_before_cleaned)
+            
+            # Find which segment contains this position
+            found_segment = None
+            cumulative_pos = 0
+            
+            for segment in segment_timings:
+                segment_text = segment.get("text", "").strip()
+                segment_length = len(segment_text)
+                
+                # Check if this segment contains or comes after the chapter position
+                if cumulative_pos <= target_pos_in_cleaned < cumulative_pos + segment_length:
+                    found_segment = segment
+                    break
+                elif cumulative_pos + segment_length > target_pos_in_cleaned:
+                    # Chapter is before this segment, use this segment's start
+                    found_segment = segment
+                    break
+                
+                cumulative_pos += segment_length
+            
+            # Use the found segment's start time, or first segment if not found
+            if found_segment:
+                start_time = found_segment.get("start_seconds", 0.0)
+            elif segment_timings:
+                start_time = segment_timings[0].get("start_seconds", 0.0)
+            else:
+                start_time = 0.0
+            
+            # Set end_time to next chapter's start_time, or duration if last chapter
+            end_time = duration_seconds if i == len(chapter_positions) - 1 else None
+            
+            chapter = {
+                "title": chapter_pos["title"],
+                "start_time": start_time,
+                "end_time": end_time,
+            }
+            
+            # Update previous chapter's end_time
+            if mapped_chapters:
+                mapped_chapters[-1]["end_time"] = start_time
+            
+            mapped_chapters.append(chapter)
+        
+        return mapped_chapters
     
     async def get_briefing(self, briefing_id: str) -> Optional[Briefing]:
         """Get a briefing by ID."""
@@ -533,6 +814,8 @@ class BriefingService:
         limit: int = 10,
         offset: int = 0,
         listened: Optional[bool] = None,
+        cast_id: Optional[str] = None,
+        topic_ids: Optional[list[str]] = None,
     ) -> tuple[list[Briefing], int]:
         """List briefings for a user.
         
@@ -541,6 +824,8 @@ class BriefingService:
             limit: Maximum number of results
             offset: Number of results to skip
             listened: Optional filter by listened status
+            cast_id: Optional filter by cast ID
+            topic_ids: Optional filter by topic IDs (briefings must contain at least one of these topics)
         """
         # Build query
         query = select(Briefing).where(Briefing.user_id == user_id)
@@ -549,18 +834,38 @@ class BriefingService:
         if listened is not None:
             query = query.where(Briefing.listened == listened)
         
-        # Get total count
-        count_result = await self.db.execute(query)
-        total = len(count_result.scalars().all())
+        # Apply cast_id filter if provided
+        if cast_id is not None:
+            query = query.where(Briefing.cast_id == cast_id)
         
-        # Get paginated results
+        # Get all matching briefings (before topic_ids filter)
         result = await self.db.execute(
-            query
-            .order_by(Briefing.created_at.desc())
-            .limit(limit)
-            .offset(offset)
+            query.order_by(Briefing.created_at.desc())
         )
-        briefings = result.scalars().all()
+        all_briefings = result.scalars().all()
+        
+        # Apply topic_ids filter if provided (filter in Python since topic_ids is in JSON)
+        if topic_ids and len(topic_ids) > 0:
+            filtered_briefings = []
+            for briefing in all_briefings:
+                briefing_topic_ids = briefing.extra_data.get("topic_ids", [])
+                # Ensure briefing_topic_ids is a list
+                if not isinstance(briefing_topic_ids, list):
+                    briefing_topic_ids = []
+                # Convert to sets for easier comparison
+                briefing_topic_set = set(briefing_topic_ids)
+                filter_topic_set = set(topic_ids)
+                # Only include briefings that have at least one matching topic
+                # Exclude briefings with no topics when filtering
+                if briefing_topic_set and briefing_topic_set.intersection(filter_topic_set):
+                    filtered_briefings.append(briefing)
+            all_briefings = filtered_briefings
+        
+        # Get total count
+        total = len(all_briefings)
+        
+        # Apply pagination
+        briefings = all_briefings[offset:offset + limit]
         
         return list(briefings), total
     
@@ -744,6 +1049,7 @@ class BriefingService:
         self,
         user_id: str,
         topic_ids: list[str],
+        briefing_id: Optional[str] = None,
     ) -> list:
         """Fetch articles from user's custom sites matching the given topic IDs.
         
@@ -782,6 +1088,9 @@ class BriefingService:
         # Fetch from all custom sites concurrently
         async def fetch_site(site: CustomSite):
             try:
+                # Check for cancellation before fetching
+                if briefing_id:
+                    await self._check_cancelled(briefing_id)
                 print(f"[Briefing] Fetching from custom site: {site.name} ({site.url})")
                 # Use topic name as category for the scraper
                 topic_name = site.topic.name.lower() if site.topic else "general"
@@ -791,19 +1100,36 @@ class BriefingService:
                     category=topic_name,
                     max_articles=3,  # Limit per site
                 )
+                # Check for cancellation after fetching
+                if briefing_id:
+                    await self._check_cancelled(briefing_id)
                 print(f"[Briefing] Got {len(articles)} articles from {site.name}")
                 # Update last_fetched timestamp
                 site.last_fetched = datetime.utcnow()
                 site.last_error = None
                 return articles
+            except BriefingCancelledException:
+                # Re-raise cancellation exceptions
+                raise
             except Exception as e:
                 print(f"[Briefing] Error fetching from {site.name}: {e}")
                 site.last_error = str(e)[:500]
                 return []
         
         # Run all fetches concurrently
+        # Use return_exceptions=False so cancellation exceptions propagate immediately
         tasks = [fetch_site(site) for site in custom_sites]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        try:
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+        except BriefingCancelledException:
+            # Re-raise cancellation exceptions immediately
+            raise
+        
+        # Check if any task returned a cancellation exception
+        if briefing_id:
+            for result in results:
+                if isinstance(result, BriefingCancelledException):
+                    raise result
         
         # Collect results
         for result in results:
@@ -817,6 +1143,7 @@ class BriefingService:
     
     async def _analyze_and_rank_stories(
         self,
+        briefing_id: str,
         news_items: list,
         topics: list[str],
         max_stories: int,
@@ -852,6 +1179,8 @@ class BriefingService:
         )
         
         try:
+            # Check for cancellation before LLM call
+            await self._check_cancelled(briefing_id)
             # Call LLM to analyze and rank stories
             response = await self.llm.generate(
                 prompt=user_prompt,
@@ -859,6 +1188,8 @@ class BriefingService:
                 max_tokens=2048,
                 temperature=0.3,  # Lower temperature for more consistent analysis
             )
+            # Check for cancellation after LLM call
+            await self._check_cancelled(briefing_id)
             
             # Parse the JSON response
             content = response.content.strip()
@@ -903,6 +1234,7 @@ class BriefingService:
     
     async def _generate_additional_facts(
         self,
+        briefing_id: str,
         ranked_items: list,
         topics: list[str],
     ) -> dict[int, list[str]]:
@@ -935,6 +1267,8 @@ class BriefingService:
         )
         
         try:
+            # Check for cancellation before LLM call
+            await self._check_cancelled(briefing_id)
             # Call LLM to generate facts
             response = await self.llm.generate(
                 prompt=user_prompt,
@@ -942,6 +1276,8 @@ class BriefingService:
                 max_tokens=2048,
                 temperature=0.5,  # Moderate temperature for factual but varied responses
             )
+            # Check for cancellation after LLM call
+            await self._check_cancelled(briefing_id)
             
             # Parse the JSON response
             content = response.content.strip()

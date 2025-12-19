@@ -2,7 +2,7 @@
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, status
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -28,6 +28,7 @@ async def generate_briefing_task(
 ):
     """Background task to generate briefing."""
     from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+    from app.services.briefing import BriefingCancelledException
     
     engine = create_async_engine(db_url)
     async_session = async_sessionmaker(engine, expire_on_commit=False)
@@ -40,8 +41,11 @@ async def generate_briefing_task(
                 topic_ids=topic_ids,
                 max_duration_minutes=max_duration,
             )
+        except BriefingCancelledException:
+            # Briefing was cancelled - this is expected, just log it
+            print(f"[Briefing] Briefing {briefing_id} was cancelled by user")
         except Exception as e:
-            print(f"Briefing generation failed: {e}")
+            print(f"[Briefing] Briefing generation failed: {e}")
         finally:
             await engine.dispose()
 
@@ -51,12 +55,21 @@ async def list_briefings(
     limit: int = 10,
     offset: int = 0,
     listened: Optional[bool] = None,
+    cast_id: Optional[str] = None,
+    topic_ids: Optional[list[str]] = Query(None),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """List all briefings for the current user."""
     service = BriefingService(db)
-    briefings, total = await service.list_briefings(user.id, limit, offset, listened=listened)
+    briefings, total = await service.list_briefings(
+        user.id, 
+        limit, 
+        offset, 
+        listened=listened,
+        cast_id=cast_id,
+        topic_ids=topic_ids,
+    )
     
     return BriefingListResponse(
         briefings=[BriefingResponse.model_validate(b) for b in briefings],

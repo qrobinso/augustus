@@ -148,20 +148,17 @@ export default function DeepCasts() {
           </div>
           
           {/* Cast selector */}
-          {castsData && castsData.casts.length > 0 && (
+          {castsData && castsData.casts.length > 1 && (
             <div>
-              <label className="label">Cast (optional - uses default if not selected)</label>
+              <label className="label">Cast</label>
               <select
-                value={selectedCastId || ''}
+                value={selectedCastId || castsData.casts.find(c => c.is_default)?.id || ''}
                 onChange={(e) => setSelectedCastId(e.target.value || undefined)}
                 className="input"
               >
-                <option value="">
-                  Default ({castsData.casts.find(c => c.is_default)?.name || 'Alex and Sam'})
-                </option>
                 {castsData.casts.map((cast) => (
                   <option key={cast.id} value={cast.id}>
-                    {cast.name} {cast.is_default && '(Default)'}
+                    {cast.name}{cast.is_default ? ' ★' : ''}
                   </option>
                 ))}
               </select>

@@ -98,55 +98,59 @@ async def process_briefing_queue():
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
     # Startup
-    await init_db()
-    
-    # Run migrations
-    from app.migrations.rename_sendgrid_to_resend import migrate as migrate_sendgrid_to_resend
     try:
-        await migrate_sendgrid_to_resend()
+        await init_db()
+        
+        # Ensure audio storage directory exists
+        audio_path = Path(settings.audio_storage_path)
+        audio_path.mkdir(parents=True, exist_ok=True)
+        
+        # Ensure models directory exists for Piper
+        models_path = Path("./models")
+        models_path.mkdir(parents=True, exist_ok=True)
+        
+        # Start scheduler
+        try:
+            scheduler.add_job(
+                check_scheduled_briefings,
+                trigger="cron",
+                minute="*",  # Run every minute
+                id="check_scheduled_briefings",
+                replace_existing=True,
+            )
+            # Process queue every 10 seconds for faster processing
+            scheduler.add_job(
+                process_briefing_queue,
+                trigger="interval",
+                seconds=10,
+                id="process_briefing_queue",
+                replace_existing=True,
+            )
+            scheduler.start()
+            print("[Scheduler] Started scheduled briefing checker (runs every minute)")
+            print("[Scheduler] Started briefing queue processor (runs every 10 seconds)")
+        except Exception as e:
+            print(f"[Scheduler] Error starting scheduler: {e}")
+            # Continue even if scheduler fails to start
     except Exception as e:
-        print(f"[Migration] Error running sendgrid to resend migration: {e}")
+        print(f"[Startup] Error during application startup: {e}")
+        raise
     
-    from app.migrations.create_casts_tables import migrate as migrate_casts
     try:
-        await migrate_casts()
-    except Exception as e:
-        print(f"[Migration] Error running casts migration: {e}")
-    
-    # Ensure audio storage directory exists
-    audio_path = Path(settings.audio_storage_path)
-    audio_path.mkdir(parents=True, exist_ok=True)
-    
-    # Ensure models directory exists for Piper
-    models_path = Path("./models")
-    models_path.mkdir(parents=True, exist_ok=True)
-    
-    # Start scheduler
-    scheduler.add_job(
-        check_scheduled_briefings,
-        trigger="cron",
-        minute="*",  # Run every minute
-        id="check_scheduled_briefings",
-        replace_existing=True,
-    )
-    # Process queue every 10 seconds for faster processing
-    scheduler.add_job(
-        process_briefing_queue,
-        trigger="interval",
-        seconds=10,
-        id="process_briefing_queue",
-        replace_existing=True,
-    )
-    scheduler.start()
-    print("[Scheduler] Started scheduled briefing checker (runs every minute)")
-    print("[Scheduler] Started briefing queue processor (runs every 10 seconds)")
-    
-    yield
-    
-    # Shutdown
-    scheduler.shutdown(wait=True)
-    print("[Scheduler] Stopped scheduled briefing checker")
-    await close_db()
+        yield
+    finally:
+        # Shutdown
+        try:
+            if scheduler.running:
+                scheduler.shutdown(wait=True)
+                print("[Scheduler] Stopped scheduled briefing checker")
+        except Exception as e:
+            print(f"[Shutdown] Error shutting down scheduler: {e}")
+        
+        try:
+            await close_db()
+        except Exception as e:
+            print(f"[Shutdown] Error closing database: {e}")
 
 
 app = FastAPI(

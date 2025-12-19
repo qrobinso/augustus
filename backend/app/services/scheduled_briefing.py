@@ -256,11 +256,12 @@ class ScheduledBriefingService:
                     )
                     return None
                 
-                # Create briefing record
+                # Create briefing record with schedule name
                 briefing = await briefing_service.create_briefing(
                     user_id=schedule.user_id,
                     topic_ids=schedule.topic_ids if schedule.topic_ids else None,
                     max_duration_minutes=schedule.max_duration_minutes,
+                    name=schedule.name,
                 )
                 
                 # Set cast_id from scheduled briefing if specified
