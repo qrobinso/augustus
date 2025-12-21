@@ -17,6 +17,7 @@ from app.models.custom_site import CustomSite
 from app.models.topic import Topic
 from app.models.user import User
 from app.models.cast import Cast
+from app.models.article import Article
 from app.services.cast import CastService
 from app.services.llm.openrouter import get_llm_provider
 from app.services.llm.prompts import format_briefing_prompt, format_story_analysis_prompt, format_facts_agent_prompt
@@ -260,7 +261,7 @@ class BriefingService:
             await update_progress(3, "Fetching custom sites", 35)
             await self._check_cancelled(briefing_id)
             print("[Briefing] Fetching from custom sites...")
-            custom_site_items = await self._fetch_custom_site_articles(
+            custom_site_items, custom_site_url_to_topic_id = await self._fetch_custom_site_articles(
                 briefing.user_id,
                 topic_ids,
                 briefing_id=briefing_id,
@@ -274,28 +275,67 @@ class BriefingService:
             # - newsapi_items: Filtered to only include topics with use_newsapi=True (empty if all topics have use_newsapi=False)
             # - rss_items: Global RSS feeds (only included if at least one topic has use_newsapi=True)
             all_items = custom_site_items + newsapi_items + rss_items
+            
+            # Build URL to topic_id mapping for later use when saving ranked articles
+            # This allows us to save only articles that were actually used in the podcast script
+            url_to_topic_id = {}
+            url_to_topic_id.update(custom_site_url_to_topic_id)  # Add custom site mappings
+            
+            topic_name_to_id = {t.name.lower(): t.id for t in topics_data}
+            
+            # Map NewsAPI items by category (category is set to topic name lowercase)
+            for item in newsapi_items:
+                if item.url and item.category:
+                    topic_id = topic_name_to_id.get(item.category.lower())
+                    if topic_id:
+                        url_to_topic_id[item.url] = topic_id
+            
+            # Map RSS items to first topic (if available)
+            default_topic_id = topics_data[0].id if topics_data else None
+            for item in rss_items:
+                if item.url and default_topic_id:
+                    url_to_topic_id[item.url] = default_topic_id
+            
+            # Check for duplicates by URL in database
+            urls = [item.url for item in all_items if item.url]
+            existing_urls = await self._get_existing_article_urls(urls)
+            
+            # Filter out duplicates by URL (both in-memory and database)
             seen_titles = set()
+            seen_urls = set()
             news_items = []
             for item in all_items:
-                # Simple dedup by title similarity
+                # Skip if URL already exists in database (was discussed before)
+                if item.url and item.url in existing_urls:
+                    continue
+                
+                # Simple dedup by title similarity (in-memory)
                 title_key = item.title.lower()[:50]
                 if title_key not in seen_titles:
                     seen_titles.add(title_key)
-                    news_items.append(item)
+                    # Also dedup by URL
+                    if item.url and item.url not in seen_urls:
+                        seen_urls.add(item.url)
+                        news_items.append(item)
             
-            print(f"[Briefing] Total unique news items: {len(news_items)}")
+            print(f"[Briefing] Total unique news items after deduplication: {len(news_items)} (filtered {len(all_items) - len(news_items)} duplicates)")
             
-            # News editor should narrow down to 3-5 articles, stack-ranked in priority order
+            # News editor should filter by topic relevance and narrow down to 3-5 articles, stack-ranked in priority order
             # Weather stories are always top priority
             target_story_count = 5  # Aim for 5, but allow 3-5 range
             print(f"[Briefing] Target: 3-5 stories (stack-ranked in priority order, weather stories top priority)")
             
-            # Step 4: Analyze and rank stories with LLM to narrow down to 3-5 top stories
+            # Step 4: Analyze and rank stories with LLM to filter by topic relevance and narrow down to 3-5 top stories
+            # CRITICAL: Always call story analysis when we have 2+ articles to ensure topic relevance filtering happens
+            # The senior news editor prompt will filter out articles that don't relate to the chosen topics
             await update_progress(4, "Analyzing and ranking stories", 50)
             await self._check_cancelled(briefing_id)
-            if len(news_items) > 3:
-                # Always use story analysis when we have more than 3 articles to narrow down to 3-5
-                print(f"[Briefing] Analyzing {len(news_items)} stories to narrow down to 3-5 top stories...")
+            if len(news_items) > 1:
+                # Always use story analysis when we have 2+ articles to:
+                # 1. Filter out articles that don't relate to the chosen topics (CRITICAL - ensures topic relevance)
+                # 2. Rank articles by importance and topic relevance
+                # 3. Narrow down to 3-5 top stories (or fewer if not enough relevant articles)
+                print(f"[Briefing] Analyzing {len(news_items)} stories with senior news editor to filter by topic relevance and narrow down to 3-5 top stories...")
                 ranked_items, analysis_summary = await self._analyze_and_rank_stories(
                     briefing_id=briefing_id,
                     news_items=news_items,
@@ -305,14 +345,19 @@ class BriefingService:
                 await self._check_cancelled(briefing_id)
                 # Ensure we have 3-5 stories (take top 5 max)
                 ranked_items = ranked_items[:5]
-                print(f"[Briefing] Selected {len(ranked_items)} top stories (stack-ranked in priority order)")
+                print(f"[Briefing] Selected {len(ranked_items)} top stories after topic relevance filtering (stack-ranked in priority order)")
                 if analysis_summary:
                     print(f"[Briefing] Analysis: {analysis_summary}")
-            else:
-                # If 3 or fewer stories, use them all (no need to narrow down)
+            elif len(news_items) == 1:
+                # Single article - use it directly (story analysis not needed for filtering/ranking)
                 ranked_items = news_items
                 analysis_summary = None
-                print(f"[Briefing] Using all {len(ranked_items)} stories (no narrowing needed)")
+                print(f"[Briefing] Using single story: {news_items[0].title[:60]}...")
+            else:
+                # No articles found
+                ranked_items = []
+                analysis_summary = None
+                print(f"[Briefing] Warning: No news items found to analyze")
             
             # Format the prioritized stories for the podcast prompt
             # Use all ranked items (should be 3-5 stories)
@@ -320,6 +365,24 @@ class BriefingService:
             
             # Store sources (the ranked/prioritized stories - should be 3-5)
             briefing.sources = [item.to_dict() for item in ranked_items]
+            
+            # Save ONLY the articles that were used in the podcast script (ranked_items)
+            # Group by topic_id to save efficiently
+            articles_by_topic = {}
+            for item in ranked_items:
+                if item.url:
+                    topic_id = url_to_topic_id.get(item.url)
+                    # Use None as key if topic_id not found (for articles without topic mapping)
+                    if topic_id not in articles_by_topic:
+                        articles_by_topic[topic_id] = []
+                    articles_by_topic[topic_id].append(item)
+            
+            # Save articles grouped by topic_id
+            for topic_id, items in articles_by_topic.items():
+                await self._save_articles(items, topic_id=topic_id)
+            
+            saved_count = sum(len(items) for items in articles_by_topic.values())
+            print(f"[Briefing] Saved {saved_count} articles that were used in the podcast script")
             
             # Step 5: Gather additional facts for each article
             await update_progress(5, "Gathering additional facts", 60)
@@ -360,6 +423,28 @@ class BriefingService:
             
             print(f"[Briefing] Using cast '{cast.name}' with {len(cast_members)} member(s)")
             
+            # Get recent articles for continuity context (not used in script, but for context)
+            recent_articles = []
+            if topic_ids:
+                recent_articles = await self._get_recent_articles_for_topics(
+                    topic_ids=topic_ids,
+                    limit=5,  # Get last 5 articles per topic for context
+                )
+                print(f"[Briefing] Found {len(recent_articles)} recent articles for continuity context")
+            
+            # Get last script with matching topic_ids for continuity
+            last_script = None
+            if topic_ids:
+                last_script = await self.get_last_script_for_topics(
+                    user_id=briefing.user_id,
+                    topic_ids=topic_ids,
+                    exclude_briefing_id=briefing_id,
+                )
+                if last_script:
+                    print(f"[Briefing] Found last script with matching topics ({len(last_script)} chars) for continuity reference")
+                else:
+                    print(f"[Briefing] No previous script found with matching topics")
+            
             # Step 7: Generate podcast script with LLM
             await update_progress(7, "Writing podcast script", 70)
             await self._check_cancelled(briefing_id)
@@ -374,6 +459,8 @@ class BriefingService:
                 cast_members=cast_members,
                 cast_name=cast.name,
                 briefing_title=briefing.title,
+                recent_articles=recent_articles,
+                last_script=last_script,
             )
             
             response = await self.llm.generate(
@@ -808,6 +895,56 @@ class BriefingService:
         )
         return result.scalar_one_or_none()
     
+    async def get_last_script_for_topics(
+        self,
+        user_id: str,
+        topic_ids: Optional[list[str]],
+        exclude_briefing_id: Optional[str] = None,
+    ) -> Optional[str]:
+        """Get the transcript from the most recent completed briefing with matching topic_ids.
+        
+        Args:
+            user_id: The user ID
+            topic_ids: List of topic IDs to match (must match exactly)
+            exclude_briefing_id: Optional briefing ID to exclude from results
+            
+        Returns:
+            The transcript text, or None if no matching briefing found
+        """
+        if not topic_ids or len(topic_ids) == 0:
+            return None
+        
+        # Get all completed briefings for this user with transcripts
+        query = select(Briefing).where(
+            Briefing.user_id == user_id,
+            Briefing.status == "completed",
+            Briefing.transcript.isnot(None),
+        )
+        
+        # Exclude current briefing if provided
+        if exclude_briefing_id:
+            query = query.where(Briefing.id != exclude_briefing_id)
+        
+        # Order by generated_at descending (most recent first)
+        query = query.order_by(Briefing.generated_at.desc())
+        
+        result = await self.db.execute(query)
+        all_briefings = result.scalars().all()
+        
+        # Filter to exact topic_ids match
+        topic_set = set(topic_ids)
+        for briefing in all_briefings:
+            briefing_topic_ids = briefing.extra_data.get("topic_ids", [])
+            if not isinstance(briefing_topic_ids, list):
+                briefing_topic_ids = []
+            
+            # Check for exact match (same set of topics)
+            briefing_topic_set = set(briefing_topic_ids)
+            if briefing_topic_set == topic_set and briefing.transcript:
+                return briefing.transcript
+        
+        return None
+    
     async def list_briefings(
         self,
         user_id: str,
@@ -1050,7 +1187,7 @@ class BriefingService:
         user_id: str,
         topic_ids: list[str],
         briefing_id: Optional[str] = None,
-    ) -> list:
+    ) -> tuple[list, dict[str, str]]:
         """Fetch articles from user's custom sites matching the given topic IDs.
         
         Args:
@@ -1058,7 +1195,7 @@ class BriefingService:
             topic_ids: List of topic IDs to filter by
             
         Returns:
-            List of NewsItem objects from custom sites
+            Tuple of (list of NewsItem objects, dict mapping URL to topic_id)
         """
         # Build query for active custom sites
         query = (
@@ -1080,10 +1217,14 @@ class BriefingService:
         print(f"[Briefing] Found {len(custom_sites)} custom sites for topic_ids: {topic_ids}")
         
         if not custom_sites:
-            return []
+            return [], {}
         
         scraper = get_scraper_service()
         all_articles = []
+        url_to_topic_id = {}  # Map URLs to topic_ids for custom site articles
+        
+        # Store site updates to apply after concurrent operations complete
+        site_updates = {}  # site_id -> {last_fetched, last_error}
         
         # Fetch from all custom sites concurrently
         async def fetch_site(site: CustomSite):
@@ -1092,29 +1233,63 @@ class BriefingService:
                 if briefing_id:
                     await self._check_cancelled(briefing_id)
                 print(f"[Briefing] Fetching from custom site: {site.name} ({site.url})")
-                # Use topic name as category for the scraper
-                topic_name = site.topic.name.lower() if site.topic else "general"
-                articles = await scraper.fetch_site_articles(
-                    url=site.url,
-                    site_name=site.name,
-                    category=topic_name,
-                    max_articles=3,  # Limit per site
-                )
+                
+                # Check if this is a Reddit URL
+                if self.news.is_reddit_url(site.url):
+                    # Extract subreddit name and fetch using Reddit API
+                    subreddit = self.news.extract_subreddit_name(site.url)
+                    if subreddit:
+                        print(f"[Briefing] Detected Reddit subreddit: r/{subreddit}, using Reddit API")
+                        articles = await self.news.fetch_reddit_subreddit(
+                            subreddit=subreddit,
+                            max_age_days=3,
+                            limit=25,
+                        )
+                        # Limit to 3 articles per site (same as scraper)
+                        articles = articles[:3]
+                    else:
+                        print(f"[Briefing] Could not extract subreddit name from {site.url}, skipping")
+                        articles = []
+                else:
+                    # Use topic name as category for the scraper
+                    topic_name = site.topic.name.lower() if site.topic else "general"
+                    articles = await scraper.fetch_site_articles(
+                        url=site.url,
+                        site_name=site.name,
+                        category=topic_name,
+                        max_articles=3,  # Limit per site
+                    )
+                
                 # Check for cancellation after fetching
                 if briefing_id:
                     await self._check_cancelled(briefing_id)
                 print(f"[Briefing] Got {len(articles)} articles from {site.name}")
-                # Update last_fetched timestamp
-                site.last_fetched = datetime.utcnow()
-                site.last_error = None
-                return articles
+                
+                # Map article URLs to topic_id for later saving
+                site_url_mapping = {}
+                if articles and site.topic_id:
+                    for article in articles:
+                        if article.url:
+                            url_to_topic_id[article.url] = site.topic_id
+                            site_url_mapping[article.url] = site.topic_id
+                
+                # Store update to apply later (avoid SQLAlchemy session conflicts)
+                site_updates[site.id] = {
+                    "last_fetched": datetime.utcnow(),
+                    "last_error": None,
+                }
+                return articles, site_url_mapping
             except BriefingCancelledException:
                 # Re-raise cancellation exceptions
                 raise
             except Exception as e:
                 print(f"[Briefing] Error fetching from {site.name}: {e}")
-                site.last_error = str(e)[:500]
-                return []
+                # Store error update to apply later
+                site_updates[site.id] = {
+                    "last_fetched": datetime.utcnow(),
+                    "last_error": str(e)[:500],
+                }
+                return [], {}
         
         # Run all fetches concurrently
         # Use return_exceptions=False so cancellation exceptions propagate immediately
@@ -1131,15 +1306,36 @@ class BriefingService:
                 if isinstance(result, BriefingCancelledException):
                     raise result
         
-        # Collect results
+        # Collect results and merge URL-to-topic_id mappings
+        merged_url_to_topic_id = {}
         for result in results:
-            if isinstance(result, list):
+            if isinstance(result, tuple) and len(result) == 2:
+                articles, url_mapping = result
+                if isinstance(articles, list):
+                    all_articles.extend(articles)
+                if isinstance(url_mapping, dict):
+                    merged_url_to_topic_id.update(url_mapping)
+            elif isinstance(result, list):
+                # Fallback for old format (shouldn't happen, but be safe)
                 all_articles.extend(result)
+        
+        # Apply site updates after all concurrent operations complete
+        # This avoids SQLAlchemy session conflicts from modifying objects during concurrent operations
+        if site_updates:
+            for site_id, updates in site_updates.items():
+                # Refresh the site object to ensure we have the latest state
+                result = await self.db.execute(
+                    select(CustomSite).where(CustomSite.id == site_id)
+                )
+                site = result.scalar_one_or_none()
+                if site:
+                    site.last_fetched = updates["last_fetched"]
+                    site.last_error = updates["last_error"]
         
         # Commit the last_fetched updates
         await self.db.commit()
         
-        return all_articles
+        return all_articles, merged_url_to_topic_id
     
     async def _analyze_and_rank_stories(
         self,
@@ -1313,4 +1509,125 @@ class BriefingService:
             print(f"[Briefing] Warning: Facts generation failed: {e}")
             print(f"[Briefing] Falling back to empty facts")
             return {}
+    
+    async def _save_articles(
+        self,
+        news_items: list,
+        topic_id: Optional[str] = None,
+    ) -> None:
+        """Save articles to the database.
+        
+        Args:
+            news_items: List of NewsItem objects to save
+            topic_id: Optional topic ID to associate articles with
+        """
+        if not news_items:
+            return
+        
+        # Check for existing articles by URL to avoid duplicates
+        urls = [item.url for item in news_items if item.url]
+        if not urls:
+            return
+        
+        result = await self.db.execute(
+            select(Article).where(Article.url.in_(urls))
+        )
+        existing_articles = {article.url: article for article in result.scalars().all()}
+        
+        # Save new articles
+        new_count = 0
+        for item in news_items:
+            if not item.url:
+                continue
+            
+            # Skip if already exists
+            if item.url in existing_articles:
+                continue
+            
+            article = Article(
+                id=str(uuid.uuid4()),
+                title=item.title[:500],  # Ensure it fits in VARCHAR(500)
+                summary=item.summary[:10000] if item.summary else None,  # Limit summary length
+                url=item.url[:1000],  # Ensure it fits in VARCHAR(1000)
+                source=item.source[:255] if item.source else "Unknown",
+                author=item.author[:255] if item.author else None,
+                content=item.content[:50000] if item.content else None,  # Limit content length
+                image_url=item.image_url[:1000] if item.image_url else None,
+                topic_id=topic_id,
+                published=item.published,
+                fetched_at=utc_now(),
+            )
+            self.db.add(article)
+            new_count += 1
+        
+        if new_count > 0:
+            await self.db.commit()
+            print(f"[Briefing] Saved {new_count} new articles to database")
+    
+    async def _get_existing_article_urls(self, urls: list[str]) -> set[str]:
+        """Check which URLs already exist in the database.
+        
+        Args:
+            urls: List of URLs to check
+            
+        Returns:
+            Set of URLs that already exist
+        """
+        if not urls:
+            return set()
+        
+        result = await self.db.execute(
+            select(Article.url).where(Article.url.in_(urls))
+        )
+        return {row[0] for row in result.fetchall()}
+    
+    async def _get_recent_articles_for_topics(
+        self,
+        topic_ids: list[str],
+        limit: int = 5,
+    ) -> list[dict]:
+        """Get recent articles for the given topics for continuity context.
+        
+        Args:
+            topic_ids: List of topic IDs to get articles for
+            limit: Maximum number of articles to return per topic
+            
+        Returns:
+            List of article dictionaries (for use in prompts)
+        """
+        if not topic_ids:
+            return []
+        
+        # Get recent articles for each topic
+        result = await self.db.execute(
+            select(Article)
+            .where(Article.topic_id.in_(topic_ids))
+            .order_by(Article.fetched_at.desc())
+            .limit(limit * len(topic_ids))  # Get more than needed, then dedupe
+        )
+        articles = result.scalars().all()
+        
+        # Convert to dict format for prompts
+        recent_articles = []
+        seen_urls = set()
+        
+        for article in articles:
+            if article.url in seen_urls:
+                continue
+            seen_urls.add(article.url)
+            
+            recent_articles.append({
+                "title": article.title,
+                "summary": article.summary or "",
+                "source": article.source,
+                "url": article.url,
+                "published": article.published.isoformat() if article.published else None,
+                "fetched_at": article.fetched_at.isoformat() if article.fetched_at else None,
+            })
+            
+            if len(recent_articles) >= limit:
+                break
+        
+        return recent_articles
+
 

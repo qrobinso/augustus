@@ -68,8 +68,6 @@ class Settings(BaseSettings):
     
     # Content Duration Settings (in minutes)
     briefing_duration_minutes: int = 5  # Daily briefing duration
-    deepcast_duration_minutes: int = 10  # DeepCast duration
-    station_update_duration_minutes: int = 3  # Station update duration
     
     # Conversation Complexity (1-5 scale)
     # 1 = Casual/High School - simple language, everyday analogies
@@ -95,7 +93,6 @@ class Settings(BaseSettings):
     # Scheduler
     briefing_schedule_hour: int = 7
     briefing_schedule_minute: int = 0
-    station_update_interval_hours: int = 6
     
     @property
     def rss_feed_list(self) -> list[str]:

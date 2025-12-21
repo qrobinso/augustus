@@ -3,7 +3,7 @@ import { create } from 'zustand'
 interface AudioState {
   currentAudio: {
     id: string
-    type: 'briefing' | 'deepcast' | 'episode'
+    type: 'briefing'
     title: string
     audioUrl: string
     transcript?: string

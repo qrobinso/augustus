@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { 
   Users,
@@ -29,7 +29,11 @@ const PERSONALITY_OPTIONS = [
 
 export default function CreateCast() {
   const navigate = useNavigate()
+  const location = useLocation()
   const queryClient = useQueryClient()
+  
+  // Get the previous page from location state, default to /casts
+  const previousPage = (location.state as { from?: string })?.from || '/casts'
   
   const [name, setName] = useState('')
   const [members, setMembers] = useState<Array<{
@@ -45,7 +49,7 @@ export default function CreateCast() {
     mutationFn: (data: CastCreate) => castsApi.create(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['casts'] })
-      navigate('/casts')
+      navigate(previousPage)
     },
   })
   
@@ -119,11 +123,11 @@ export default function CreateCast() {
       {/* Header */}
       <div className="mb-6 sm:mb-8">
         <button
-          onClick={() => navigate('/casts')}
+          onClick={() => navigate(previousPage)}
           className="flex items-center gap-2 text-augustus-400 hover:text-augustus-300 mb-4 transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />
-          <span className="text-sm">Back to Casts</span>
+          <span className="text-sm">Back</span>
         </button>
         <h1 className="text-2xl sm:text-3xl font-display font-semibold text-white mb-1 sm:mb-2">
           Create New Cast
@@ -271,7 +275,7 @@ export default function CreateCast() {
           </button>
           <button
             type="button"
-            onClick={() => navigate('/casts')}
+            onClick={() => navigate(previousPage)}
             className="btn btn-ghost"
             disabled={createMutation.isPending}
           >
@@ -290,3 +294,6 @@ export default function CreateCast() {
     </div>
   )
 }
+
+
+

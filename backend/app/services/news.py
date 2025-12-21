@@ -1,6 +1,7 @@
 """News and RSS feed fetching service."""
 
 import asyncio
+import re
 from datetime import datetime, timedelta
 from typing import Optional
 from dataclasses import dataclass
@@ -217,6 +218,193 @@ class NewsService:
             
         except Exception as e:
             print(f"Error fetching from NewsAPI: {e}")
+            return []
+    
+    @staticmethod
+    def is_reddit_url(url: str) -> bool:
+        """Check if a URL is a Reddit subreddit URL.
+        
+        Args:
+            url: URL to check
+            
+        Returns:
+            True if the URL is a Reddit subreddit URL
+        """
+        if not url:
+            return False
+        
+        url_lower = url.lower().strip()
+        # Match patterns like:
+        # - https://www.reddit.com/r/subreddit/
+        # - https://reddit.com/r/subreddit/
+        # - http://www.reddit.com/r/subreddit/
+        # - r/subreddit (without domain)
+        reddit_patterns = [
+            r'https?://(www\.)?reddit\.com/r/[^/]+',
+            r'^r/[^/]+/?$',
+        ]
+        
+        for pattern in reddit_patterns:
+            if re.search(pattern, url_lower):
+                return True
+        
+        return False
+    
+    @staticmethod
+    def extract_subreddit_name(url: str) -> Optional[str]:
+        """Extract subreddit name from a Reddit URL.
+        
+        Args:
+            url: Reddit URL (e.g., "https://www.reddit.com/r/technology/" or "r/technology")
+            
+        Returns:
+            Subreddit name without r/ prefix, or None if not a valid Reddit URL
+        """
+        if not url:
+            return None
+        
+        url_lower = url.lower().strip()
+        
+        # Pattern 1: Full URL like https://www.reddit.com/r/subreddit/
+        match = re.search(r'reddit\.com/r/([^/]+)', url_lower)
+        if match:
+            return match.group(1)
+        
+        # Pattern 2: Just r/subreddit
+        match = re.search(r'^r/([^/]+)', url_lower)
+        if match:
+            return match.group(1)
+        
+        return None
+    
+    async def fetch_reddit_subreddit(
+        self,
+        subreddit: str,
+        max_age_days: int = 3,
+        limit: int = 25,
+    ) -> list[NewsItem]:
+        """Fetch top posts from this week from a Reddit subreddit.
+        
+        Args:
+            subreddit: Subreddit name without r/ prefix (e.g., "technology")
+            max_age_days: Maximum age of posts in days (default 3, used for additional filtering)
+            limit: Maximum number of posts to fetch (default 25)
+            
+        Returns:
+            List of NewsItem objects from Reddit posts
+        """
+        if not subreddit:
+            return []
+        
+        # Remove r/ prefix if present
+        subreddit = subreddit.lstrip('r/').strip()
+        if not subreddit:
+            return []
+        
+        try:
+            # Reddit JSON API endpoint for top posts from this week
+            url = f"https://www.reddit.com/r/{subreddit}/top.json"
+            params = {
+                "limit": limit,
+                "t": "week",  # Time period: week (top posts from this week)
+            }
+            
+            # Use proper User-Agent (required by Reddit)
+            headers = {
+                "User-Agent": "Augustus/1.0 (News Aggregator)",
+            }
+            
+            response = await self.client.get(url, params=params, headers=headers)
+            
+            # Handle rate limiting
+            if response.status_code == 429:
+                print(f"[News] Reddit rate limit hit for r/{subreddit}")
+                return []
+            
+            response.raise_for_status()
+            data = response.json()
+            
+            # Extract posts from Reddit's nested structure
+            posts = data.get("data", {}).get("children", [])
+            items = []
+            cutoff_time = datetime.utcnow() - timedelta(days=max_age_days)
+            
+            for post_data in posts:
+                post = post_data.get("data", {})
+                
+                # Skip stickied posts (they're usually not news)
+                if post.get("stickied", False):
+                    continue
+                
+                # Get creation time
+                created_utc = post.get("created_utc")
+                if created_utc:
+                    try:
+                        published = datetime.utcfromtimestamp(created_utc)
+                        # Filter by age
+                        if published < cutoff_time:
+                            continue
+                    except (ValueError, TypeError):
+                        published = None
+                else:
+                    published = None
+                
+                # Get title
+                title = post.get("title", "Untitled")
+                
+                # Get summary from selftext (post body) or URL
+                selftext = post.get("selftext", "")
+                url_link = post.get("url", "")
+                
+                # Use selftext if available, otherwise use URL
+                if selftext:
+                    summary = selftext[:500]  # Limit summary length
+                elif url_link and not url_link.startswith(f"https://www.reddit.com/r/{subreddit}"):
+                    # External link - use URL as summary hint
+                    summary = f"External link: {url_link}"
+                else:
+                    summary = ""
+                
+                # Get permalink for the post URL
+                permalink = post.get("permalink", "")
+                if permalink:
+                    post_url = f"https://www.reddit.com{permalink}"
+                else:
+                    post_url = url_link if url_link else ""
+                
+                # Get author
+                author = post.get("author", "")
+                
+                # Get subreddit name
+                subreddit_name = post.get("subreddit", subreddit)
+                
+                items.append(NewsItem(
+                    title=title,
+                    summary=summary,
+                    url=post_url,
+                    source=f"r/{subreddit_name}",
+                    published=published,
+                    author=author if author != "[deleted]" else None,
+                    category=subreddit_name.lower(),
+                    content=selftext if selftext else None,
+                ))
+            
+            # Sort by published date (newest first)
+            items.sort(
+                key=lambda x: x.published or datetime.min,
+                reverse=True,
+            )
+            
+            return items
+            
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                print(f"[News] Subreddit r/{subreddit} not found")
+            else:
+                print(f"[News] HTTP error fetching r/{subreddit}: {e}")
+            return []
+        except Exception as e:
+            print(f"[News] Error fetching Reddit subreddit r/{subreddit}: {e}")
             return []
     
     def format_news_for_briefing(self, items: list[NewsItem], max_stories: int = 20) -> str:

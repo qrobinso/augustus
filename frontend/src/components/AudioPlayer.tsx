@@ -1,6 +1,6 @@
 import { useRef, useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { 
   Play, 
   Pause, 
@@ -14,7 +14,7 @@ import {
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useStore } from '../store/useStore'
-import { briefingsApi } from '../api/client'
+import { briefingsApi, castsApi } from '../api/client'
 
 export default function AudioPlayer() {
   const navigate = useNavigate()
@@ -27,6 +27,7 @@ export default function AudioPlayer() {
   const [hasMarkedListened, setHasMarkedListened] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
   const [hasSetInitialPosition, setHasSetInitialPosition] = useState(false)
+  const [hoveredChapterIndex, setHoveredChapterIndex] = useState<number | null>(null)
   const lastSavedPositionRef = useRef<number>(0)
   const queryClient = useQueryClient()
   
@@ -40,6 +41,20 @@ export default function AudioPlayer() {
     setDuration,
     clearAudio,
   } = useStore()
+  
+  // Fetch briefing to get cast_id
+  const { data: briefing } = useQuery({
+    queryKey: ['briefing', currentAudio?.id],
+    queryFn: () => briefingsApi.get(currentAudio!.id),
+    enabled: !!currentAudio?.id && currentAudio.type === 'briefing',
+  })
+  
+  // Fetch cast information
+  const { data: cast } = useQuery({
+    queryKey: ['cast', briefing?.cast_id],
+    queryFn: () => castsApi.get(briefing!.cast_id!),
+    enabled: !!briefing?.cast_id,
+  })
   
   // Mutation for marking as listened
   const markListenedMutation = useMutation({
@@ -145,15 +160,53 @@ export default function AudioPlayer() {
     }
   }, [currentAudio?.initialPosition, currentAudio?.id, hasSetInitialPosition, setCurrentTime])
   
+  // When audio source changes, pause old audio and load new source
   useEffect(() => {
-    if (audioRef.current) {
-      if (isPlaying) {
-        audioRef.current.play()
-      } else {
-        audioRef.current.pause()
+    const audio = audioRef.current
+    if (!audio || !currentAudio) return
+    
+    // Pause any currently playing audio when switching to a new source
+    audio.pause()
+    
+    // Load the new source (this will reset the audio element)
+    audio.load()
+    
+    // Reset time tracking
+    setCurrentTime(0)
+    setHasSetInitialPosition(false)
+  }, [currentAudio?.audioUrl, setCurrentTime])
+  
+  // Handle play/pause - ensure audio is ready before playing
+  useEffect(() => {
+    const audio = audioRef.current
+    if (!audio) return
+    
+    if (isPlaying) {
+      // Ensure audio is loaded before playing
+      const playAudio = async () => {
+        try {
+          // If audio is not ready, wait for it
+          if (audio.readyState < 2) {
+            await new Promise((resolve) => {
+              const handleCanPlay = () => {
+                audio.removeEventListener('canplay', handleCanPlay)
+                resolve(undefined)
+              }
+              audio.addEventListener('canplay', handleCanPlay)
+            })
+          }
+          await audio.play()
+        } catch (error) {
+          // If play fails, reset playing state
+          console.log('[AudioPlayer] Failed to play audio:', error)
+          setIsPlaying(false)
+        }
       }
+      playAudio()
+    } else {
+      audio.pause()
     }
-  }, [isPlaying])
+  }, [isPlaying, setIsPlaying])
   
   useEffect(() => {
     if (audioRef.current) {
@@ -172,6 +225,32 @@ export default function AudioPlayer() {
     const mins = Math.floor(seconds / 60)
     const secs = Math.floor(seconds % 60)
     return `${mins}:${secs.toString().padStart(2, '0')}`
+  }
+  
+  // Find the current active chapter
+  const getActiveChapterIndex = useCallback((): number | null => {
+    if (!currentAudio?.chapters || !duration) return null
+    for (let i = 0; i < currentAudio.chapters.length; i++) {
+      const chapter = currentAudio.chapters[i]
+      if (currentTime >= chapter.start_time && 
+          (chapter.end_time === undefined || currentTime < chapter.end_time)) {
+        return i
+      }
+    }
+    return null
+  }, [currentAudio?.chapters, currentTime, duration])
+  
+  const activeChapterIndex = getActiveChapterIndex()
+  
+  // Handle chapter click
+  const handleChapterClick = (chapterIndex: number, e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!currentAudio?.chapters || !duration) return
+    const chapter = currentAudio.chapters[chapterIndex]
+    if (audioRef.current) {
+      audioRef.current.currentTime = chapter.start_time
+      setCurrentTime(chapter.start_time)
+    }
   }
   
   // Touch-friendly seek handling
@@ -312,12 +391,20 @@ export default function AudioPlayer() {
                 <h4 className="font-medium text-white truncate text-sm sm:text-base hover:text-accent transition-colors cursor-pointer">
                   {currentAudio.title}
                 </h4>
-                <p className="text-xs text-augustus-500 capitalize mt-0.5">{currentAudio.type}</p>
+                <p className="text-xs text-augustus-500 mt-0.5 truncate">
+                  {currentAudio.chapters && currentAudio.chapters.length > 0 && activeChapterIndex !== null
+                    ? currentAudio.chapters[activeChapterIndex].title
+                    : cast?.name || currentAudio.type}
+                </p>
               </button>
             ) : (
               <div className="min-h-[44px] sm:min-h-0 flex flex-col justify-center">
                 <h4 className="font-medium text-white truncate text-sm sm:text-base">{currentAudio.title}</h4>
-                <p className="text-xs text-augustus-500 capitalize mt-0.5">{currentAudio.type}</p>
+                <p className="text-xs text-augustus-500 mt-0.5 truncate">
+                  {currentAudio.chapters && currentAudio.chapters.length > 0 && activeChapterIndex !== null
+                    ? currentAudio.chapters[activeChapterIndex].title
+                    : cast?.name || currentAudio.type}
+                </p>
               </div>
             )}
           </div>
@@ -369,18 +456,100 @@ export default function AudioPlayer() {
         >
           {/* Background track */}
           <div className="absolute inset-x-0 h-2.5 sm:h-2 bg-augustus-800 rounded-full">
+            {/* Chapter segments - show different colors for each chapter */}
+            {currentAudio.chapters && currentAudio.chapters.length > 0 && duration && (
+              <>
+                {currentAudio.chapters.map((chapter, index) => {
+                  const startPercent = (chapter.start_time / duration) * 100
+                  const endPercent = chapter.end_time 
+                    ? (chapter.end_time / duration) * 100 
+                    : 100
+                  const width = endPercent - startPercent
+                  const isActive = activeChapterIndex === index
+                  
+                  return (
+                    <div
+                      key={index}
+                      className={clsx(
+                        'absolute top-0 h-full rounded-full transition-all',
+                        isActive 
+                          ? 'bg-accent/60' 
+                          : 'bg-augustus-700/50'
+                      )}
+                      style={{
+                        left: `${startPercent}%`,
+                        width: `${width}%`,
+                      }}
+                    />
+                  )
+                })}
+              </>
+            )}
+            
             {/* Progress fill */}
             <div 
-              className="h-full bg-accent rounded-full transition-all duration-100"
+              className="h-full bg-accent rounded-full transition-all duration-100 relative z-10"
               style={{ width: `${progress}%` }}
             />
+            
+            {/* Chapter markers */}
+            {currentAudio.chapters && currentAudio.chapters.length > 0 && duration && (
+              <>
+                {currentAudio.chapters.map((chapter, index) => {
+                  const position = (chapter.start_time / duration) * 100
+                  const isActive = activeChapterIndex === index
+                  const isHovered = hoveredChapterIndex === index
+                  
+                  return (
+                    <div
+                      key={index}
+                      className={clsx(
+                        'absolute top-1/2 -translate-y-1/2 -translate-x-1/2 z-20',
+                        'transition-all duration-200'
+                      )}
+                      style={{ left: `${position}%` }}
+                      onMouseEnter={() => setHoveredChapterIndex(index)}
+                      onMouseLeave={() => setHoveredChapterIndex(null)}
+                      onClick={(e) => handleChapterClick(index, e)}
+                    >
+                      {/* Chapter marker line */}
+                      <div
+                        className={clsx(
+                          'w-0.5 h-4 sm:h-5 transition-all',
+                          isActive 
+                            ? 'bg-accent shadow-lg shadow-accent/50' 
+                            : isHovered
+                            ? 'bg-augustus-300'
+                            : 'bg-augustus-600'
+                        )}
+                      />
+                      
+                      {/* Chapter tooltip on hover */}
+                      {isHovered && (
+                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-augustus-900 border border-augustus-700 rounded text-xs text-white whitespace-nowrap shadow-lg z-30">
+                          <div className="font-medium">{chapter.title}</div>
+                          <div className="text-augustus-400 text-[10px] mt-0.5">
+                            {formatTime(chapter.start_time)}
+                          </div>
+                          {/* Tooltip arrow */}
+                          <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-px">
+                            <div className="w-2 h-2 bg-augustus-900 border-r border-b border-augustus-700 rotate-45"></div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </>
+            )}
+            
             {/* Thumb indicator - larger on mobile for easier dragging */}
             <div 
               className={clsx(
-                'absolute top-1/2 -translate-y-1/2 w-5 h-5 sm:w-4 sm:h-4 bg-white rounded-full shadow-lg transition-transform touch-none',
+                'absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-5 h-5 sm:w-4 sm:h-4 bg-white rounded-full shadow-lg transition-transform touch-none z-30',
                 isDragging && 'scale-125'
               )}
-              style={{ left: `calc(${progress}% - 10px)` }}
+              style={{ left: `${progress}%` }}
             />
           </div>
         </div>

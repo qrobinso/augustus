@@ -413,7 +413,7 @@ export default function Dashboard() {
                 </button>
               ))}
               <button
-                onClick={() => navigate('/topics/create')}
+                onClick={() => navigate('/topics/create', { state: { from: '/dashboard' } })}
                 className="px-3 py-1.5 rounded-full text-xs sm:text-sm font-medium transition-all flex items-center gap-1.5 min-h-[36px] bg-augustus-800 text-augustus-300 hover:bg-augustus-700 active:bg-augustus-600 border border-augustus-700 hover:border-augustus-600"
               >
                 <Plus className="w-3.5 h-3.5" />
@@ -767,7 +767,7 @@ export default function Dashboard() {
                     )}
                   >
                     <Circle className="w-4 h-4 sm:w-3 sm:h-3" />
-                    <span>Unlistened</span>
+                    <span>Not Listened</span>
                   </button>
                 </div>
               </div>
@@ -897,7 +897,7 @@ export default function Dashboard() {
               {listenedFilter === true
                 ? 'No listened briefings found.'
                 : listenedFilter === false
-                ? 'No unlistened briefings found.'
+                ? 'No Not Listened briefings found.'
                 : 'No briefings yet. Generate your first one!'}
             </p>
           </div>
@@ -975,7 +975,7 @@ export default function Dashboard() {
                           ) : (
                             <Circle className="w-3 h-3" />
                           )}
-                          <span className="hidden sm:inline">{briefing.listened ? 'Listened' : 'Unlistened'}</span>
+                          <span className="hidden sm:inline">{briefing.listened ? 'Listened' : 'Not Listened'}</span>
                         </span>
                       )}
                     </div>

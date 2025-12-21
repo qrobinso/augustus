@@ -29,8 +29,6 @@ class SettingsResponse(BaseModel):
     gemini_model: str = "gemini-2.5-flash-preview-tts"
     # Content Durations (minutes)
     briefing_duration_minutes: int = 5
-    deepcast_duration_minutes: int = 10
-    station_update_duration_minutes: int = 3
     
     # Conversation Complexity (1-5 scale)
     conversation_complexity: int = 3
@@ -66,8 +64,6 @@ class SettingsUpdate(BaseModel):
     gemini_api_key: Optional[str] = None
     gemini_model: Optional[str] = None
     briefing_duration_minutes: Optional[int] = None
-    deepcast_duration_minutes: Optional[int] = None
-    station_update_duration_minutes: Optional[int] = None
     conversation_complexity: Optional[int] = None
     timezone: Optional[str] = None
     news_api_key: Optional[str] = None
@@ -183,8 +179,6 @@ def get_current_settings() -> dict:
         "gemini_api_key": os.environ.get("GEMINI_API_KEY") or env_vars.get("GEMINI_API_KEY"),
         "gemini_model": os.environ.get("GEMINI_MODEL") or env_vars.get("GEMINI_MODEL", "gemini-2.5-flash-preview-tts"),
         "briefing_duration_minutes": get_int("BRIEFING_DURATION_MINUTES", 5),
-        "deepcast_duration_minutes": get_int("DEEPCAST_DURATION_MINUTES", 10),
-        "station_update_duration_minutes": get_int("STATION_UPDATE_DURATION_MINUTES", 3),
         "conversation_complexity": get_int("CONVERSATION_COMPLEXITY", 3),
         "timezone": os.environ.get("TIMEZONE") or env_vars.get("TIMEZONE", "UTC"),
         "news_api_key": os.environ.get("NEWS_API_KEY") or env_vars.get("NEWS_API_KEY"),
@@ -210,8 +204,6 @@ async def get_settings_endpoint():
         gemini_api_key=mask_api_key(settings["gemini_api_key"]),
         gemini_model=settings["gemini_model"],
         briefing_duration_minutes=settings["briefing_duration_minutes"],
-        deepcast_duration_minutes=settings["deepcast_duration_minutes"],
-        station_update_duration_minutes=settings["station_update_duration_minutes"],
         conversation_complexity=settings["conversation_complexity"],
         timezone=settings["timezone"],
         news_api_key=mask_api_key(settings["news_api_key"]),
@@ -265,14 +257,6 @@ async def update_settings(updates: SettingsUpdate):
         if updates.briefing_duration_minutes is not None:
             env_updates["BRIEFING_DURATION_MINUTES"] = str(updates.briefing_duration_minutes)
             os.environ["BRIEFING_DURATION_MINUTES"] = str(updates.briefing_duration_minutes)
-        
-        if updates.deepcast_duration_minutes is not None:
-            env_updates["DEEPCAST_DURATION_MINUTES"] = str(updates.deepcast_duration_minutes)
-            os.environ["DEEPCAST_DURATION_MINUTES"] = str(updates.deepcast_duration_minutes)
-        
-        if updates.station_update_duration_minutes is not None:
-            env_updates["STATION_UPDATE_DURATION_MINUTES"] = str(updates.station_update_duration_minutes)
-            os.environ["STATION_UPDATE_DURATION_MINUTES"] = str(updates.station_update_duration_minutes)
         
         if updates.conversation_complexity is not None:
             # Clamp to valid range 1-5

@@ -290,17 +290,40 @@ async def test_custom_site(
             detail="Access denied",
         )
     
+    from app.services.news import get_news_service
+    
+    news_service = get_news_service()
     scraper = get_scraper_service()
     
     try:
-        # Use topic name as category for scraper
-        topic_name = site.topic.name if site.topic else "general"
-        articles = await scraper.fetch_site_articles(
-            url=site.url,
-            site_name=site.name,
-            category=topic_name.lower(),
-            max_articles=5,
-        )
+        # Check if this is a Reddit URL
+        if news_service.is_reddit_url(site.url):
+            # Extract subreddit name and fetch using Reddit API
+            subreddit = news_service.extract_subreddit_name(site.url)
+            if subreddit:
+                articles = await news_service.fetch_reddit_subreddit(
+                    subreddit=subreddit,
+                    max_age_days=3,
+                    limit=25,
+                )
+                # Limit to 5 articles for testing (same as scraper)
+                articles = articles[:5]
+            else:
+                return {
+                    "success": False,
+                    "error": f"Could not extract subreddit name from URL: {site.url}",
+                    "articles_found": 0,
+                    "articles": [],
+                }
+        else:
+            # Use topic name as category for scraper
+            topic_name = site.topic.name if site.topic else "general"
+            articles = await scraper.fetch_site_articles(
+                url=site.url,
+                site_name=site.name,
+                category=topic_name.lower(),
+                max_articles=5,
+            )
         
         # Update last_fetched and clear error
         site.last_fetched = datetime.utcnow()

@@ -10,11 +10,28 @@ services:
     environment:
       - DATABASE_URL=sqlite+aiosqlite:///./data/augustus.db
       - AUDIO_STORAGE_PATH=/app/audio
+      # Required
+      - API_KEY=${API_KEY:-change-me-in-production}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      # LLM Configuration
       - OPENROUTER_MODEL=${OPENROUTER_MODEL:-anthropic/claude-3.5-sonnet}
+      # TTS Configuration
       - TTS_PROVIDER=${TTS_PROVIDER:-piper}
       - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY:-}
-      - API_KEY=${API_KEY:-change-me-in-production}
+      - ELEVENLABS_MODEL=${ELEVENLABS_MODEL:-eleven_turbo_v2_5}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.5-flash-preview-tts}
+      # Content Duration Settings
+      - BRIEFING_DURATION_MINUTES=${BRIEFING_DURATION_MINUTES:-7}
+      - DEEPCAST_DURATION_MINUTES=${DEEPCAST_DURATION_MINUTES:-10}
+      - STATION_UPDATE_DURATION_MINUTES=${STATION_UPDATE_DURATION_MINUTES:-3}
+      # Content Quality Settings
+      - CONVERSATION_COMPLEXITY=${CONVERSATION_COMPLEXITY:-3}
+      - TIMEZONE=${TIMEZONE:-UTC}
+      # Integrations
+      - NEWS_API_KEY=${NEWS_API_KEY:-}
+      - RESEND_API_KEY=${RESEND_API_KEY:-}
+      # Advanced
       - DEBUG=${DEBUG:-false}
     volumes:
       - ./data:/app/data

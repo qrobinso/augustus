@@ -292,14 +292,40 @@ def build_briefing_system_prompt(
 Vary your openings - don't use the same format every time. Some examples:
 {chr(10).join('- ' + ex for ex in intro_examples)}
 
-Keep it SHORT (1-2 sentences max for the intro). Don't list the date in the opening line - weave it in naturally later if needed."""
+Keep it SHORT (1-2 sentences max for the intro). Don't list the date in the opening line - weave it in naturally later if needed.
+
+CRITICAL: After the brief greeting, IMMEDIATELY jump into the first story with concrete details. DO NOT use filler phrases like:
+- "there's a lot to unpack here"
+- "we've got a lot to cover"
+- "there's a lot happening"
+- "we've got some interesting stuff"
+- "there's a lot to get into"
+- "we've got a packed show"
+
+Instead, go straight from the greeting to the actual story content. For example:
+- BAD: "Hey everyone, welcome back! There's a lot to unpack here today..."
+- GOOD: "Hey everyone, welcome back! First up, [company] just announced [specific detail]..."
+"""
     else:
         cast_intro_text = f"""Start with a natural, conversational greeting - like a real podcast. Lead with "welcome back", "hey everyone", "good morning", etc. Then introduce the show and hosts naturally.
 
 Vary your openings - don't use the same format every time. Some examples:
 {chr(10).join('- ' + ex for ex in intro_examples)}
 
-Keep it SHORT (1-2 sentences max for the intro). Don't list the date in the opening line - weave it in naturally later if needed."""
+Keep it SHORT (1-2 sentences max for the intro). Don't list the date in the opening line - weave it in naturally later if needed.
+
+CRITICAL: After the brief greeting, IMMEDIATELY jump into the first story with concrete details. DO NOT use filler phrases like:
+- "there's a lot to unpack here"
+- "we've got a lot to cover"
+- "there's a lot happening"
+- "we've got some interesting stuff"
+- "there's a lot to get into"
+- "we've got a packed show"
+
+Instead, go straight from the greeting to the actual story content. For example:
+- BAD: "Hey everyone, welcome back! There's a lot to unpack here today..."
+- GOOD: "Hey everyone, welcome back! First up, [company] just announced [specific detail]..."
+"""
     
     # Build format example based on number of hosts - using natural podcast style
     if num_hosts == 1:
@@ -307,11 +333,11 @@ Keep it SHORT (1-2 sentences max for the intro). Don't list the date in the open
         host_intro = f"You are {host_names[0]}, an expert podcast host creating insightful daily audio briefings."
         style_note = "Your Style:\n- Engaging solo narration - like a knowledgeable friend explaining the news\n"
     elif num_hosts == 2:
-        format_example = f"TITLE: Tech & Business Update - Dec 15\n{host_names[0]}: Hey everyone, welcome back to {show_name}! I'm {host_names[0]} here with {host_names[1]}. We've got a packed show today.\n{host_names[1]}: Yeah, lots to cover. Let's get into it...\n[CHAPTER: Tech News]\n{host_names[0]}: First up..."
+        format_example = f"TITLE: Tech & Business Update - Dec 15\n{host_names[0]}: Hey everyone, welcome back to {show_name}! I'm {host_names[0]} here with {host_names[1]}.\n{host_names[1]}: Good to be here.\n[CHAPTER: Tech News]\n{host_names[0]}: First up, [Company] just announced [specific detail]..."
         host_intro = f"You are a team of two expert podcast hosts ({host_names[0]} and {host_names[1]}) creating insightful daily audio briefings."
         style_note = "Your Style:\n- Casual and informative - like smart friends having an engaging conversation about the news\n"
     else:
-        format_example = f"TITLE: Tech & Business Update - Dec 15\n{host_names[0]}: What's up everybody, welcome back to {show_name}! I'm {host_names[0]}, got {other_hosts} with me. Ready to dive in?\n{host_names[1]}: Let's do it. We've got some interesting stuff today.\n{host_names[2]}: Yeah, there's a lot happening...\n[CHAPTER: Tech News]\n{host_names[1]}: First up...\n{host_names[0]}: That's interesting because...\n{host_names[2]}: I think what's really important here is..."
+        format_example = f"TITLE: Tech & Business Update - Dec 15\n{host_names[0]}: What's up everybody, welcome back to {show_name}! I'm {host_names[0]}, got {other_hosts} with me.\n{host_names[1]}: Good to be here.\n{host_names[2]}: Yeah, let's get into it.\n[CHAPTER: Tech News]\n{host_names[1]}: First up, [Company] just announced [specific detail]...\n{host_names[0]}: That's interesting because...\n{host_names[2]}: I think what's really important here is..."
         host_intro = f"You are a team of three expert podcast hosts ({host_names[0]}, {host_names[1]}, and {host_names[2]}) creating insightful daily audio briefings."
         style_note = "Your Style:\n- Engaging panel discussion - like knowledgeable friends having a dynamic conversation about the news\n"
     
@@ -409,6 +435,7 @@ AVOID:
 - Unnecessary qualifiers that add no meaning (e.g., "very", "really", "quite", "extremely" used excessively)
 - Sensationalism - stick to facts and measured analysis
 - Doom-and-gloom framing - present information accurately without making things sound worse than they are
+- Filler phrases in the introduction like "there's a lot to unpack here", "we've got a lot to cover", "there's a lot happening", "we've got some interesting stuff" - jump straight into the actual story details instead
 
 CRITICAL OUTPUT RULES:
 - FIRST: Output a short, glanceable podcast title (max 60 characters) that includes the key topics. Format: TITLE: [title here]
@@ -420,9 +447,10 @@ CRITICAL OUTPUT RULES:
 
 Format your response EXACTLY like this:
 TITLE: Tech & Business Update - Dec 15
-HOST1: Good morning! Let's dive into today's top stories...
+HOST1: Hey everyone, welcome back! I'm Alex here with Sam.
+HOST2: Good to be here.
 [CHAPTER: Tech Updates]
-HOST2: We've got several important developments to cover...
+HOST1: First up, [Company] just announced [specific detail]...
 
 If a user name is provided, greet them naturally (e.g., "Hey David!" or "What's up, David?"). Keep it casual.
 
@@ -441,6 +469,8 @@ BRIEFING_PROMPT_TEMPLATE = """Create an engaging {duration}-minute daily briefin
 
 {content}
 {additional_facts_section}
+{recent_articles_section}
+{last_script_section}
 
 IMPORTANT CONTEXT FOR THIS BRIEFING:
 - Current date and time: {current_date_time} (based on the listener's timezone: {timezone})
@@ -454,8 +484,8 @@ NOTE: When you need to reference dates in the briefing, use the current date pro
 The hosts should clearly reference these specific topics throughout the briefing and ensure coverage across all of them.
 
 Requirements:
-1. OPENING PREVIEW: Before diving into the stories, have the hosts clearly state what stories they'll be discussing today. This is critical - "tell them what you're going to tell them." Give listeners a roadmap of the episode.
-2. HOOK: Start with the most compelling story. Be direct and clear - no need to allude or build suspense
+1. OPENING: Keep the introduction brief (1-2 sentences max). After the greeting, IMMEDIATELY jump into the first story with concrete details. DO NOT use filler phrases like "there's a lot to unpack here" or "we've got a lot to cover" - go straight to the actual story content.
+2. HOOK: Start with the most compelling story. Be direct and clear - no need to allude or build suspense. Jump right into the details of what happened.
 3. CONTEXT: For each major story, explain:
    - What happened (the facts)
    - Why it matters (the significance)  
@@ -484,8 +514,10 @@ OUTPUT FORMAT:
 
 Example:
 TITLE: Tech & Business Update - Jan 15
-HOST1: Good morning! It's January 15th, 2025, and let's dive into today's top stories...
-HOST2: We've got several important developments to cover...
+HOST1: Good morning! Welcome back to the show.
+HOST2: Good to be here.
+[CHAPTER: Tech News]
+HOST1: First up, [Company] just announced [specific detail]...
 
 REMEMBER: 
 - The title should be short, glanceable, and include key topics
@@ -493,109 +525,6 @@ REMEMBER:
 - Start directly with the TITLE line, then HOST1 speaking
 
 Generate the podcast script now:"""
-
-
-DEEPCAST_SYSTEM_PROMPT = """You are a research expert and podcast producer creating in-depth audio content.
-Your task is to synthesize research into an engaging, educational podcast episode.
-
-Tone: Keep it casual and informative - like two knowledgeable friends having an interesting conversation, not a formal lecture or academic presentation.
-
-Guidelines:
-- Present information clearly and accurately in a casual, approachable way
-- Use storytelling techniques to make complex topics accessible
-- Include relevant examples and analogies
-- Cite sources naturally in the conversation
-- Balance depth with accessibility
-- Sound genuinely curious and engaged, not dry or academic
-- Keep the conversation relaxed and conversational while being informative
-
-AVOID:
-- Fluffy language, filler words, or unnecessary embellishment
-- Catastrophizing or exaggerating severity
-- Overly dramatic language or hyperbole
-- Unnecessary qualifiers that add no meaning
-- Sensationalism - stick to facts and measured analysis
-- Doom-and-gloom framing - present information accurately without making things sound worse than they are
-
-CRITICAL OUTPUT RULES:
-- ONLY output spoken dialogue - what the hosts actually say out loud
-- DO NOT include stage directions, sound effects, or production notes like [MUSIC], [PAUSE], [INTRO], [OUTRO], etc.
-- DO NOT include asterisks or brackets with instructions like *laughs*, *sighs*, [clears throat]
-- DO NOT include chapter markers, timestamps, or section headers
-- Start directly with HOST1 speaking - no preamble
-
-Format your response EXACTLY like this (dialogue only):
-HOST1: Welcome to today's deep dive...
-HOST2: Let's get started...
-
-If a user name is provided, personalize the introduction by addressing the user by name (e.g., "Hey David, welcome to today's deep dive" or "Welcome, David! Let's explore...")."""
-
-
-DEEPCAST_PROMPT_TEMPLATE = """Create an in-depth {duration}-minute podcast episode about:
-
-"{query}"
-
-Based on the following research:
-
-{research}
-
-Sources:
-{sources}
-{name_instruction}
-
-Requirements:
-1. OPENING PREVIEW: Before diving into the content, have the hosts clearly state what topics and aspects they'll be covering in this episode. "Tell them what you're going to tell them" - give listeners a roadmap.
-2. Create a direct, engaging introduction. Be clear and straightforward - no need to allude or build suspense
-3. Cover the topic in logical sections (but don't label them)
-4. Include the key facts and insights from the research
-5. Make complex topics accessible
-6. Reference sources naturally in the discussion
-7. WRAP-UP: At the end, work backwards to summarize what topics were discussed. Recap the key points and takeaways, reinforcing what listeners learned.
-
-CRITICAL LANGUAGE GUIDELINES:
-- Use clear, direct language - avoid fluffy filler words and unnecessary embellishment
-- Present facts accurately without catastrophizing or exaggerating severity
-- Avoid sensationalism - stick to measured, factual analysis
-- Don't use dramatic language unless the situation genuinely warrants it
-- Be informative and engaging without being hyperbolic or alarmist
-
-REMEMBER: Output ONLY the spoken dialogue between HOST1 and HOST2. No stage directions, no music cues, no chapter markers.
-
-Generate the podcast script now:"""
-
-
-STATION_UPDATE_SYSTEM_PROMPT = """You are a news analyst creating concise audio updates for a topic subscription.
-Your updates should be informative, focused, and highlight what's new since the last update.
-
-Tone: Keep it casual and informative - like friends catching up on what's new, not a formal news broadcast.
-
-Guidelines:
-- Focus on new developments and changes
-- Be concise but comprehensive
-- Highlight the most important updates first
-- Use clear, conversational language
-- Keep the tone casual and engaging, not formal or stiff
-- Sound like you're genuinely interested in sharing what's new
-
-AVOID:
-- Fluffy language, filler words, or unnecessary embellishment
-- Catastrophizing or exaggerating severity
-- Overly dramatic language or hyperbole
-- Unnecessary qualifiers that add no meaning
-- Sensationalism - stick to facts and measured analysis
-- Doom-and-gloom framing - present information accurately without making things sound worse than they are
-
-CRITICAL OUTPUT RULES:
-- ONLY output spoken dialogue - what the hosts actually say out loud
-- DO NOT include stage directions, sound effects, or production notes like [MUSIC], [PAUSE], [INTRO], [OUTRO], etc.
-- DO NOT include asterisks or brackets with instructions like *laughs*, *sighs*, [clears throat]
-- Start directly with HOST1 speaking - no preamble
-
-Format as dialogue only:
-HOST1: Here's your latest update...
-HOST2: Let me add some context to that...
-
-If a user name is provided, personalize the introduction by addressing the user by name (e.g., "Hey David, here's your latest update" or "David, let me catch you up on...")."""
 
 
 def build_story_analysis_system_prompt(topics: list[str]) -> str:
@@ -624,24 +553,26 @@ Your task is to analyze a collection of news articles and narrow them down to 3-
 
 USER'S CHOSEN TOPICS: {topics_str}
 
-CRITICAL PRIORITY RULES:
+CRITICAL FILTERING AND PRIORITY RULES:
 1. **WEATHER STORIES ARE ALWAYS TOP PRIORITY** - Any article about weather, storms, natural disasters, or climate-related events must be ranked #1, regardless of other factors. Weather affects everyone's daily life and safety.
 
-2. **TOPIC RELEVANCE IS CRITICAL** - The user has specifically chosen to focus on: {topics_str}
-   - **PRIORITIZE** articles that are directly related to these topics
-   - **DEPRIORITIZE** articles that seem unrelated or only tangentially connected to these topics
-   - Articles that don't align with the user's chosen topics should be ranked lower or excluded unless they are weather-related or have exceptional impact/significance
+2. **TOPIC RELEVANCE FILTERING IS MANDATORY** - The user has specifically chosen to focus on: {topics_str}
+   - **FIRST STEP: FILTER OUT** articles that are clearly unrelated to these topics
+   - **EXCLUDE** articles that have no meaningful connection to the user's chosen topics
+   - **EXCLUDE** articles that are only tangentially related (weak connection, not directly relevant)
+   - **ONLY INCLUDE** articles that are directly related to the chosen topics OR weather-related
+   - Articles that don't align with the user's chosen topics should be EXCLUDED entirely unless they are weather-related
 
-Consider these factors when ranking (after weather priority):
-1. TOPIC RELEVANCE: How directly does this article relate to the user's chosen topics ({topics_str})? This is a primary factor - prioritize articles that match the user's interests.
-2. IMPACT: How many people does this affect? What are the consequences?
-3. TIMELINESS: Is this breaking news or a developing story?
-4. SIGNIFICANCE: Does this represent a major shift, breakthrough, or turning point?
-5. UNIQUENESS: Is this a fresh story or just rehashing known information?
-6. STORY QUALITY: Does the article have enough substance to discuss meaningfully?
-7. TOPIC BALANCE: When multiple topics are requested, ensure the final selection includes important stories from EACH topic. Don't let one dominant topic crowd out others.
+3. **AFTER FILTERING**, rank the remaining articles using these factors:
+   a. TOPIC RELEVANCE: How directly does this article relate to the user's chosen topics ({topics_str})? This is the primary factor.
+   b. IMPACT: How many people does this affect? What are the consequences?
+   c. TIMELINESS: Is this breaking news or a developing story?
+   d. SIGNIFICANCE: Does this represent a major shift, breakthrough, or turning point?
+   e. UNIQUENESS: Is this a fresh story or just rehashing known information?
+   f. STORY QUALITY: Does the article have enough substance to discuss meaningfully?
+   g. TOPIC BALANCE: When multiple topics are requested, ensure the final selection includes important stories from EACH topic. Don't let one dominant topic crowd out others.
 
-Be ruthless in your ranking - not all stories are equal. Some may be minor updates, clickbait, or unrelated to the user's interests and shouldn't make the cut. Your goal is to select ONLY the 3-5 most important stories that align with the user's chosen topics."""
+Be ruthless in your filtering and ranking - not all stories are equal. Exclude articles that don't relate to the user's topics. Your goal is to select ONLY the 3-5 most important stories that are DIRECTLY related to the user's chosen topics."""
     
     return prompt
 
@@ -675,16 +606,22 @@ ARTICLES TO ANALYZE:
 {articles}
 
 INSTRUCTIONS:
-1. Review all {article_count} articles
-2. **FIRST**: Identify any weather-related stories (storms, natural disasters, weather warnings, climate events). These MUST be ranked #1.
-3. **TOPIC RELEVANCE**: Prioritize articles that are directly related to the topics listed above ({topics}). Deprioritize articles that seem unrelated or only tangentially connected to these topics. Articles that don't align with the user's chosen topics should be ranked lower or excluded unless they are weather-related or have exceptional impact/significance.
-4. Select ONLY the TOP 3-5 most important/newsworthy stories (aim for 3-5, not more) that align with the user's topic interests
-5. Rank them in strict priority order (1 = highest priority, 2 = second priority, etc.)
-6. **TOPIC BALANCE**: If multiple topics are listed above, ensure your selection includes important stories from EACH topic when possible. Don't let one topic dominate the selection - the user wants coverage across all their chosen topics.
-7. For each selected story, provide:
+1. **FIRST STEP - FILTER BY TOPIC RELEVANCE**: Review all {article_count} articles and EXCLUDE articles that are:
+   - Clearly unrelated to the topics listed above ({topics})
+   - Only tangentially connected (weak or indirect connection)
+   - Not directly relevant to the user's chosen topics
+   - EXCEPTION: Keep weather-related articles regardless of topic relevance
+
+2. **SECOND STEP - IDENTIFY WEATHER STORIES**: From the filtered articles, identify any weather-related stories (storms, natural disasters, weather warnings, climate events). These MUST be ranked #1.
+
+3. **THIRD STEP - SELECT AND RANK**: From the remaining articles (after filtering), select ONLY the TOP 3-5 most important/newsworthy stories that are DIRECTLY related to the topics ({topics}). Rank them in strict priority order (1 = highest priority, 2 = second priority, etc.)
+
+4. **TOPIC BALANCE**: If multiple topics are listed above, ensure your selection includes important stories from EACH topic when possible. Don't let one topic dominate the selection - the user wants coverage across all their chosen topics.
+
+5. For each selected story, provide:
    - The article number (from the list above)
    - A priority score (1-10, where 10 is highest priority)
-   - A brief reason why this story matters (1 sentence)
+   - A brief reason why this story matters and how it relates to the chosen topics (1 sentence)
 
 OUTPUT FORMAT (use exactly this JSON format):
 ```json
@@ -699,9 +636,11 @@ OUTPUT FORMAT (use exactly this JSON format):
 }}
 ```
 
-CRITICAL: 
-- Select EXACTLY 3-5 stories (aim for 5 if possible, but 3-4 is acceptable if there aren't enough quality stories)
-- Rank them in strict priority order (article_num 1 = highest priority)
+CRITICAL FILTERING REQUIREMENTS: 
+- EXCLUDE articles that don't relate to the chosen topics ({topics})
+- EXCLUDE articles with only weak/tangential connections
+- ONLY include articles that are directly relevant to the topics OR weather-related
+- If there aren't enough quality stories related to the topics, select fewer (3-4 is acceptable)
 - Weather stories MUST be ranked #1 if present
 - Return ONLY the JSON output, no other text."""
 
@@ -799,42 +738,12 @@ OUTPUT FORMAT (JSON only, no other text):
 Return ONLY the JSON output, no other text."""
 
 
-STATION_UPDATE_PROMPT_TEMPLATE = """Create a {duration}-minute update episode for the "{topic}" station.
-
-New developments since last update:
-
-{new_content}
-
-Previous coverage summary:
-{previous_summary}
-{name_instruction}
-
-Requirements:
-1. OPENING PREVIEW: Before diving into the updates, have the hosts clearly state what developments they'll be covering in this episode. "Tell them what you're going to tell them" - give listeners a roadmap.
-2. Start with the most important new development
-3. Provide context connecting to previous coverage
-4. Highlight 2-3 key updates
-5. WRAP-UP: At the end, work backwards to summarize what updates were discussed. Recap the key developments and what to watch for next.
-6. Keep it focused and newsworthy
-
-CRITICAL LANGUAGE GUIDELINES:
-- Use clear, direct language - avoid fluffy filler words and unnecessary embellishment
-- Present facts accurately without catastrophizing or exaggerating severity
-- Avoid sensationalism - stick to measured, factual analysis
-- Don't use dramatic language unless the situation genuinely warrants it
-- Be informative and engaging without being hyperbolic or alarmist
-
-Generate the update script:"""
-
-
 def get_configured_durations() -> dict[str, int]:
     """Get configured durations from settings."""
     from app.config import get_settings
     settings = get_settings()
     return {
         "briefing": settings.briefing_duration_minutes,
-        "deepcast": settings.deepcast_duration_minutes,
-        "station_update": settings.station_update_duration_minutes,
     }
 
 
@@ -849,6 +758,8 @@ def format_briefing_prompt(
     cast_members: list[dict] | None = None,
     cast_name: str | None = None,
     briefing_title: str | None = None,
+    recent_articles: list[dict] | None = None,
+    last_script: str | None = None,
 ) -> tuple[str, str]:
     """Format briefing prompt with content.
     
@@ -860,6 +771,8 @@ def format_briefing_prompt(
         complexity: Conversation complexity level 1-5 (uses settings if None)
         additional_facts: Dictionary mapping article index (0-based) to lists of additional facts
         ranked_items: List of ranked news items (used to match facts to articles)
+        recent_articles: List of recent articles from previous briefings for continuity context
+        last_script: Transcript from the last briefing with matching topics (for continuity/reference)
     
     Returns:
         Tuple of (system_prompt, user_prompt)
@@ -921,6 +834,51 @@ def format_briefing_prompt(
             additional_facts_section = "\n\n=== ADDITIONAL QUANTIFIABLE FACTS ===\n" + "\n".join(facts_lines) + "\n"
             additional_facts_section += "\nThese facts are provided to add concrete, quantifiable data to the discussion. Incorporate them naturally into the conversation when discussing the corresponding articles.\n"
     
+    # Format recent articles section for continuity context
+    recent_articles_section = ""
+    if recent_articles:
+        articles_lines = []
+        articles_lines.append("\n\n=== RECENT ARTICLES FROM PREVIOUS BRIEFINGS (FOR CONTINUITY CONTEXT) ===\n")
+        articles_lines.append("The following articles were discussed in recent briefings on these topics. They are provided for context and continuity.")
+        articles_lines.append("You do NOT need to discuss these articles in the current briefing, but you can reference them if they provide relevant context or if there are updates to these stories.\n")
+        
+        for i, article in enumerate(recent_articles[:5], 1):  # Limit to 5 most recent
+            articles_lines.append(f"\nRECENT ARTICLE {i}:")
+            articles_lines.append(f"Title: {article.get('title', 'Untitled')}")
+            articles_lines.append(f"Source: {article.get('source', 'Unknown')}")
+            if article.get('summary'):
+                articles_lines.append(f"Summary: {article.get('summary', '')[:200]}")
+            if article.get('fetched_at'):
+                articles_lines.append(f"Previously discussed: {article.get('fetched_at', '')}")
+        
+        articles_lines.append("\nThese articles are for reference only - focus on the new articles provided in the main content section above.")
+        recent_articles_section = "\n".join(articles_lines)
+    
+    # Format last script section for continuity
+    last_script_section = ""
+    if last_script:
+        # Truncate if too long (keep last ~2000 chars to focus on recent content)
+        script_preview = last_script[-2000:] if len(last_script) > 2000 else last_script
+        last_script_section = f"""
+
+=== LAST SCRIPT FROM PREVIOUS BRIEFING (FOR CONTINUITY REFERENCE) ===
+The following is the transcript from the last briefing generated with the same set of topics. This is provided for context, continuity, and reference.
+
+IMPORTANT INSTRUCTIONS:
+- Use this as a reference to understand what was discussed previously
+- Maintain continuity in tone, style, and approach
+- DO NOT repeat the same stories, facts, or points that were already covered
+- If referencing a previous story, provide an UPDATE or NEW ANGLE, not a rehash
+- Build on what was discussed before, don't duplicate it
+- Vary your language and phrasing - avoid using the same expressions or transitions
+- If the last script covered certain topics extensively, focus on different aspects or new developments
+
+Last script transcript:
+{script_preview}
+
+Remember: This is for reference only. Create fresh content that builds on this foundation without repeating it.
+"""
+    
     # Add complexity instruction
     complexity_instruction = get_complexity_instruction(complexity)
     
@@ -934,6 +892,8 @@ def format_briefing_prompt(
         timezone=timezone,
         name_instruction=name_instruction,
         additional_facts_section=additional_facts_section,
+        recent_articles_section=recent_articles_section,
+        last_script_section=last_script_section,
     )
     
     # Build system prompt dynamically if cast_members provided, otherwise use default
@@ -947,70 +907,6 @@ def format_briefing_prompt(
     else:
         # Fallback to default prompt for backward compatibility
         system_prompt = BRIEFING_SYSTEM_PROMPT + complexity_instruction
-    
-    return system_prompt, user_prompt
-
-
-def format_deepcast_prompt(
-    query: str,
-    research: str,
-    sources: list[dict],
-    duration: int | None = None,
-    user_name: str | None = None,
-    complexity: int | None = None,
-    cast_members: list[dict] | None = None,
-) -> tuple[str, str]:
-    """Format DeepCast prompt with research.
-    
-    Args:
-        query: User's query/topic
-        research: Research content
-        sources: List of source dictionaries
-        duration: Override duration in minutes (uses settings if None)
-        user_name: Optional user name for personalized introduction
-        complexity: Conversation complexity level 1-5 (uses settings if None)
-    
-    Returns:
-        Tuple of (system_prompt, user_prompt)
-    """
-    from app.config import get_settings
-    settings = get_settings()
-    
-    # Use configured duration if not explicitly provided
-    if duration is None:
-        duration = get_configured_durations()["deepcast"]
-    
-    # Use configured complexity if not explicitly provided
-    if complexity is None:
-        complexity = settings.conversation_complexity
-    
-    sources_str = "\n".join(
-        f"- {s.get('title', 'Unknown')}: {s.get('url', 'N/A')}"
-        for s in sources
-    )
-    
-    # Add personalized name instruction if provided
-    name_instruction = ""
-    if user_name:
-        name_instruction = f"\n\nIMPORTANT: Address the listener by name ({user_name}) in the opening introduction. For example: 'Hey {user_name}, welcome to today's deep dive' or 'Welcome, {user_name}! Let's explore...'"
-    
-    # Add complexity instruction
-    complexity_instruction = get_complexity_instruction(complexity)
-    
-    user_prompt = DEEPCAST_PROMPT_TEMPLATE.format(
-        query=query,
-        research=research,
-        sources=sources_str,
-        duration=duration,
-        name_instruction=name_instruction,
-    )
-    
-    # Build system prompt dynamically if cast_members provided, otherwise use default
-    if cast_members:
-        system_prompt = build_briefing_system_prompt(cast_members) + complexity_instruction
-    else:
-        # Fallback to default prompt for backward compatibility
-        system_prompt = DEEPCAST_SYSTEM_PROMPT + complexity_instruction
     
     return system_prompt, user_prompt
 
@@ -1089,65 +985,6 @@ Summary: {story.get('summary', 'No summary available')}
     )
     
     return FACTS_AGENT_SYSTEM_PROMPT, user_prompt
-
-
-def format_station_update_prompt(
-    topic: str,
-    new_content: str,
-    previous_summary: str = "This is the first episode.",
-    duration: int | None = None,
-    user_name: str | None = None,
-    complexity: int | None = None,
-    cast_members: list[dict] | None = None,
-) -> tuple[str, str]:
-    """Format station update prompt.
-    
-    Args:
-        topic: Station topic
-        new_content: New content since last update
-        previous_summary: Summary of previous coverage
-        duration: Override duration in minutes (uses settings if None)
-        user_name: Optional user name for personalized introduction
-        complexity: Conversation complexity level 1-5 (uses settings if None)
-    
-    Returns:
-        Tuple of (system_prompt, user_prompt)
-    """
-    from app.config import get_settings
-    settings = get_settings()
-    
-    # Use configured duration if not explicitly provided
-    if duration is None:
-        duration = get_configured_durations()["station_update"]
-    
-    # Use configured complexity if not explicitly provided
-    if complexity is None:
-        complexity = settings.conversation_complexity
-    
-    # Add personalized name instruction if provided
-    name_instruction = ""
-    if user_name:
-        name_instruction = f"\n\nIMPORTANT: Address the listener by name ({user_name}) in the opening introduction. For example: 'Hey {user_name}, here's your latest update' or '{user_name}, let me catch you up on...'"
-    
-    # Add complexity instruction
-    complexity_instruction = get_complexity_instruction(complexity)
-    
-    user_prompt = STATION_UPDATE_PROMPT_TEMPLATE.format(
-        topic=topic,
-        new_content=new_content,
-        previous_summary=previous_summary,
-        duration=duration,
-        name_instruction=name_instruction,
-    )
-    
-    # Build system prompt dynamically if cast_members provided, otherwise use default
-    if cast_members:
-        system_prompt = build_briefing_system_prompt(cast_members) + complexity_instruction
-    else:
-        # Fallback to default prompt for backward compatibility
-        system_prompt = STATION_UPDATE_SYSTEM_PROMPT + complexity_instruction
-    
-    return system_prompt, user_prompt
 
 
 SITE_GENERATION_SYSTEM_PROMPT = """You are an expert news source curator. Your task is to identify reputable, high-quality news sources, blogs, RSS feeds, websites, and relevant Reddit subreddits that regularly publish content about specific topics.

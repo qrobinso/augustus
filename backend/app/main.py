@@ -156,7 +156,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
-    description="OpenHuxe Audio Intelligence Platform - Self-hosted personalized audio briefings",
+    description="Augustus Audio Intelligence Platform - Self-hosted personalized audio briefings",
     lifespan=lifespan,
 )
 
@@ -196,14 +196,12 @@ async def health():
 
 # Import and include routers after app is created to avoid circular imports
 from app.routers import (
-    briefings, deepcasts, stations, auth, settings as settings_router,
+    briefings, auth, settings as settings_router,
     topics, custom_sites, scheduled_briefings, casts
 )
 
 app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(briefings.router, prefix="/api/briefings", tags=["Briefings"])
-app.include_router(deepcasts.router, prefix="/api/deepcasts", tags=["DeepCasts"])
-app.include_router(stations.router, prefix="/api/stations", tags=["Stations"])
 app.include_router(settings_router.router, prefix="/api/settings", tags=["Settings"])
 app.include_router(topics.router, prefix="/api/topics", tags=["Topics"])
 app.include_router(custom_sites.router, prefix="/api/custom-sites", tags=["Custom Sites"])

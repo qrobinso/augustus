@@ -125,7 +125,7 @@ export default function Casts() {
           </p>
         </div>
         <button
-          onClick={() => navigate('/casts/create')}
+          onClick={() => navigate('/casts/create', { state: { from: '/casts' } })}
           className="btn btn-primary flex items-center gap-2 w-full sm:w-auto"
         >
           <Plus className="w-5 h-5" />
@@ -146,7 +146,7 @@ export default function Casts() {
           <Users className="w-10 sm:w-12 h-10 sm:h-12 text-augustus-600 mx-auto mb-3 sm:mb-4" />
           <p className="text-sm sm:text-base text-augustus-400 mb-4">No casts yet. Create your first one!</p>
           <button
-            onClick={() => navigate('/casts/create')}
+            onClick={() => navigate('/casts/create', { state: { from: '/casts' } })}
             className="btn btn-primary"
           >
             Create Your First Cast
@@ -237,6 +237,9 @@ export default function Casts() {
     </div>
   )
 }
+
+
+
 
 
 

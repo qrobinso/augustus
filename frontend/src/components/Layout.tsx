@@ -136,7 +136,7 @@ export default function Layout() {
         {/* Footer */}
         <div className="p-4 border-t border-augustus-800/50 flex-shrink-0 pb-safe">
           <p className="text-xs text-augustus-600 text-center">
-            OpenHuxe v0.1.0
+            Augustus v0.1.0
           </p>
         </div>
       </aside>

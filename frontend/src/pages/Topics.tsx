@@ -330,7 +330,7 @@ export default function Topics() {
           </p>
         </div>
         <button
-          onClick={() => navigate('/topics/create')}
+          onClick={() => navigate('/topics/create', { state: { from: '/topics' } })}
           className="btn btn-primary flex items-center gap-2 w-full sm:w-auto"
         >
           <Plus className="w-5 h-5" />

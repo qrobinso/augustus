@@ -61,63 +61,6 @@ export interface Briefing {
   chapters?: Chapter[]
 }
 
-export interface DeepCast {
-  id: string
-  user_id: string
-  query: string
-  title?: string
-  transcript?: string
-  cast_id?: string
-  chapters: Array<{
-    title: string
-    start_time: number
-    end_time?: number
-  }>
-  audio_url?: string
-  audio_filename?: string
-  duration_seconds?: number
-  sources: Array<{
-    title: string
-    url: string
-    snippet?: string
-  }>
-  extra_data: Record<string, unknown>
-  status: 'pending' | 'researching' | 'generating' | 'completed' | 'failed'
-  error_message?: string
-  created_at: string
-  completed_at?: string
-}
-
-export interface Episode {
-  id: string
-  station_id: string
-  title: string
-  summary?: string
-  transcript?: string
-  audio_url?: string
-  audio_filename?: string
-  duration_seconds?: number
-  sources: Array<Record<string, unknown>>
-  extra_data: Record<string, unknown>
-  status: string
-  created_at: string
-}
-
-export interface Station {
-  id: string
-  user_id: string
-  topic: string
-  description?: string
-  cast_id?: string
-  update_frequency_hours: number
-  settings: Record<string, unknown>
-  is_active: boolean
-  last_update?: string
-  created_at: string
-  episodes: Episode[]
-  episode_count: number
-}
-
 export interface Topic {
   id: string
   user_id: string
@@ -206,8 +149,6 @@ export interface AppSettings {
   gemini_api_key?: string
   gemini_model: string
   briefing_duration_minutes: number
-  deepcast_duration_minutes: number
-  station_update_duration_minutes: number
   conversation_complexity: number
   timezone: string
   news_api_key?: string
@@ -324,85 +265,6 @@ export const briefingsApi = {
   },
 }
 
-export const deepcastsApi = {
-  list: async (limit = 10, offset = 0) => {
-    const { data } = await api.get<{ deepcasts: DeepCast[]; total: number }>(
-      `/api/deepcasts?limit=${limit}&offset=${offset}`
-    )
-    return data
-  },
-  
-  get: async (id: string) => {
-    const { data } = await api.get<DeepCast>(`/api/deepcasts/${id}`)
-    return data
-  },
-  
-  create: async (options: {
-    query: string
-    target_duration_minutes?: number
-    num_sources?: number
-    cast_id?: string
-  }) => {
-    const { data } = await api.post<DeepCast>('/api/deepcasts', options)
-    return data
-  },
-  
-  delete: async (id: string) => {
-    await api.delete(`/api/deepcasts/${id}`)
-  },
-}
-
-export const stationsApi = {
-  list: async (limit = 10, offset = 0) => {
-    const { data } = await api.get<{ stations: Station[]; total: number }>(
-      `/api/stations?limit=${limit}&offset=${offset}`
-    )
-    return data
-  },
-  
-  get: async (id: string) => {
-    const { data } = await api.get<Station>(`/api/stations/${id}`)
-    return data
-  },
-  
-  create: async (options: {
-    topic: string
-    description?: string
-    update_frequency_hours?: number
-    cast_id?: string
-  }) => {
-    const { data } = await api.post<Station>('/api/stations', options)
-    return data
-  },
-  
-  update: async (id: string, options: Partial<{
-    topic: string
-    description: string
-    update_frequency_hours: number
-    is_active: boolean
-    cast_id: string
-  }>) => {
-    const { data } = await api.put<Station>(`/api/stations/${id}`, options)
-    return data
-  },
-  
-  delete: async (id: string) => {
-    await api.delete(`/api/stations/${id}`)
-  },
-  
-  generateEpisode: async (id: string, force = false) => {
-    const { data } = await api.post(`/api/stations/${id}/episodes?force=${force}`)
-    return data
-  },
-  
-  listEpisodes: async (id: string, limit = 10, offset = 0) => {
-    const { data } = await api.get<Episode[]>(
-      `/api/stations/${id}/episodes?limit=${limit}&offset=${offset}`
-    )
-    return data
-  },
-}
-
 export const customSitesApi = {
   list: async (topicId?: string, limit = 50, offset = 0) => {
     const params = new URLSearchParams({ limit: String(limit), offset: String(offset) })
@@ -510,8 +372,6 @@ export const settingsApi = {
     gemini_api_key: string
     gemini_model: string
     briefing_duration_minutes: number
-    deepcast_duration_minutes: number
-    station_update_duration_minutes: number
     conversation_complexity: number
     timezone: string
     news_api_key: string

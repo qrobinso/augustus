@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { 
   Settings as SettingsIcon,
@@ -24,6 +25,7 @@ import clsx from 'clsx'
 import { settingsApi, AppSettings, ModelOption, TimezoneGroups } from '../api/client'
 
 export default function Settings() {
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
   
   // Form state
@@ -36,8 +38,6 @@ export default function Settings() {
   const [geminiModel, setGeminiModel] = useState('gemini-2.5-flash-preview-tts')
   // Duration slider values (1=Short/3min, 2=Medium/7min, 3=Long/25min)
   const [briefingDurationSlider, setBriefingDurationSlider] = useState(2)
-  const [deepcastDurationSlider, setDeepcastDurationSlider] = useState(2)
-  const [stationUpdateDurationSlider, setStationUpdateDurationSlider] = useState(1)
   const [conversationComplexity, setConversationComplexity] = useState(3)
   
   // Helper functions to convert between slider values and minutes
@@ -168,8 +168,6 @@ export default function Settings() {
       setElevenlabsModel(settings.elevenlabs_model || 'eleven_turbo_v2_5')
       setGeminiModel(settings.gemini_model || 'gemini-2.5-flash-preview-tts')
       setBriefingDurationSlider(durationToSlider(settings.briefing_duration_minutes))
-      setDeepcastDurationSlider(durationToSlider(settings.deepcast_duration_minutes))
-      setStationUpdateDurationSlider(durationToSlider(settings.station_update_duration_minutes))
       setConversationComplexity(settings.conversation_complexity || 3)
       setTimezone(settings.timezone || 'UTC')
       setUserName(settings.user_name || '')
@@ -230,8 +228,6 @@ export default function Settings() {
     const briefingDuration = sliderToDuration(briefingDurationSlider)
     
     if (briefingDuration !== settings?.briefing_duration_minutes) updates.briefing_duration_minutes = briefingDuration
-    // DeepCast and Station Update durations are kept at their current values (not shown in UI)
-    // They will maintain their existing values from settings
     if (conversationComplexity !== settings?.conversation_complexity) updates.conversation_complexity = conversationComplexity
     if (timezone !== settings?.timezone) updates.timezone = timezone
     if (userName !== settings?.user_name) updates.user_name = userName
@@ -753,32 +749,25 @@ export default function Settings() {
         </div>
       </div>
       
-      {/* Info Section */}
-      <div className="card mt-6 sm:mt-8 bg-augustus-900/30">
-        <h2 className="text-base sm:text-lg font-semibold text-white mb-3 sm:mb-4 flex items-center gap-2">
-          <Info className="w-5 h-5 text-accent" />
-          About Augustus
-        </h2>
-        
-        <div className="space-y-3 text-xs sm:text-sm text-augustus-400">
-          <p>
-            <strong className="text-white">Augustus</strong> (OpenHuxe) is a self-hosted 
-            audio intelligence platform.
-          </p>
-          
-          <div className="flex items-center gap-3 sm:gap-4 pt-2 border-t border-augustus-800/50 flex-wrap">
-            <span>Version 0.1.0</span>
-            <span className="hidden sm:inline">•</span>
-            <a 
-              href="https://github.com/openhuxe/augustus" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="text-accent hover:underline"
-            >
-              GitHub
-            </a>
+      {/* About Button */}
+      <div className="mt-6 sm:mt-8">
+        <button
+          onClick={() => navigate('/about')}
+          className="w-full card hover:border-augustus-600 transition-colors cursor-pointer group active:scale-[0.99] flex items-center justify-between"
+        >
+          <div className="flex items-center gap-3">
+            <Info className="w-5 h-5 text-accent flex-shrink-0" />
+            <div className="text-left">
+              <h3 className="text-base sm:text-lg font-semibold text-white group-hover:text-accent transition-colors">
+                About Augustus
+              </h3>
+              <p className="text-xs sm:text-sm text-augustus-400 mt-0.5">
+                Learn more about the app, server, and creator
+              </p>
+            </div>
           </div>
-        </div>
+          <ExternalLink className="w-5 h-5 text-augustus-600 group-hover:text-augustus-400 transition-colors flex-shrink-0" />
+        </button>
       </div>
       
       {/* Model Dropdown - Fixed position portal */}

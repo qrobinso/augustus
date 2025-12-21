@@ -15,7 +15,8 @@ import {
   MoreVertical,
   CheckCircle,
   Circle,
-  Check
+  Check,
+  Copy
 } from 'lucide-react'
 import clsx from 'clsx'
 import { briefingsApi, settingsApi, castsApi, SegmentTiming } from '../api/client'
@@ -278,6 +279,47 @@ export default function BriefingDetail() {
   
   const formatDate = (dateStr: string) => {
     return formatFullDate(dateStr, timezone)
+  }
+  
+  // Get transcript as plain text for copying
+  const getTranscriptText = () => {
+    // If we have segment timings, format them as text
+    if (segmentTimings.length > 0) {
+      return segmentTimings.map(segment => {
+        const speakerName = getCastMemberName(segment.speaker)
+        return `${speakerName}: ${segment.text}`
+      }).join('\n\n')
+    }
+    
+    // Fallback to raw transcript
+    return briefing?.transcript || ''
+  }
+  
+  // Handle copying transcript to clipboard
+  const handleCopyTranscript = async () => {
+    const transcriptText = getTranscriptText()
+    if (!transcriptText) return
+    
+    try {
+      await navigator.clipboard.writeText(transcriptText)
+      setShowMenu(false)
+    } catch (err) {
+      console.error('Failed to copy transcript:', err)
+      // Fallback for older browsers
+      const textArea = document.createElement('textarea')
+      textArea.value = transcriptText
+      textArea.style.position = 'fixed'
+      textArea.style.opacity = '0'
+      document.body.appendChild(textArea)
+      textArea.select()
+      try {
+        document.execCommand('copy')
+        setShowMenu(false)
+      } catch (fallbackErr) {
+        console.error('Fallback copy failed:', fallbackErr)
+      }
+      document.body.removeChild(textArea)
+    }
   }
   
   // Format timestamp as MM:SS
@@ -615,7 +657,7 @@ export default function BriefingDetail() {
                   ) : (
                     <>
                       <Circle className="w-3 h-3" />
-                      <span className="hidden sm:inline">Unlistened</span>
+                      <span className="hidden sm:inline">Not Listened</span>
                     </>
                   )}
                 </span>
@@ -629,7 +671,7 @@ export default function BriefingDetail() {
           
           {/* Menu button */}
           {briefing.status === 'completed' && (
-            <div className="relative absolute top-4 right-4 sm:static">
+            <div className="relative">
               <button
                 onClick={() => setShowMenu(!showMenu)}
                 className="btn btn-ghost p-2 text-augustus-400 hover:text-white"
@@ -641,11 +683,23 @@ export default function BriefingDetail() {
               {showMenu && (
                 <>
                   <div 
-                    className="fixed inset-0 z-10" 
+                    className="fixed inset-0 z-[100]" 
                     onClick={() => setShowMenu(false)}
                   />
-                  <div className="absolute right-0 top-full mt-2 w-56 bg-augustus-900 border border-augustus-700 rounded-lg shadow-xl z-20 overflow-hidden">
+                  <div className="absolute right-0 top-full mt-2 w-56 bg-augustus-900 border border-augustus-700 rounded-lg shadow-xl z-[101] overflow-hidden">
                     <div className="py-1">
+                      <button
+                        onClick={handleCopyTranscript}
+                        disabled={!briefing.transcript && segmentTimings.length === 0}
+                        className="w-full px-4 py-3 text-left hover:bg-augustus-800 active:bg-augustus-700 transition-colors flex items-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <Copy className="w-5 h-5 text-augustus-400" />
+                        <div>
+                          <span className="text-white font-medium block text-sm">
+                            Copy transcript
+                          </span>
+                        </div>
+                      </button>
                       <button
                         onClick={() => listenedMutation.mutate({ listened: !briefing.listened })}
                         disabled={listenedMutation.isPending}
@@ -660,7 +714,7 @@ export default function BriefingDetail() {
                         )}
                         <div>
                           <span className="text-white font-medium block text-sm">
-                            {briefing.listened ? 'Mark as unlistened' : 'Mark as listened'}
+                            {briefing.listened ? 'Mark as Not Listened' : 'Mark as listened'}
                           </span>
                         </div>
                       </button>

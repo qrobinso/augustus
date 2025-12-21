@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { 
   Tag,
@@ -38,7 +38,11 @@ interface PendingSite {
 
 export default function CreateTopic() {
   const navigate = useNavigate()
+  const location = useLocation()
   const queryClient = useQueryClient()
+  
+  // Get the previous page from location state, default to /topics
+  const previousPage = (location.state as { from?: string })?.from || '/topics'
   
   // Topic form state
   const [name, setName] = useState('')
@@ -92,7 +96,7 @@ export default function CreateTopic() {
       }
       queryClient.invalidateQueries({ queryKey: ['topics'] })
       queryClient.invalidateQueries({ queryKey: ['custom-sites'] })
-      navigate('/topics')
+      navigate(previousPage)
     },
   })
   
@@ -179,7 +183,7 @@ export default function CreateTopic() {
     if (tempTopicId) {
       topicsApi.delete(tempTopicId).catch(console.error)
     }
-    navigate('/topics')
+    navigate(previousPage)
   }
   
   return (
@@ -191,7 +195,7 @@ export default function CreateTopic() {
           className="flex items-center gap-2 text-augustus-400 hover:text-augustus-300 mb-4 transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />
-          <span className="text-sm">Back to Topics</span>
+          <span className="text-sm">Back</span>
         </button>
         <h1 className="text-2xl sm:text-3xl font-display font-semibold text-white mb-1 sm:mb-2">
           Create New Topic
@@ -461,4 +465,7 @@ export default function CreateTopic() {
     </div>
   )
 }
+
+
+
 
