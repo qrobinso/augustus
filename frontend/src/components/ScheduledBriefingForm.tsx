@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { X, Clock, Mail, Webhook, Loader2 } from 'lucide-react'
 import clsx from 'clsx'
@@ -61,38 +61,89 @@ export default function ScheduledBriefingForm({
   
   const topics = topicsData?.topics || []
   
+  // Stabilize initialTopicIds array to prevent reference changes
+  // Convert to string for stable comparison
+  const initialTopicIdsStr = useMemo(() => {
+    if (!initialTopicIds || initialTopicIds.length === 0) return ''
+    return initialTopicIds.join(',')
+  }, [initialTopicIds ? initialTopicIds.join(',') : ''])
+  
+  const stableInitialTopicIds = useMemo(() => {
+    return initialTopicIds || []
+  }, [initialTopicIdsStr])
+  
+  // Track previous values to prevent unnecessary updates
+  const prevEditingScheduleIdRef = useRef<string | null>(null)
+  const prevInitialTopicIdsRef = useRef<string>('')
+  const prevInitialCastIdRef = useRef<string | undefined>(undefined)
+  const prevSettingsDurationRef = useRef<number | undefined>(undefined)
+  const wasOpenRef = useRef(false)
+  
   useEffect(() => {
     if (settings?.timezone) {
       setTimezone(settings.timezone)
     }
-  }, [settings])
+  }, [settings?.timezone])
   
   useEffect(() => {
-    if (editingSchedule) {
-      setName(editingSchedule.name)
-      setSelectedTopicIds(editingSchedule.topic_ids || [])
-      setScheduleTime(editingSchedule.schedule_time)
-      setScheduleDays(editingSchedule.schedule_days || [])
-      setNotificationMethods(editingSchedule.notification_methods || [])
-      setEmailRecipients(editingSchedule.email_recipients?.join(', ') || '')
-      setWebhookUrl(editingSchedule.webhook_url || '')
-      setMaxDurationMinutes(editingSchedule.max_duration_minutes || 5)
-      setIsActive(editingSchedule.is_active)
-      setSelectedCastId(editingSchedule.cast_id)
-    } else {
-      // Reset form
-      setName('')
-      setSelectedTopicIds(initialTopicIds || [])
-      setScheduleTime('08:00')
-      setScheduleDays([0, 1, 2, 3, 4]) // Default to weekdays
-      setNotificationMethods([])
-      setEmailRecipients('')
-      setWebhookUrl('')
-      setMaxDurationMinutes(settings?.briefing_duration_minutes || 5)
-      setIsActive(true)
-      setSelectedCastId(initialCastId)
+    // Reset refs when modal closes
+    if (!isOpen) {
+      if (wasOpenRef.current) {
+        prevEditingScheduleIdRef.current = null
+        prevInitialTopicIdsRef.current = ''
+        prevInitialCastIdRef.current = undefined
+        prevSettingsDurationRef.current = undefined
+      }
+      wasOpenRef.current = false
+      return
     }
-  }, [editingSchedule, settings, initialTopicIds, initialCastId])
+    
+    wasOpenRef.current = true
+    
+    const currentEditingScheduleId = editingSchedule?.id || null
+    const currentInitialTopicIdsStr = initialTopicIdsStr
+    const currentSettingsDuration = settings?.briefing_duration_minutes
+    
+    // Check if we actually need to update
+    if (editingSchedule) {
+      // Only update if editingSchedule changed
+      if (currentEditingScheduleId !== prevEditingScheduleIdRef.current) {
+        setName(editingSchedule.name)
+        setSelectedTopicIds(editingSchedule.topic_ids || [])
+        setScheduleTime(editingSchedule.schedule_time)
+        setScheduleDays(editingSchedule.schedule_days || [])
+        setNotificationMethods(editingSchedule.notification_methods || [])
+        setEmailRecipients(editingSchedule.email_recipients?.join(', ') || '')
+        setWebhookUrl(editingSchedule.webhook_url || '')
+        setMaxDurationMinutes(editingSchedule.max_duration_minutes || 5)
+        setIsActive(editingSchedule.is_active)
+        setSelectedCastId(editingSchedule.cast_id)
+        prevEditingScheduleIdRef.current = currentEditingScheduleId
+      }
+    } else {
+      // Only update if initial values actually changed
+      if (
+        currentInitialTopicIdsStr !== prevInitialTopicIdsRef.current ||
+        initialCastId !== prevInitialCastIdRef.current ||
+        currentSettingsDuration !== prevSettingsDurationRef.current
+      ) {
+        setName('')
+        setSelectedTopicIds(stableInitialTopicIds)
+        setScheduleTime('08:00')
+        setScheduleDays([0, 1, 2, 3, 4]) // Default to weekdays
+        setNotificationMethods([])
+        setEmailRecipients('')
+        setWebhookUrl('')
+        setMaxDurationMinutes(currentSettingsDuration || 5)
+        setIsActive(true)
+        setSelectedCastId(initialCastId)
+        prevInitialTopicIdsRef.current = currentInitialTopicIdsStr
+        prevInitialCastIdRef.current = initialCastId
+        prevSettingsDurationRef.current = currentSettingsDuration
+        prevEditingScheduleIdRef.current = null
+      }
+    }
+  }, [isOpen, editingSchedule?.id, initialTopicIdsStr, stableInitialTopicIds, initialCastId, settings?.briefing_duration_minutes])
   
   // Prevent body scroll when modal is open
   useEffect(() => {

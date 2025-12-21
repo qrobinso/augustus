@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { 
   Info,
   Code,
@@ -8,6 +9,10 @@ import {
 } from 'lucide-react'
 
 export default function About() {
+  // Scroll to top when component mounts
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }, [])
 
   return (
     <div className="page-container max-w-3xl mx-auto">

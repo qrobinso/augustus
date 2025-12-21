@@ -43,11 +43,18 @@ export default {
       animation: {
         'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
         'waveform': 'waveform 1.5s ease-in-out infinite',
+        'spotlight': 'spotlight 8s ease-in-out infinite',
       },
       keyframes: {
         waveform: {
           '0%, 100%': { transform: 'scaleY(0.5)' },
           '50%': { transform: 'scaleY(1)' },
+        },
+        spotlight: {
+          '0%, 100%': { transform: 'translate(0, 0) scale(1)' },
+          '25%': { transform: 'translate(-30%, 30%) scale(1.2)' },
+          '50%': { transform: 'translate(-60%, 10%) scale(1.1)' },
+          '75%': { transform: 'translate(-30%, -10%) scale(0.8)' },
         },
       },
     },

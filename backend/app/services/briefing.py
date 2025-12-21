@@ -24,6 +24,7 @@ from app.services.llm.prompts import format_briefing_prompt, format_story_analys
 from app.services.tts.factory import TTSFactory
 from app.services.news import get_news_service
 from app.services.scraper import get_scraper_service
+from app.services.search import get_search_service
 from app.utils.timezone import utc_now, local_now, format_local_datetime
 
 settings = get_settings()
@@ -41,6 +42,7 @@ class BriefingService:
         self.db = db
         self.llm = get_llm_provider()
         self.news = get_news_service()
+        self.search = get_search_service()
     
     async def _check_cancelled(self, briefing_id: str) -> None:
         """Check if briefing has been cancelled and raise exception if so.
@@ -1436,6 +1438,9 @@ class BriefingService:
     ) -> dict[int, list[str]]:
         """Use LLM to generate additional quantifiable facts for each article.
         
+        This method fetches the full article content from URLs to provide
+        more interesting and detailed facts beyond what's in the summary.
+        
         Args:
             ranked_items: List of ranked NewsItem objects
             topics: List of topic names (kept for compatibility, not used)
@@ -1445,16 +1450,49 @@ class BriefingService:
         """
         import json
         
-        # Convert news items to dictionaries for the prompt
-        stories_for_analysis = [
-            {
-                "title": item.title,
-                "summary": item.summary,
-                "source": item.source,
-                "category": item.category or "general",
-            }
-            for item in ranked_items
-        ]
+        # Fetch full article content for each article
+        print(f"[Briefing] Fetching full article content for {len(ranked_items)} articles...")
+        
+        async def fetch_article_content(item, index: int):
+            """Fetch full article content for a single article."""
+            try:
+                # Check for cancellation
+                await self._check_cancelled(briefing_id)
+                
+                # Use existing content if available, otherwise fetch from URL
+                article_content = None
+                if hasattr(item, 'content') and item.content:
+                    article_content = item.content
+                elif item.url:
+                    print(f"[Briefing] Fetching content for article {index + 1}: {item.title[:60]}...")
+                    article_content = await self.search.fetch_page_content(item.url)
+                    if article_content:
+                        # Limit content length to avoid token limits (keep first 3000 chars)
+                        article_content = article_content[:3000]
+                
+                return {
+                    "title": item.title,
+                    "summary": item.summary,
+                    "source": item.source,
+                    "category": item.category or "general",
+                    "url": item.url,
+                    "full_content": article_content,  # Full article text if available
+                }
+            except Exception as e:
+                print(f"[Briefing] Warning: Could not fetch content for article {index + 1}: {e}")
+                # Fallback to summary only
+                return {
+                    "title": item.title,
+                    "summary": item.summary,
+                    "source": item.source,
+                    "category": item.category or "general",
+                    "url": item.url,
+                    "full_content": None,
+                }
+        
+        # Fetch all articles concurrently (with cancellation checks)
+        fetch_tasks = [fetch_article_content(item, i) for i, item in enumerate(ranked_items)]
+        stories_for_analysis = await asyncio.gather(*fetch_tasks)
         
         # Get the facts agent prompt
         system_prompt, user_prompt = format_facts_agent_prompt(

@@ -4,7 +4,6 @@ import {
   LayoutDashboard, 
   Tag,
   Settings,
-  Waves,
   Menu,
   X,
   Users
@@ -54,11 +53,8 @@ export default function Layout() {
     <div className="h-[100dvh] flex flex-col md:flex-row overflow-hidden">
       {/* Mobile Header */}
       <header className="md:hidden flex items-center justify-between px-4 py-3 bg-augustus-900/80 backdrop-blur-xl border-b border-augustus-800/50 flex-shrink-0 pt-safe">
-        <Link to="/dashboard" className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-accent to-accent-700 flex items-center justify-center">
-            <Waves className="w-5 h-5 text-white" />
-          </div>
-          <h1 className="font-display text-lg font-semibold text-white">Augustus</h1>
+        <Link to="/dashboard" className="flex items-center cursor-pointer hover:opacity-80 transition-opacity pt-2">
+          <img src="/augustus-logo.png" alt="Augustus" className="h-[1.15rem]" />
         </Link>
         <button
           onClick={() => setSidebarOpen(true)}
@@ -89,15 +85,9 @@ export default function Layout() {
         )}
       >
         {/* Logo */}
-        <div className="p-6 border-b border-augustus-800/50 flex items-center justify-between pt-safe">
-          <Link to="/dashboard" className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity flex-1">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-accent to-accent-700 flex items-center justify-center">
-              <Waves className="w-6 h-6 text-white" />
-            </div>
-            <div>
-              <h1 className="font-display text-xl font-semibold text-white">Augustus</h1>
-              <p className="text-xs text-augustus-500">Audio Intelligence</p>
-            </div>
+        <div className="px-6 pb-6 pt-6 border-b border-augustus-800/50 flex items-center justify-between" style={{ paddingTop: 'calc(1.5rem + env(safe-area-inset-top, 0px))' }}>
+          <Link to="/dashboard" className="flex items-center cursor-pointer hover:opacity-80 transition-opacity flex-1 pt-4">
+            <img src="/augustus-logo.png" alt="Augustus" className="h-[1.44rem]" />
           </Link>
           {/* Close button - mobile only */}
           <button

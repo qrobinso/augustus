@@ -10,7 +10,9 @@ import {
   VolumeX,
   X,
   ChevronUp,
-  ChevronDown
+  ChevronDown,
+  Minimize2,
+  Maximize2
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useStore } from '../store/useStore'
@@ -28,6 +30,11 @@ export default function AudioPlayer() {
   const [isDragging, setIsDragging] = useState(false)
   const [hasSetInitialPosition, setHasSetInitialPosition] = useState(false)
   const [hoveredChapterIndex, setHoveredChapterIndex] = useState<number | null>(null)
+  // Audio player minimized state - persisted to localStorage
+  const [isMinimized, setIsMinimized] = useState(() => {
+    const saved = localStorage.getItem('audioPlayerMinimized')
+    return saved !== null ? JSON.parse(saved) : false
+  })
   const lastSavedPositionRef = useRef<number>(0)
   const queryClient = useQueryClient()
   
@@ -84,6 +91,11 @@ export default function AudioPlayer() {
       }
     }
   }, [currentAudio, savePositionMutation])
+  
+  // Save minimized state to localStorage
+  useEffect(() => {
+    localStorage.setItem('audioPlayerMinimized', JSON.stringify(isMinimized))
+  }, [isMinimized])
   
   useEffect(() => {
     const audio = audioRef.current
@@ -303,6 +315,79 @@ export default function AudioPlayer() {
   
   const progress = duration ? (currentTime / duration) * 100 : 0
   
+  // Minimized view - compact player
+  if (isMinimized) {
+    return (
+      <div className="px-2 py-2 sm:px-3 sm:py-3 md:p-4">
+        <audio
+          ref={audioRef}
+          src={currentAudio.audioUrl}
+          preload="metadata"
+        />
+        
+        <div className="flex items-center gap-2 sm:gap-2.5 md:gap-3">
+          {/* Play/pause button */}
+          <button
+            onClick={handlePlayPause}
+            className="w-10 h-10 sm:w-11 sm:h-11 md:w-12 md:h-12 aspect-square rounded-full bg-accent hover:bg-accent-600 text-white flex items-center justify-center flex-shrink-0 active:scale-95 transition-transform p-0"
+            aria-label={isPlaying ? 'Pause' : 'Play'}
+          >
+            {isPlaying ? (
+              <Pause className="w-4 h-4 sm:w-5 sm:h-5 md:w-6 md:h-6" />
+            ) : (
+              <Play className="w-4 h-4 sm:w-5 sm:h-5 md:w-6 md:h-6 ml-0.5" />
+            )}
+          </button>
+          
+          {/* Track info */}
+          <div className="flex-1 min-w-0">
+            {currentAudio.type === 'briefing' && currentAudio.id ? (
+              <button
+                onClick={() => navigate(`/briefing/${currentAudio.id}`)}
+                className="text-left w-full"
+              >
+                <h4 className="font-medium text-white truncate text-sm sm:text-base hover:text-accent transition-colors cursor-pointer">
+                  {currentAudio.title}
+                </h4>
+                <p className="text-xs text-augustus-500 mt-0.5 truncate">
+                  {formatTime(currentTime)} / {formatTime(duration)}
+                </p>
+              </button>
+            ) : (
+              <div>
+                <h4 className="font-medium text-white truncate text-sm sm:text-base">{currentAudio.title}</h4>
+                <p className="text-xs text-augustus-500 mt-0.5 truncate">
+                  {formatTime(currentTime)} / {formatTime(duration)}
+                </p>
+              </div>
+            )}
+          </div>
+          
+          {/* Minimize/Expand button */}
+          <button
+            onClick={() => setIsMinimized(false)}
+            className="btn-icon btn btn-ghost p-1.5 sm:p-2 min-h-[44px] min-w-[44px] sm:min-h-[36px] sm:min-w-[36px] touch-target"
+            title="Expand player"
+            aria-label="Expand player"
+          >
+            <Maximize2 className="w-4 h-4 sm:w-5 sm:h-5" />
+          </button>
+          
+          {/* Close button */}
+          <button
+            onClick={handleClose}
+            className="btn-icon btn btn-ghost p-1.5 sm:p-2 min-h-[44px] min-w-[44px] sm:min-h-[36px] sm:min-w-[36px] touch-target"
+            title="Close player"
+            aria-label="Close player"
+          >
+            <X className="w-4 h-4 sm:w-5 sm:h-5" />
+          </button>
+        </div>
+      </div>
+    )
+  }
+  
+  // Full expanded view
   return (
     <div className="px-2 py-2 sm:px-3 sm:py-3 md:p-4">
       <audio
@@ -371,7 +456,7 @@ export default function AudioPlayer() {
           {/* Play/pause button - large touch target */}
           <button
             onClick={handlePlayPause}
-            className="w-11 h-11 sm:w-12 sm:h-12 md:w-14 md:h-14 rounded-full bg-accent hover:bg-accent-600 text-white flex items-center justify-center flex-shrink-0 active:scale-95 transition-transform touch-target"
+            className="w-11 h-11 sm:w-12 sm:h-12 md:w-14 md:h-14 aspect-square rounded-full bg-accent hover:bg-accent-600 text-white flex items-center justify-center flex-shrink-0 active:scale-95 transition-transform p-0"
             aria-label={isPlaying ? 'Pause' : 'Play'}
           >
             {isPlaying ? (
@@ -428,6 +513,16 @@ export default function AudioPlayer() {
               <SkipForward className="w-4 h-4 sm:w-5 sm:h-5" />
             </button>
           </div>
+          
+          {/* Minimize button */}
+          <button
+            onClick={() => setIsMinimized(true)}
+            className="btn-icon btn btn-ghost p-1.5 sm:p-2 min-h-[44px] min-w-[44px] sm:min-h-[36px] sm:min-w-[36px] touch-target"
+            title="Minimize player"
+            aria-label="Minimize player"
+          >
+            <Minimize2 className="w-4 h-4 sm:w-5 sm:h-5" />
+          </button>
           
           {/* Close button */}
           <button

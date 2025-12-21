@@ -48,11 +48,14 @@ Augustus transforms your personalized content—news feeds, topics, and queries�
 ### Audio & Playback
 
 - 🎵 **Advanced Audio Player**
-  - Waveform visualization
-  - Playback speed control (0.5x - 2.0x)
+  - Chapter-based progress visualization with color-coded segments
+  - Interactive chapter markers with hover tooltips
+  - Playback speed control (0.75x - 2.0x)
   - Resume from last position
   - Auto-mark as listened
-  - Chapter navigation
+  - Chapter navigation with active chapter highlighting
+  - Minimizable player for compact viewing
+  - Touch-optimized controls for mobile devices
 
 - 🗣️ **Multi-Voice TTS** - Natural conversations between AI hosts
   - Multiple TTS provider support
@@ -99,10 +102,12 @@ Augustus transforms your personalized content—news feeds, topics, and queries�
   - API key management
 
 - 🔍 **Filtering & Organization**
-  - Filter by listened status
+  - Filter by listened status (All, Listened, Not Listened)
   - Filter by cast/hosts
-  - Filter by topics
+  - Filter by topics (multi-select with color coding)
+  - Collapsible filter panels with state persistence
   - Search and pagination
+  - Featured briefing card for latest content
 
 ### Technical Features
 
@@ -507,9 +512,19 @@ This project is licensed under the Apache 2.0 License - see the [LICENSE](LICENS
 
 The Augustus web dashboard provides a modern, responsive interface for managing all aspects of your audio content:
 
-- **Dashboard** - View all briefings, filter by status, cast, or topics, manage scheduled briefings
-- **Briefing Detail** - Full transcript, chapter navigation, audio player with waveform
-- **Topics** - Organize content by topics, manage custom sites
+- **Dashboard** - Enhanced interface with tabbed navigation
+  - **Audio Briefs Tab** - View all briefings with advanced filtering
+    - Filter by listened status, cast, or topics
+    - Featured briefing card for the latest content
+    - Pagination for large collections
+    - Real-time generation progress tracking
+  - **Generate Tab** - Create new briefings and manage schedules
+    - Topic and cast selection
+    - Scheduled briefings management with accordion view
+    - Active/inactive schedule toggling
+    - Quick schedule creation from generation form
+- **Briefing Detail** - Full transcript, chapter navigation, enhanced audio player
+- **Topics** - Organize content by topics, manage custom sites with improved mobile support
 - **Casts** - Configure AI host personalities and voices
 - **Settings** - Comprehensive configuration interface
   - API key management
@@ -519,7 +534,18 @@ The Augustus web dashboard provides a modern, responsive interface for managing 
   - Timezone and personalization
   - Integration settings
 
-The interface is built with React, TypeScript, and Tailwind CSS, providing a fast and responsive experience.
+### Mobile Experience
+
+The interface is fully optimized for mobile devices:
+
+- **Responsive Design** - Touch-friendly controls and layouts
+- **Mobile Navigation** - Bottom navigation bar for quick access
+- **Slide-out Sidebar** - Easy menu access on mobile
+- **Optimized Audio Player** - Large touch targets, swipe-friendly controls
+- **Adaptive Layouts** - Content adapts seamlessly to screen size
+- **Safe Area Support** - Proper spacing for notched devices
+
+The interface is built with React, TypeScript, and Tailwind CSS, providing a fast and responsive experience across all devices.
 
 ## Acknowledgments
 

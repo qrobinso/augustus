@@ -645,23 +645,27 @@ CRITICAL FILTERING REQUIREMENTS:
 - Return ONLY the JSON output, no other text."""
 
 
-FACTS_AGENT_SYSTEM_PROMPT = """You are a research expert specializing in finding quantifiable, factual evidence about news stories.
+FACTS_AGENT_SYSTEM_PROMPT = """You are a research expert specializing in finding quantifiable, factual evidence and interesting details about news stories.
 
-Your task is to analyze each selected news story individually and provide 2-3 additional FACTS about each specific article that are:
-1. NOT already covered in that particular article
+Your task is to analyze each selected news story individually by reading the FULL ARTICLE CONTENT (when provided) and provide 2-3 additional FACTS and INTERESTING DETAILS about each specific article that are:
+1. NOT already covered in the summary (but may be in the full article)
 2. Quantifiable and evidence-based (numbers, statistics, specific data points)
 3. Real and verifiable (not speculation or opinion)
 4. Relevant to the specific story and add meaningful context
+5. INTERESTING details that would engage listeners and relate back to the topic
 
-Your goal is to provide concrete, factual information that will make the podcast more informative and less "fluffy" by grounding discussions in real data and evidence.
+Your goal is to provide concrete, factual information AND interesting details that will make the podcast more informative, engaging, and less "fluffy" by grounding discussions in real data and evidence while highlighting compelling aspects of the story.
 
 CRITICAL REQUIREMENTS:
-- Provide ONLY facts, not opinions or analysis
-- Each fact should be specific and quantifiable (e.g., "The market grew by 15%", "3 million users affected", "Revenue increased $2.5B")
-- Facts should complement, not duplicate, information already in the specific article
+- READ THE FULL ARTICLE CONTENT when provided - it contains much more detail than the summary
+- Extract interesting details, quotes, specific examples, or nuanced information from the full article
+- Provide facts that relate back to the user's chosen topics and would be relevant to them
+- Each fact should be specific and quantifiable when possible (e.g., "The market grew by 15%", "3 million users affected", "Revenue increased $2.5B")
+- Include interesting details like: specific quotes, surprising statistics, historical context, comparisons, implications, or unique angles
+- Facts should complement, not duplicate, information already in the summary
 - Focus on data points, statistics, historical context, or measurable impacts related to that story
 - Analyze each article independently - facts should be specific to that story's subject matter
-- If you cannot find additional quantifiable facts for an article, return an empty facts array for that article
+- If you cannot find additional quantifiable facts or interesting details for an article, return an empty facts array for that article
 - Be concise - each fact should be 1-2 sentences maximum
 
 OUTPUT FORMAT (JSON only):
@@ -672,9 +676,9 @@ OUTPUT FORMAT (JSON only):
       "article_num": 1,
       "title": "Article title",
       "facts": [
-        "Fact 1: Specific quantifiable data point related to this article...",
-        "Fact 2: Another measurable statistic relevant to this story...",
-        "Fact 3: Additional evidence-based information about this topic..."
+        "Fact 1: Specific quantifiable data point or interesting detail from the full article...",
+        "Fact 2: Another measurable statistic or compelling detail relevant to this story...",
+        "Fact 3: Additional evidence-based information or interesting angle about this topic..."
       ]
     }
   ]
@@ -682,19 +686,22 @@ OUTPUT FORMAT (JSON only):
 ```"""
 
 
-FACTS_AGENT_PROMPT_TEMPLATE = """Analyze each of the following selected news stories individually and provide 2-3 additional quantifiable FACTS about each specific article that are NOT already covered in that article.
+FACTS_AGENT_PROMPT_TEMPLATE = """Analyze each of the following selected news stories individually by reading the FULL ARTICLE CONTENT (when provided) and provide 2-3 additional quantifiable FACTS and INTERESTING DETAILS about each specific article.
 
 SELECTED STORIES:
 {stories}
 
 INSTRUCTIONS:
-1. For EACH article above, analyze it independently and identify 2-3 additional facts that are:
-   - Quantifiable (numbers, percentages, statistics, specific data points)
-   - Evidence-based and verifiable
-   - NOT already mentioned in that specific article
-   - Relevant to that article's subject matter and add meaningful context
+1. For EACH article above, READ THE FULL ARTICLE CONTENT (if provided) - it contains much more detail than the summary. Extract interesting details, specific examples, quotes, or nuanced information that would engage listeners.
 
-2. Focus on facts related to the specific story, such as:
+2. Identify 2-3 additional facts and interesting details that are:
+   - Quantifiable when possible (numbers, percentages, statistics, specific data points)
+   - Evidence-based and verifiable
+   - NOT already mentioned in the summary (but may be in the full article)
+   - Relevant to that article's subject matter and relate back to the user's topics
+   - INTERESTING and engaging - details that would make the story more compelling
+
+3. Focus on facts and details related to the specific story, such as:
    - Market data, growth statistics, user numbers relevant to the story
    - Historical comparisons or trends related to the article's topic
    - Economic impacts (dollar amounts, job numbers, etc.) for the specific subject
@@ -702,12 +709,14 @@ INSTRUCTIONS:
    - Regulatory or policy details with specific numbers
    - Geographic or demographic data relevant to the article
    - Company-specific metrics, industry benchmarks, or comparative data
+   - Interesting quotes, surprising statistics, or unique angles from the full article
+   - Context that connects the story to broader trends or implications
 
-3. Each article should be analyzed separately - facts should be specific to that article's content and subject matter.
+4. Each article should be analyzed separately - facts should be specific to that article's content and subject matter.
 
-4. If you cannot find additional quantifiable facts for an article, return an empty facts array for that article.
+5. If you cannot find additional quantifiable facts or interesting details for an article, return an empty facts array for that article.
 
-5. Each fact should be concise (1-2 sentences) and include specific numbers or measurable data.
+6. Each fact should be concise (1-2 sentences) and include specific numbers or measurable data when possible, or interesting details that add depth to the story.
 
 OUTPUT FORMAT (JSON only, no other text):
 ```json
@@ -962,7 +971,7 @@ def format_facts_agent_prompt(
     """Format facts agent prompt to generate additional facts for each article.
     
     Args:
-        stories: List of story dictionaries with title, summary, source, category
+        stories: List of story dictionaries with title, summary, source, category, url, and full_content
         topics: Optional list of topics (kept for backward compatibility, not used in prompt)
     
     Returns:
@@ -976,7 +985,19 @@ STORY {i}:
 Title: {story.get('title', 'Untitled')}
 Source: {story.get('source', 'Unknown')}
 Category: {story.get('category', 'general')}
+URL: {story.get('url', 'Not available')}
 Summary: {story.get('summary', 'No summary available')}
+"""
+        # Include full article content if available
+        full_content = story.get('full_content')
+        if full_content:
+            story_text += f"""
+FULL ARTICLE CONTENT (read this carefully for interesting details):
+{full_content}
+"""
+        else:
+            story_text += """
+FULL ARTICLE CONTENT: Not available (only summary provided above)
 """
         stories_text.append(story_text)
     

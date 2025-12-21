@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { 
@@ -19,7 +19,8 @@ import {
   RefreshCw,
   CheckCircle,
   XCircle,
-  Sparkles
+  Sparkles,
+  ArrowUpDown
 } from 'lucide-react'
 import clsx from 'clsx'
 import { topicsApi, customSitesApi, Topic, CustomSite } from '../api/client'
@@ -71,6 +72,20 @@ export default function Topics() {
   const [generatedSites, setGeneratedSites] = useState<Record<string, GeneratedSite[]>>({})
   const [selectedSites, setSelectedSites] = useState<Record<string, Set<number>>>({})
   const [showGeneratedSites, setShowGeneratedSites] = useState<Record<string, boolean>>({})
+  
+  // Sort state - persisted to localStorage
+  const [sortBy, setSortBy] = useState<{
+    field: 'created_at' | 'site_count' | 'use_newsapi' | 'name'
+    direction: 'asc' | 'desc'
+  }>(() => {
+    const saved = localStorage.getItem('topicsSortBy')
+    return saved !== null ? JSON.parse(saved) : { field: 'created_at', direction: 'desc' }
+  })
+  
+  // Save sort preference to localStorage
+  useEffect(() => {
+    localStorage.setItem('topicsSortBy', JSON.stringify(sortBy))
+  }, [sortBy])
   
   const { data, isLoading, error } = useQuery({
     queryKey: ['topics'],
@@ -315,6 +330,45 @@ export default function Topics() {
     })
   }
   
+  // Sort topics based on selected sort option
+  const sortedTopics = useMemo(() => {
+    if (!data?.topics) return []
+    
+    const topics = [...data.topics]
+    
+    topics.sort((a, b) => {
+      switch (sortBy.field) {
+        case 'created_at':
+          const dateA = new Date(a.created_at).getTime()
+          const dateB = new Date(b.created_at).getTime()
+          return sortBy.direction === 'desc' ? dateB - dateA : dateA - dateB
+          
+        case 'site_count':
+          return sortBy.direction === 'desc' 
+            ? b.site_count - a.site_count 
+            : a.site_count - b.site_count
+          
+        case 'use_newsapi':
+          // NewsAPI enabled first when desc, disabled first when asc
+          if (sortBy.direction === 'desc') {
+            return (b.use_newsapi ? 1 : 0) - (a.use_newsapi ? 1 : 0)
+          } else {
+            return (a.use_newsapi ? 1 : 0) - (b.use_newsapi ? 1 : 0)
+          }
+          
+        case 'name':
+          return sortBy.direction === 'desc'
+            ? b.name.localeCompare(a.name)
+            : a.name.localeCompare(b.name)
+          
+        default:
+          return 0
+      }
+    })
+    
+    return topics
+  }, [data?.topics, sortBy])
+  
   const sitesByTopic = sitesQueries.data || {}
   
   return (
@@ -338,6 +392,32 @@ export default function Topics() {
         </button>
       </div>
       
+      {/* Sort dropdown - above topics list */}
+      {data && data.topics.length > 0 && (
+        <div className="mb-4 flex items-center justify-end">
+          <div className="relative w-full sm:w-auto sm:min-w-[200px]">
+            <select
+              value={`${sortBy.field}-${sortBy.direction}`}
+              onChange={(e) => {
+                const [field, direction] = e.target.value.split('-') as [typeof sortBy.field, typeof sortBy.direction]
+                setSortBy({ field, direction })
+              }}
+              className="input appearance-none pr-8 cursor-pointer text-sm"
+            >
+              <option value="created_at-desc">Newest First</option>
+              <option value="created_at-asc">Oldest First</option>
+              <option value="site_count-desc">Most Sites</option>
+              <option value="site_count-asc">Least Sites</option>
+              <option value="use_newsapi-desc">NewsAPI Enabled</option>
+              <option value="use_newsapi-asc">NewsAPI Disabled</option>
+              <option value="name-asc">Name (A-Z)</option>
+              <option value="name-desc">Name (Z-A)</option>
+            </select>
+            <ArrowUpDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-augustus-400 pointer-events-none" />
+          </div>
+        </div>
+      )}
+      
       {/* Topics list */}
       <div className="space-y-4">
         
@@ -357,7 +437,7 @@ export default function Topics() {
           </div>
         ) : (
           <div className="space-y-3 sm:space-y-4">
-            {data?.topics.map((topic) => {
+            {sortedTopics.map((topic) => {
               const isExpanded = expandedTopics.has(topic.id)
               const sites = sitesByTopic[topic.id] || []
               const isLoadingSites = sitesQueries.isLoading && isExpanded

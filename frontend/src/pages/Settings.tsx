@@ -257,7 +257,7 @@ export default function Settings() {
   }
   
   return (
-    <div className="page-container max-w-3xl mx-auto">
+    <div className="page-container">
       {/* Header */}
       <div className="mb-6 sm:mb-8">
         <h1 className="text-2xl sm:text-3xl font-display font-semibold text-white mb-1 sm:mb-2">
