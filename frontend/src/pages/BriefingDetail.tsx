@@ -1,4 +1,4 @@
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import { 
@@ -26,6 +26,7 @@ import { formatFullDate } from '../utils/timezone'
 export default function BriefingDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const queryClient = useQueryClient()
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const segmentRefs = useRef<Map<number, HTMLDivElement>>(new Map())
@@ -38,6 +39,7 @@ export default function BriefingDetail() {
   // Track active segment for highlighting
   const [activeSegmentIndex, setActiveSegmentIndex] = useState<number | null>(null)
   const [showMenu, setShowMenu] = useState(false)
+  const [hasAutoPlayed, setHasAutoPlayed] = useState(false)
   
   const { data: briefing, isLoading, error } = useQuery({
     queryKey: ['briefing', id],
@@ -230,6 +232,39 @@ export default function BriefingDetail() {
     }
   }
   
+  // Auto-play if autoplay parameter is present in URL
+  useEffect(() => {
+    const audioUrl = briefing?.audio_url
+    if (audioUrl && briefing.status === 'completed' && !hasAutoPlayed && id) {
+      const shouldAutoplay = searchParams.get('autoplay') === 'true'
+      if (shouldAutoplay) {
+        // Small delay to ensure audio element is ready
+        const timer = setTimeout(() => {
+          if (currentAudio?.id === id) {
+            // Toggle play/pause for current audio
+            setIsPlaying(!isPlaying)
+          } else {
+            // Start playing this briefing, resuming from saved position if available
+            setCurrentAudio({
+              id: briefing.id,
+              type: 'briefing',
+              title: briefing.title,
+              audioUrl: audioUrl,
+              transcript: briefing.transcript,
+              chapters: briefing.chapters,
+              initialPosition: briefing.playback_position || undefined,
+            })
+            setIsPlaying(true)
+          }
+          setHasAutoPlayed(true)
+          // Remove autoplay parameter from URL without reload
+          navigate(`/briefing/${id}`, { replace: true })
+        }, 500)
+        return () => clearTimeout(timer)
+      }
+    }
+  }, [briefing, searchParams, hasAutoPlayed, id, navigate, currentAudio, isPlaying, setCurrentAudio, setIsPlaying])
+  
   const handleSeekToSegment = (startSeconds: number) => {
     // First, ensure the audio is loaded
     if (!briefing?.audio_url) return
@@ -407,10 +442,11 @@ export default function BriefingDetail() {
               key={`chapter-${chapterIndex}`}
               onClick={() => handleSeekToSegment(chapterForSegment.start_time)}
               className={clsx(
-                'mb-4 sm:mb-6 mt-6 sm:mt-8 pt-4 sm:pt-6 border-t border-augustus-700 cursor-pointer transition-all duration-300 active:scale-[0.99]',
+                'sticky top-0 z-10 -mx-4 sm:-mx-6 px-4 sm:px-6 py-3 sm:py-4 mb-4 sm:mb-6 mt-6 sm:mt-8 border-t border-b cursor-pointer transition-all duration-300 active:scale-[0.99]',
+                'bg-augustus-900/95 backdrop-blur-sm',
                 isChapterActive && isThisBriefingLoaded
                   ? 'border-accent/50'
-                  : 'hover:border-augustus-600'
+                  : 'border-augustus-700 hover:border-augustus-600'
               )}
             >
               <div className="flex items-center justify-between">

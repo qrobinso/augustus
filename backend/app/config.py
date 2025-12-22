@@ -90,6 +90,9 @@ class Settings(BaseSettings):
     # Resend Email
     resend_api_key: Optional[str] = None
     
+    # Frontend URL (for email links)
+    frontend_url: str = "http://localhost:3000"
+    
     # Scheduler
     briefing_schedule_hour: int = 7
     briefing_schedule_minute: int = 0
