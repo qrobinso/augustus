@@ -16,7 +16,9 @@ import {
   CheckCircle,
   Circle,
   Check,
-  Copy
+  Copy,
+  ChevronDown,
+  BookOpen
 } from 'lucide-react'
 import clsx from 'clsx'
 import { briefingsApi, settingsApi, castsApi, SegmentTiming } from '../api/client'
@@ -40,6 +42,7 @@ export default function BriefingDetail() {
   const [activeSegmentIndex, setActiveSegmentIndex] = useState<number | null>(null)
   const [showMenu, setShowMenu] = useState(false)
   const [hasAutoPlayed, setHasAutoPlayed] = useState(false)
+  const [notesExpanded, setNotesExpanded] = useState(false)
   
   const { data: briefing, isLoading, error } = useQuery({
     queryKey: ['briefing', id],
@@ -814,6 +817,48 @@ export default function BriefingDetail() {
               </a>
             ))}
           </div>
+          
+          {/* Briefing Notes Accordion */}
+          {(briefing.extra_data?.story_analysis_raw || briefing.extra_data?.facts_analysis_raw) && (
+            <div className="mt-4 sm:mt-6 pt-4 sm:pt-6 border-t border-augustus-700">
+              <button
+                onClick={() => setNotesExpanded(!notesExpanded)}
+                className="w-full flex items-center justify-between gap-2 text-left"
+              >
+                <h3 className="text-sm sm:text-base font-semibold text-white flex items-center gap-2">
+                  <BookOpen className="w-4 h-4 sm:w-5 sm:h-5 text-accent" />
+                  Briefing Notes
+                </h3>
+                <ChevronDown 
+                  className={clsx(
+                    'w-4 h-4 sm:w-5 sm:h-5 text-augustus-400 transition-transform duration-200',
+                    notesExpanded && 'rotate-180'
+                  )}
+                />
+              </button>
+              
+              {notesExpanded && (
+                <div className="mt-3 sm:mt-4 space-y-4">
+                  {briefing.extra_data?.story_analysis_raw && (
+                    <div className="p-3 sm:p-4 rounded-lg bg-augustus-900/50">
+                      <h4 className="text-xs sm:text-sm font-semibold text-augustus-200 mb-2">Story Analysis</h4>
+                      <pre className="text-xs sm:text-sm text-augustus-300 whitespace-pre-wrap leading-relaxed font-mono overflow-x-auto">
+                        {briefing.extra_data.story_analysis_raw}
+                      </pre>
+                    </div>
+                  )}
+                  {briefing.extra_data?.facts_analysis_raw && (
+                    <div className="p-3 sm:p-4 rounded-lg bg-augustus-900/50">
+                      <h4 className="text-xs sm:text-sm font-semibold text-augustus-200 mb-2">Facts Analysis</h4>
+                      <pre className="text-xs sm:text-sm text-augustus-300 whitespace-pre-wrap leading-relaxed font-mono overflow-x-auto">
+                        {briefing.extra_data.facts_analysis_raw}
+                      </pre>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

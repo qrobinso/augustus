@@ -39,7 +39,10 @@ export default function Dashboard() {
   const setIsPlaying = useStore((s) => s.setIsPlaying)
   
   const [selectedTopicIds, setSelectedTopicIds] = useState<string[]>([])
-  const [selectedCastId, setSelectedCastId] = useState<string | undefined>(undefined)
+  const [selectedCastId, setSelectedCastId] = useState<string | undefined>(() => {
+    const saved = localStorage.getItem('selectedCastId')
+    return saved || undefined
+  })
   const [showScheduleForm, setShowScheduleForm] = useState(false)
   const [editingSchedule, setEditingSchedule] = useState<ScheduledBriefing | null>(null)
   const [listenedFilter, setListenedFilter] = useState<boolean | undefined>(undefined)
@@ -303,6 +306,32 @@ export default function Dashboard() {
   
   const casts = castsData?.casts || []
   const defaultCast = casts.find(c => c.is_default)
+  
+  // Persist selectedCastId to localStorage
+  useEffect(() => {
+    if (selectedCastId) {
+      localStorage.setItem('selectedCastId', selectedCastId)
+    }
+  }, [selectedCastId])
+  
+  // Initialize selectedCastId with default cast when casts are loaded (only if not already set)
+  useEffect(() => {
+    if (defaultCast && selectedCastId === undefined) {
+      setSelectedCastId(defaultCast.id)
+    }
+  }, [defaultCast, selectedCastId])
+  
+  // Validate that selectedCastId still exists in casts list (in case cast was deleted)
+  useEffect(() => {
+    if (casts.length > 0 && selectedCastId) {
+      const castExists = casts.some(c => c.id === selectedCastId)
+      if (!castExists) {
+        // Cast was deleted, fall back to default
+        localStorage.removeItem('selectedCastId')
+        setSelectedCastId(defaultCast?.id)
+      }
+    }
+  }, [casts, selectedCastId, defaultCast?.id])
   
   const toggleTopic = (topicId: string) => {
     setSelectedTopicIds((prev) =>
@@ -617,7 +646,7 @@ export default function Dashboard() {
               </label>
             </div>
             <select
-              value={selectedCastId || defaultCast?.id || ''}
+              value={selectedCastId || ''}
               onChange={(e) => setSelectedCastId(e.target.value || undefined)}
               className="input w-full"
             >

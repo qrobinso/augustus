@@ -14,22 +14,6 @@ import clsx from 'clsx'
 import { castsApi, Cast } from '../api/client'
 import CastForm from '../components/CastForm'
 
-const PERSONALITY_OPTIONS = [
-  'Casual',
-  'Professional',
-  'Analytical',
-  'Friendly',
-  'Informative',
-  'Upbeat',
-  'The Provocateur/Truth-Teller',
-  'The Businessman/Everyman',
-  'The Scholar/Researcher',
-  'The Storyteller',
-  'The Skeptic',
-  'The Optimist',
-  'The Realist',
-]
-
 export default function Casts() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -39,6 +23,11 @@ export default function Casts() {
   const { data, isLoading, error } = useQuery({
     queryKey: ['casts'],
     queryFn: () => castsApi.list(),
+  })
+  
+  const { data: personalityOptions = [], isLoading: isLoadingPersonalities } = useQuery({
+    queryKey: ['personalities'],
+    queryFn: () => castsApi.getPersonalities(),
   })
   
   const deleteMutation = useMutation({
@@ -137,7 +126,8 @@ export default function Casts() {
         <CastForm
           cast={editingCast || undefined}
           onClose={handleFormClose}
-          personalityOptions={PERSONALITY_OPTIONS}
+          personalityOptions={personalityOptions}
+          isLoadingPersonalities={isLoadingPersonalities}
         />
       )}
       
@@ -234,9 +224,21 @@ export default function Casts() {
           ))}
         </div>
       )}
+      
+      {/* Manage Personalities Link */}
+      <div className="mt-8 sm:mt-12 pt-6 sm:pt-8 border-t border-augustus-700">
+        <button
+          onClick={() => navigate('/casts/personalities')}
+          className="btn btn-ghost w-full sm:w-auto flex items-center justify-center gap-2"
+        >
+          <Pencil className="w-4 h-4" />
+          Manage Personalities
+        </button>
+      </div>
     </div>
   )
 }
+
 
 
 

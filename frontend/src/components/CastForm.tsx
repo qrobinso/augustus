@@ -8,9 +8,10 @@ interface CastFormProps {
   cast?: Cast
   onClose: () => void
   personalityOptions: string[]
+  isLoadingPersonalities?: boolean
 }
 
-export default function CastForm({ cast, onClose, personalityOptions }: CastFormProps) {
+export default function CastForm({ cast, onClose, personalityOptions, isLoadingPersonalities = false }: CastFormProps) {
   const queryClient = useQueryClient()
   const [name, setName] = useState('')
   const [members, setMembers] = useState<Array<{
@@ -19,8 +20,24 @@ export default function CastForm({ cast, onClose, personalityOptions }: CastForm
     personality: string
     order: number
   }>>([
-    { name: '', voice_id: '', personality: personalityOptions[0], order: 0 },
+    { name: '', voice_id: '', personality: personalityOptions[0] || '', order: 0 },
   ])
+  
+  // Update personalities when options load - fix any invalid/empty personalities
+  useEffect(() => {
+    if (personalityOptions.length > 0 && members.length > 0) {
+      const needsUpdate = members.some(m => !m.personality || !personalityOptions.includes(m.personality))
+      if (needsUpdate) {
+        setMembers(members.map(m => ({
+          ...m,
+          personality: (!m.personality || !personalityOptions.includes(m.personality)) 
+            ? personalityOptions[0] 
+            : m.personality
+        })))
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [personalityOptions])
   
   useEffect(() => {
     if (cast) {
@@ -28,19 +45,29 @@ export default function CastForm({ cast, onClose, personalityOptions }: CastForm
       setMembers(
         cast.members
           .sort((a, b) => a.order - b.order)
-          .map(m => ({
-            name: m.name,
-            voice_id: m.voice_id,
-            personality: m.personality,
-            order: m.order,
-          }))
+          .map(m => {
+            // If personality options are loaded and the member's personality was deleted,
+            // fall back to the first available personality
+            let personality = m.personality
+            if (personalityOptions.length > 0 && !personalityOptions.includes(m.personality)) {
+              personality = personalityOptions[0]
+            }
+            return {
+              name: m.name,
+              voice_id: m.voice_id,
+              personality,
+              order: m.order,
+            }
+          })
       )
     }
-  }, [cast])
+  }, [cast, personalityOptions])
   
   const createMutation = useMutation({
     mutationFn: (data: CastCreate) => castsApi.create(data),
-    onSuccess: () => {
+    onSuccess: (newCast) => {
+      // Auto-select the newly created cast for briefing generation
+      localStorage.setItem('selectedCastId', newCast.id)
       queryClient.invalidateQueries({ queryKey: ['casts'] })
       onClose()
     },
@@ -105,7 +132,7 @@ export default function CastForm({ cast, onClose, personalityOptions }: CastForm
         {
           name: '',
           voice_id: '',
-          personality: personalityOptions[0],
+          personality: personalityOptions[0] || '',
           order: members.length,
         },
       ])
@@ -241,13 +268,17 @@ export default function CastForm({ cast, onClose, personalityOptions }: CastForm
                         onChange={(e) => updateMember(index, 'personality', e.target.value)}
                         className="input w-full"
                         required
-                        disabled={isLoading}
+                        disabled={isLoading || isLoadingPersonalities || personalityOptions.length === 0}
                       >
-                        {personalityOptions.map((opt) => (
-                          <option key={opt} value={opt}>
-                            {opt}
-                          </option>
-                        ))}
+                        {personalityOptions.length === 0 ? (
+                          <option value="">{isLoadingPersonalities ? 'Loading personalities...' : 'No personalities available'}</option>
+                        ) : (
+                          personalityOptions.map((opt) => (
+                            <option key={opt} value={opt}>
+                              {opt}
+                            </option>
+                          ))
+                        )}
                       </select>
                     </div>
                   </div>
@@ -285,6 +316,7 @@ export default function CastForm({ cast, onClose, personalityOptions }: CastForm
     </div>
   )
 }
+
 
 
 

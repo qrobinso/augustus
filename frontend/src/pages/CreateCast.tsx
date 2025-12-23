@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query'
 import { 
   Users,
   Loader2, 
@@ -11,22 +11,6 @@ import {
 } from 'lucide-react'
 import { castsApi, CastCreate } from '../api/client'
 
-const PERSONALITY_OPTIONS = [
-  'Casual',
-  'Professional',
-  'Analytical',
-  'Friendly',
-  'Informative',
-  'Upbeat',
-  'The Provocateur/Truth-Teller',
-  'The Businessman/Everyman',
-  'The Scholar/Researcher',
-  'The Storyteller',
-  'The Skeptic',
-  'The Optimist',
-  'The Realist',
-]
-
 export default function CreateCast() {
   const navigate = useNavigate()
   const location = useLocation()
@@ -35,6 +19,11 @@ export default function CreateCast() {
   // Get the previous page from location state, default to /casts
   const previousPage = (location.state as { from?: string })?.from || '/casts'
   
+  const { data: personalityOptions = [], isLoading: isLoadingPersonalities } = useQuery({
+    queryKey: ['personalities'],
+    queryFn: () => castsApi.getPersonalities(),
+  })
+  
   const [name, setName] = useState('')
   const [members, setMembers] = useState<Array<{
     name: string
@@ -42,8 +31,16 @@ export default function CreateCast() {
     personality: string
     order: number
   }>>([
-    { name: '', voice_id: '', personality: PERSONALITY_OPTIONS[0], order: 0 },
+    { name: '', voice_id: '', personality: '', order: 0 },
   ])
+  
+  // Update default personality when options load
+  useEffect(() => {
+    if (personalityOptions.length > 0 && (!members[0].personality || members[0].personality === '')) {
+      setMembers([{ ...members[0], personality: personalityOptions[0] }])
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [personalityOptions])
   
   const createMutation = useMutation({
     mutationFn: (data: CastCreate) => castsApi.create(data),
@@ -99,7 +96,7 @@ export default function CreateCast() {
         {
           name: '',
           voice_id: '',
-          personality: PERSONALITY_OPTIONS[0],
+          personality: personalityOptions[0] || '',
           order: members.length,
         },
       ])
@@ -116,6 +113,16 @@ export default function CreateCast() {
     const updated = [...members]
     updated[index] = { ...updated[index], [field]: value }
     setMembers(updated)
+  }
+  
+  if (isLoadingPersonalities) {
+    return (
+      <div className="page-container">
+        <div className="flex items-center justify-center h-full">
+          <Loader2 className="w-8 h-8 animate-spin text-augustus-400" />
+        </div>
+      </div>
+    )
   }
   
   return (
@@ -239,13 +246,17 @@ export default function CreateCast() {
                       onChange={(e) => updateMember(index, 'personality', e.target.value)}
                       className="input w-full"
                       required
-                      disabled={createMutation.isPending}
+                      disabled={createMutation.isPending || isLoadingPersonalities || personalityOptions.length === 0}
                     >
-                      {PERSONALITY_OPTIONS.map((opt) => (
-                        <option key={opt} value={opt}>
-                          {opt}
-                        </option>
-                      ))}
+                      {personalityOptions.length === 0 ? (
+                        <option value="">{isLoadingPersonalities ? 'Loading personalities...' : 'No personalities available'}</option>
+                      ) : (
+                        personalityOptions.map((opt) => (
+                          <option key={opt} value={opt}>
+                            {opt}
+                          </option>
+                        ))
+                      )}
                     </select>
                   </div>
                 </div>
@@ -294,6 +305,7 @@ export default function CreateCast() {
     </div>
   )
 }
+
 
 
 

@@ -470,6 +470,32 @@ export const castsApi = {
     return data
   },
   
+  // Personality file management
+  listPersonalityFiles: async () => {
+    const { data } = await api.get<Array<{ filename: string; name: string; path: string }>>('/api/casts/personalities/files')
+    return data
+  },
+  
+  getPersonalityFile: async (filename: string) => {
+    const { data } = await api.get<{ filename: string; name: string; content: string }>(`/api/casts/personalities/files/${filename}`)
+    return data
+  },
+  
+  savePersonalityFile: async (filename: string, content: string) => {
+    const { data } = await api.put<{ filename: string; name: string; message: string }>(`/api/casts/personalities/files/${filename}`, { content })
+    return data
+  },
+  
+  createPersonalityFile: async (filename: string, content?: string) => {
+    const { data } = await api.post<{ filename: string; name: string; message: string }>('/api/casts/personalities/files', { filename, content: content || '' })
+    return data
+  },
+  
+  deletePersonalityFile: async (filename: string) => {
+    const { data } = await api.delete<{ filename: string; message: string }>(`/api/casts/personalities/files/${filename}`)
+    return data
+  },
+  
   delete: async (id: string) => {
     await api.delete(`/api/casts/${id}`)
   },
@@ -481,6 +507,11 @@ export const castsApi = {
   
   restoreDefault: async () => {
     const { data } = await api.post<Cast>('/api/casts/default/restore')
+    return data
+  },
+  
+  getPersonalities: async () => {
+    const { data } = await api.get<string[]>('/api/casts/personalities')
     return data
   },
 }

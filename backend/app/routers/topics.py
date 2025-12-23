@@ -19,8 +19,8 @@ from app.schemas.topic import (
     TopicResponse,
     TopicListResponse,
 )
+from app.services.llm.agents.site_generator import SiteGeneratorAgent
 from app.services.llm.openrouter import get_llm_provider
-from app.services.llm.prompts import format_site_generation_prompt
 
 router = APIRouter()
 
@@ -306,25 +306,15 @@ async def generate_sites(
     existing_urls = {url.lower() for url in existing_sites_result.scalars().all()}
     
     try:
-        # Get LLM provider
+        # Get LLM provider and create site generator agent
         llm = get_llm_provider()
+        site_generator = SiteGeneratorAgent(llm)
         
-        # Format prompt
-        system_prompt, user_prompt = format_site_generation_prompt(
+        # Generate suggestions using the agent
+        content = await site_generator.generate_sites(
             topic_name=topic.name,
             count=count,
         )
-        
-        # Generate suggestions
-        response = await llm.generate(
-            prompt=user_prompt,
-            system_prompt=system_prompt,
-            max_tokens=2048,
-            temperature=0.7,
-        )
-        
-        # Parse JSON response
-        content = response.content.strip()
         
         # Extract JSON from the response (handle markdown code blocks)
         if "```json" in content:

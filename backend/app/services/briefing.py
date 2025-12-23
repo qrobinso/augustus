@@ -20,7 +20,7 @@ from app.models.cast import Cast
 from app.models.article import Article
 from app.services.cast import CastService
 from app.services.llm.openrouter import get_llm_provider
-from app.services.llm.prompts import format_briefing_prompt, format_story_analysis_prompt, format_facts_agent_prompt
+from app.services.llm.agents.orchestrator import BriefingOrchestrator
 from app.services.tts.factory import TTSFactory
 from app.services.news import get_news_service
 from app.services.scraper import get_scraper_service
@@ -41,6 +41,7 @@ class BriefingService:
     def __init__(self, db: AsyncSession):
         self.db = db
         self.llm = get_llm_provider()
+        self.orchestrator = BriefingOrchestrator(self.llm)
         self.news = get_news_service()
         self.search = get_search_service()
     
@@ -338,7 +339,7 @@ class BriefingService:
                 # 2. Rank articles by importance and topic relevance
                 # 3. Narrow down to 3-5 top stories (or fewer if not enough relevant articles)
                 print(f"[Briefing] Analyzing {len(news_items)} stories with senior news editor to filter by topic relevance and narrow down to 3-5 top stories...")
-                ranked_items, analysis_summary = await self._analyze_and_rank_stories(
+                ranked_items, analysis_summary, raw_analysis = await self._analyze_and_rank_stories(
                     briefing_id=briefing_id,
                     news_items=news_items,
                     topics=topic_names if topic_names else ["technology", "business", "science"],
@@ -354,11 +355,13 @@ class BriefingService:
                 # Single article - use it directly (story analysis not needed for filtering/ranking)
                 ranked_items = news_items
                 analysis_summary = None
+                raw_analysis = ""
                 print(f"[Briefing] Using single story: {news_items[0].title[:60]}...")
             else:
                 # No articles found
                 ranked_items = []
                 analysis_summary = None
+                raw_analysis = ""
                 print(f"[Briefing] Warning: No news items found to analyze")
             
             # Format the prioritized stories for the podcast prompt
@@ -390,7 +393,7 @@ class BriefingService:
             await update_progress(5, "Gathering additional facts", 60)
             await self._check_cancelled(briefing_id)
             print("[Briefing] Generating additional facts for articles...")
-            additional_facts = await self._generate_additional_facts(
+            additional_facts, raw_facts_response = await self._generate_additional_facts(
                 briefing_id=briefing_id,
                 ranked_items=ranked_items,
                 topics=topic_names if topic_names else ["technology", "business", "science"],
@@ -451,25 +454,22 @@ class BriefingService:
             await update_progress(7, "Writing podcast script", 70)
             await self._check_cancelled(briefing_id)
             user_name = get_settings().user_name
-            system_prompt, user_prompt = format_briefing_prompt(
+            complexity = get_settings().conversation_complexity
+            
+            # Use orchestrator to write the briefing script
+            response = await self.orchestrator.write_briefing_script(
                 content=news_content,
                 topics=topic_names if topic_names else ["technology", "business", "science"],
+                cast_members=cast_members,
                 duration=max_duration_minutes,
                 user_name=user_name,
+                complexity=complexity,
                 additional_facts=additional_facts,
                 ranked_items=ranked_items,
-                cast_members=cast_members,
                 cast_name=cast.name,
                 briefing_title=briefing.title,
                 recent_articles=recent_articles,
                 last_script=last_script,
-            )
-            
-            response = await self.llm.generate(
-                prompt=user_prompt,
-                system_prompt=system_prompt,
-                max_tokens=4096,
-                temperature=0.7,
             )
             await self._check_cancelled(briefing_id)
             
@@ -597,6 +597,8 @@ class BriefingService:
                 "segment_timings": segment_timings,
                 "chapters": chapters,  # Store chapters with timestamps
                 "story_analysis": analysis_summary,
+                "story_analysis_raw": raw_analysis,
+                "facts_analysis_raw": raw_facts_response,
                 "stories_analyzed": len(news_items),
                 "stories_selected": len(ranked_items),
                 "cast_member_names": host_to_name,  # Map HOST1/HOST2 to actual names
@@ -1345,7 +1347,7 @@ class BriefingService:
         news_items: list,
         topics: list[str],
         max_stories: int,
-    ) -> tuple[list, str | None]:
+    ) -> tuple[list, str | None, str]:
         """Use LLM to analyze and rank news stories by importance.
         
         Args:
@@ -1354,11 +1356,11 @@ class BriefingService:
             max_stories: Maximum number of top stories to select
             
         Returns:
-            Tuple of (ranked_items, analysis_summary)
+            Tuple of (ranked_items, analysis_summary, raw_response)
         """
         import json
         
-        # Convert news items to dictionaries for the prompt
+        # Convert news items to dictionaries for the agent
         articles_for_analysis = [
             {
                 "title": item.title,
@@ -1369,38 +1371,19 @@ class BriefingService:
             for item in news_items
         ]
         
-        # Get the analysis prompt
-        system_prompt, user_prompt = format_story_analysis_prompt(
-            articles=articles_for_analysis,
-            topics=topics,
-            max_stories=max_stories,
-        )
-        
         try:
             # Check for cancellation before LLM call
             await self._check_cancelled(briefing_id)
-            # Call LLM to analyze and rank stories
-            response = await self.llm.generate(
-                prompt=user_prompt,
-                system_prompt=system_prompt,
-                max_tokens=2048,
-                temperature=0.3,  # Lower temperature for more consistent analysis
+            
+            # Use orchestrator to analyze and rank stories
+            ranked_stories, summary, raw_response = await self.orchestrator.analyze_and_rank_stories(
+                articles=articles_for_analysis,
+                topics=topics,
+                max_stories=max_stories,
             )
+            
             # Check for cancellation after LLM call
             await self._check_cancelled(briefing_id)
-            
-            # Parse the JSON response
-            content = response.content.strip()
-            
-            # Extract JSON from the response (handle markdown code blocks)
-            if "```json" in content:
-                content = content.split("```json")[1].split("```")[0].strip()
-            elif "```" in content:
-                content = content.split("```")[1].split("```")[0].strip()
-            
-            analysis = json.loads(content)
-            ranked_stories = analysis.get("ranked_stories", [])
-            summary = analysis.get("summary", None)
             
             # Reorder news items based on the ranking
             ranked_items = []
@@ -1423,19 +1406,19 @@ class BriefingService:
                     if i not in used_indices and len(ranked_items) < max_stories:
                         ranked_items.append(item)
             
-            return ranked_items[:max_stories], summary
+            return ranked_items[:max_stories], summary, raw_response
             
-        except json.JSONDecodeError as e:
-            print(f"[Briefing] Warning: Failed to parse story analysis JSON: {e}")
+        except (json.JSONDecodeError, ValueError) as e:
+            print(f"[Briefing] Warning: Failed to parse story analysis: {e}")
             print(f"[Briefing] Falling back to original order")
-            return news_items[:max_stories], None
+            return news_items[:max_stories], None, ""
     
     async def _generate_additional_facts(
         self,
         briefing_id: str,
         ranked_items: list,
         topics: list[str],
-    ) -> dict[int, list[str]]:
+    ) -> tuple[dict[int, list[str]], str]:
         """Use LLM to generate additional quantifiable facts for each article.
         
         This method fetches the full article content from URLs to provide
@@ -1446,7 +1429,9 @@ class BriefingService:
             topics: List of topic names (kept for compatibility, not used)
             
         Returns:
-            Dictionary mapping article index (0-based) to lists of facts
+            Tuple of (facts_dict, raw_response)
+            facts_dict: Dictionary mapping article index (0-based) to lists of facts
+            raw_response: Raw LLM response content
         """
         import json
         
@@ -1494,59 +1479,33 @@ class BriefingService:
         fetch_tasks = [fetch_article_content(item, i) for i, item in enumerate(ranked_items)]
         stories_for_analysis = await asyncio.gather(*fetch_tasks)
         
-        # Get the facts agent prompt
-        system_prompt, user_prompt = format_facts_agent_prompt(
-            stories=stories_for_analysis,
-            topics=topics,
-        )
-        
         try:
             # Check for cancellation before LLM call
             await self._check_cancelled(briefing_id)
-            # Call LLM to generate facts
-            response = await self.llm.generate(
-                prompt=user_prompt,
-                system_prompt=system_prompt,
-                max_tokens=2048,
-                temperature=0.5,  # Moderate temperature for factual but varied responses
+            
+            # Use orchestrator to gather facts
+            facts_dict, raw_facts_response = await self.orchestrator.gather_additional_facts(
+                stories=stories_for_analysis,
             )
+            
             # Check for cancellation after LLM call
             await self._check_cancelled(briefing_id)
             
-            # Parse the JSON response
-            content = response.content.strip()
+            # Log facts generated
+            for idx, facts in facts_dict.items():
+                if 0 <= idx < len(ranked_items):
+                    print(f"[Briefing] Generated {len(facts)} facts for article {idx + 1}: {ranked_items[idx].title[:60]}...")
             
-            # Extract JSON from the response (handle markdown code blocks)
-            if "```json" in content:
-                content = content.split("```json")[1].split("```")[0].strip()
-            elif "```" in content:
-                content = content.split("```")[1].split("```")[0].strip()
+            return facts_dict, raw_facts_response
             
-            facts_data = json.loads(content)
-            articles_facts = facts_data.get("articles", [])
-            
-            # Convert to dictionary mapping article index to facts
-            # Article numbers in response are 1-based, convert to 0-based index
-            facts_dict = {}
-            for article_data in articles_facts:
-                article_num = article_data.get("article_num", 0)
-                facts = article_data.get("facts", [])
-                # Convert 1-based article_num to 0-based index
-                idx = article_num - 1
-                if 0 <= idx < len(ranked_items) and facts:
-                    facts_dict[idx] = facts
-                    print(f"[Briefing] Generated {len(facts)} facts for article {article_num}: {ranked_items[idx].title[:60]}...")
-            
-            return facts_dict
-            
-        except json.JSONDecodeError as e:
+        except (json.JSONDecodeError, ValueError) as e:
             print(f"[Briefing] Warning: Failed to parse facts agent JSON: {e}")
             print(f"[Briefing] Falling back to empty facts")
-            return {}
+            return {}, ""
         except Exception as e:
             print(f"[Briefing] Warning: Facts generation failed: {e}")
             print(f"[Briefing] Falling back to empty facts")
-            return {}
+            return {}, ""
     
     async def _save_articles(
         self,
