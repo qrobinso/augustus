@@ -143,7 +143,7 @@ Augustus transforms your personalized contentâ€”news feeds, topics, and queriesâ
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/your-username/augustus.git
+   git clone https://github.com/qrobinso/augustus.git
    cd augustus
    ```
 

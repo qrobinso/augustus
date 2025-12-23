@@ -23,6 +23,8 @@ build/
 .env
 .env.local
 .env.*.local
+# Allow .env.example to be committed
+!.env.example
 
 # Data
 *.db
@@ -56,4 +58,12 @@ htmlcov/
 # Misc
 *.bak
 *.tmp
+
+# Security - additional sensitive files
+*.pem
+*.key
+*.cert
+secrets/
+credentials/
+*.secret
 
