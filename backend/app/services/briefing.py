@@ -35,6 +35,11 @@ class BriefingCancelledException(Exception):
     pass
 
 
+class BriefingTimeoutException(Exception):
+    """Exception raised when a briefing generation exceeds the timeout."""
+    pass
+
+
 class BriefingService:
     """Service for generating daily audio briefings."""
     
@@ -181,6 +186,58 @@ class BriefingService:
         
         print(f"[Briefing] Target duration: {max_duration_minutes} minutes")
         
+        # Get timeout from settings
+        timeout_minutes = get_settings().briefing_timeout_minutes
+        timeout_seconds = timeout_minutes * 60
+        
+        try:
+            # Wrap the entire generation in a timeout
+            return await asyncio.wait_for(
+                self._generate_briefing_internal(
+                    briefing_id=briefing_id,
+                    briefing=briefing,
+                    topic_ids=topic_ids,
+                    max_duration_minutes=max_duration_minutes,
+                ),
+                timeout=timeout_seconds,
+            )
+        except asyncio.TimeoutError:
+            # Timeout exceeded - mark briefing as failed
+            # Note: We do NOT clear the queue here - other queued briefings should continue processing
+            print(f"[Briefing] Generation timeout exceeded ({timeout_minutes} minutes) for briefing {briefing_id}")
+            
+            # Refresh briefing to get latest state
+            await self.db.refresh(briefing)
+            
+            # Mark as failed with timeout error
+            briefing.status = "failed"
+            briefing.error_message = f"Briefing generation exceeded the app timeout ({timeout_minutes} minutes)"
+            
+            # Clear progress
+            if briefing.extra_data:
+                briefing.extra_data = {
+                    **briefing.extra_data,
+                    "progress": None,
+                }
+            
+            await self.db.commit()
+            
+            # Don't clear the queue - let other queued briefings continue processing
+            print(f"[Briefing] Marked briefing {briefing_id} as failed due to timeout (queue continues processing)")
+            
+            raise BriefingTimeoutException(f"Briefing generation exceeded timeout of {timeout_minutes} minutes")
+    
+    async def _generate_briefing_internal(
+        self,
+        briefing_id: str,
+        briefing: Briefing,
+        topic_ids: Optional[list[str]],
+        max_duration_minutes: int,
+    ) -> Briefing:
+        """Internal method that performs the actual briefing generation.
+        
+        This is separated from generate_briefing to allow timeout wrapping.
+        """
         try:
             # Update status and initialize progress
             briefing.status = "generating"
@@ -455,6 +512,7 @@ class BriefingService:
             await self._check_cancelled(briefing_id)
             user_name = get_settings().user_name
             complexity = get_settings().conversation_complexity
+            enable_non_speech_sounds = get_settings().enable_non_speech_sounds
             
             # Use orchestrator to write the briefing script
             response = await self.orchestrator.write_briefing_script(
@@ -467,9 +525,11 @@ class BriefingService:
                 additional_facts=additional_facts,
                 ranked_items=ranked_items,
                 cast_name=cast.name,
+                cast_description=cast.description,
                 briefing_title=briefing.title,
                 recent_articles=recent_articles,
                 last_script=last_script,
+                enable_non_speech_sounds=enable_non_speech_sounds,
             )
             await self._check_cancelled(briefing_id)
             
@@ -610,11 +670,13 @@ class BriefingService:
             await self.db.refresh(briefing)
             
             return briefing
-            
         except BriefingCancelledException:
             # Briefing was cancelled - status already set to cancelled
             briefing.error_message = "Cancelled by user"
             await self.db.commit()
+            raise
+        except BriefingTimeoutException:
+            # Timeout exception - already handled in generate_briefing
             raise
         except Exception as e:
             # Check if cancelled during exception handling
@@ -957,6 +1019,7 @@ class BriefingService:
         listened: Optional[bool] = None,
         cast_id: Optional[str] = None,
         topic_ids: Optional[list[str]] = None,
+        favorite: Optional[bool] = None,
     ) -> tuple[list[Briefing], int]:
         """List briefings for a user.
         
@@ -967,6 +1030,7 @@ class BriefingService:
             listened: Optional filter by listened status
             cast_id: Optional filter by cast ID
             topic_ids: Optional filter by topic IDs (briefings must contain at least one of these topics)
+            favorite: Optional filter by favorite status
         """
         # Build query
         query = select(Briefing).where(Briefing.user_id == user_id)
@@ -978,6 +1042,10 @@ class BriefingService:
         # Apply cast_id filter if provided
         if cast_id is not None:
             query = query.where(Briefing.cast_id == cast_id)
+        
+        # Apply favorite filter if provided
+        if favorite is not None:
+            query = query.where(Briefing.favorite == favorite)
         
         # Get all matching briefings (before topic_ids filter)
         result = await self.db.execute(
@@ -1011,7 +1079,7 @@ class BriefingService:
         return list(briefings), total
     
     async def delete_briefing(self, briefing_id: str) -> bool:
-        """Delete a briefing."""
+        """Delete a briefing and its associated articles."""
         result = await self.db.execute(
             select(Briefing).where(Briefing.id == briefing_id)
         )
@@ -1019,6 +1087,29 @@ class BriefingService:
         
         if not briefing:
             return False
+        
+        # Delete associated articles by URL from briefing sources
+        if briefing.sources and isinstance(briefing.sources, list):
+            # Extract URLs from sources
+            urls = []
+            for source in briefing.sources:
+                if isinstance(source, dict) and 'url' in source:
+                    urls.append(source['url'])
+                elif hasattr(source, 'url'):
+                    urls.append(source.url)
+            
+            if urls:
+                # Delete articles with matching URLs
+                articles_result = await self.db.execute(
+                    select(Article).where(Article.url.in_(urls))
+                )
+                articles_to_delete = articles_result.scalars().all()
+                
+                for article in articles_to_delete:
+                    await self.db.delete(article)
+                
+                if articles_to_delete:
+                    print(f"[Briefing] Deleted {len(articles_to_delete)} articles associated with briefing {briefing_id}")
         
         # Delete audio file if exists
         if briefing.audio_filename:
@@ -1076,6 +1167,27 @@ class BriefingService:
             return None
         
         briefing.playback_position = position
+        
+        await self.db.commit()
+        await self.db.refresh(briefing)
+        
+        return briefing
+    
+    async def update_favorite_status(
+        self,
+        briefing_id: str,
+        favorite: bool,
+    ) -> Optional[Briefing]:
+        """Update the favorite status of a briefing."""
+        result = await self.db.execute(
+            select(Briefing).where(Briefing.id == briefing_id)
+        )
+        briefing = result.scalar_one_or_none()
+        
+        if not briefing:
+            return None
+        
+        briefing.favorite = favorite
         
         await self.db.commit()
         await self.db.refresh(briefing)

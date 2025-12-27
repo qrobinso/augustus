@@ -37,3 +37,8 @@ class Provocateur(Personality):
             "Stand by principles even if it creates tension",
         ]
 
+
+
+
+
+

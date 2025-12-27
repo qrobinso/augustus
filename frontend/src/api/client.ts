@@ -58,6 +58,7 @@ export interface Briefing {
   listened: boolean
   listened_at?: string
   playback_position?: number
+  favorite: boolean
   chapters?: Chapter[]
 }
 
@@ -114,6 +115,7 @@ export interface Cast {
   id: string
   user_id: string
   name: string
+  description?: string
   is_default: boolean
   members: CastMember[]
   created_at: string
@@ -122,6 +124,7 @@ export interface Cast {
 
 export interface CastCreate {
   name: string
+  description?: string
   members: Array<{
     name: string
     voice_id: string
@@ -132,6 +135,7 @@ export interface CastCreate {
 
 export interface CastUpdate {
   name?: string
+  description?: string
   members?: Array<{
     name: string
     voice_id: string
@@ -143,11 +147,15 @@ export interface CastUpdate {
 export interface AppSettings {
   openrouter_api_key?: string
   openrouter_model: string
+  openrouter_writer_model?: string
   tts_provider: string
+  piper_url?: string
+  piper_model?: string
   elevenlabs_api_key?: string
   elevenlabs_model: string
   gemini_api_key?: string
   gemini_model: string
+  enable_non_speech_sounds: boolean
   briefing_duration_minutes: number
   conversation_complexity: number
   timezone: string
@@ -210,7 +218,8 @@ export const briefingsApi = {
     offset = 0, 
     listened?: boolean,
     cast_id?: string,
-    topic_ids?: string[]
+    topic_ids?: string[],
+    favorite?: boolean
   ) => {
     const params = new URLSearchParams({
       limit: String(limit),
@@ -224,6 +233,9 @@ export const briefingsApi = {
     }
     if (topic_ids && topic_ids.length > 0) {
       topic_ids.forEach(id => params.append('topic_ids', id))
+    }
+    if (favorite !== undefined) {
+      params.set('favorite', String(favorite))
     }
     const { data } = await api.get<{ briefings: Briefing[]; total: number }>(
       `/api/briefings?${params}`
@@ -256,6 +268,11 @@ export const briefingsApi = {
   
   updatePlaybackPosition: async (id: string, position: number) => {
     const { data } = await api.patch<Briefing>(`/api/briefings/${id}/playback-position`, { position })
+    return data
+  },
+  
+  updateFavorite: async (id: string, favorite: boolean) => {
+    const { data } = await api.patch<Briefing>(`/api/briefings/${id}/favorite`, { favorite })
     return data
   },
   
@@ -368,9 +385,13 @@ export const settingsApi = {
     openrouter_api_key: string
     openrouter_model: string
     tts_provider: string
+    piper_url: string
+    piper_model: string
     elevenlabs_api_key: string
+    elevenlabs_model: string
     gemini_api_key: string
     gemini_model: string
+    enable_non_speech_sounds: boolean
     briefing_duration_minutes: number
     conversation_complexity: number
     timezone: string
@@ -513,6 +534,19 @@ export const castsApi = {
   getPersonalities: async () => {
     const { data } = await api.get<string[]>('/api/casts/personalities')
     return data
+  },
+  
+  generateDescription: async (name: string, members: Array<{
+    name: string
+    voice_id: string
+    personality: string
+    order: number
+  }>) => {
+    const { data } = await api.post<{ description: string }>('/api/casts/generate-description', {
+      name,
+      members,
+    })
+    return data.description
   },
 }
 

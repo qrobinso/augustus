@@ -1,8 +1,11 @@
 """Briefing Orchestrator - coordinates all agents for briefing generation."""
 
+import os
 from typing import Optional
 
+from app.config import get_settings
 from app.services.llm.base import LLMProvider
+from app.services.llm.openrouter import OpenRouterProvider
 from app.services.llm.agents.story_analyzer import StoryAnalyzerAgent
 from app.services.llm.agents.facts_gatherer import FactsGathererAgent
 from app.services.llm.agents.briefing_writer import BriefingWriterAgent
@@ -15,12 +18,28 @@ class BriefingOrchestrator:
         """Initialize the briefing orchestrator.
         
         Args:
-            llm: LLM provider instance
+            llm: LLM provider instance (used for story analysis and facts gathering)
         """
         self.llm = llm
+        
+        # Create a separate LLM provider for briefing writing if writer model is configured
+        # Otherwise, use the same LLM provider
+        # Check environment first (for immediate updates), then fall back to settings
+        writer_model = os.environ.get("OPENROUTER_WRITER_MODEL")
+        if not writer_model:
+            settings = get_settings()
+            writer_model = settings.openrouter_writer_model
+        
+        if writer_model:
+            # Create a separate provider with the writer model
+            writer_llm = OpenRouterProvider(model=writer_model)
+        else:
+            # Use the same provider (will use the standard model)
+            writer_llm = llm
+        
         self.story_analyzer = StoryAnalyzerAgent(llm)
         self.facts_gatherer = FactsGathererAgent(llm)
-        self.briefing_writer = BriefingWriterAgent(llm)
+        self.briefing_writer = BriefingWriterAgent(writer_llm)
     
     async def analyze_and_rank_stories(
         self,
@@ -71,9 +90,11 @@ class BriefingOrchestrator:
         additional_facts: Optional[dict[int, list[str]]] = None,
         ranked_items: Optional[list] = None,
         cast_name: Optional[str] = None,
+        cast_description: Optional[str] = None,
         briefing_title: Optional[str] = None,
         recent_articles: Optional[list[dict]] = None,
         last_script: Optional[str] = None,
+        enable_non_speech_sounds: bool = False,
     ):
         """Generate the podcast script for a briefing.
         
@@ -87,9 +108,11 @@ class BriefingOrchestrator:
             additional_facts: Dictionary mapping article index to facts
             ranked_items: List of ranked news items
             cast_name: Optional name of the cast
+            cast_description: Optional description of how the cast works
             briefing_title: Optional briefing title
             recent_articles: List of recent articles for continuity
             last_script: Transcript from last briefing for continuity
+            enable_non_speech_sounds: Whether to include non-speech sounds markup
             
         Returns:
             LLMResponse object with generated content, model, and usage info
@@ -104,8 +127,10 @@ class BriefingOrchestrator:
             additional_facts=additional_facts,
             ranked_items=ranked_items,
             cast_name=cast_name,
+            cast_description=cast_description,
             briefing_title=briefing_title,
             recent_articles=recent_articles,
             last_script=last_script,
+            enable_non_speech_sounds=enable_non_speech_sounds,
         )
 

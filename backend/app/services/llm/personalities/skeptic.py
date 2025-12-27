@@ -36,3 +36,8 @@ class Skeptic(Personality):
             "Highlight what we don't know or what's uncertain",
         ]
 
+
+
+
+
+

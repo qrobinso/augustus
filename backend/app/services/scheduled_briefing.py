@@ -276,6 +276,8 @@ class ScheduledBriefingService:
                 
                 # Generate briefing synchronously (queue ensures only one at a time)
                 try:
+                    from app.services.briefing import BriefingTimeoutException, BriefingCancelledException
+                    
                     await briefing_service.generate_briefing(
                         briefing_id=briefing.id,
                         topic_ids=schedule.topic_ids if schedule.topic_ids else None,
@@ -306,6 +308,10 @@ class ScheduledBriefingService:
                             await self._send_notifications(schedule, briefing)
                     
                     return briefing
+                except (BriefingTimeoutException, BriefingCancelledException):
+                    # Timeout or cancellation - already handled in generate_briefing
+                    print(f"[ScheduledBriefing] Briefing generation was cancelled or timed out")
+                    return None
                 except Exception as e:
                     print(f"[ScheduledBriefing] Failed to generate briefing: {e}")
                     return None

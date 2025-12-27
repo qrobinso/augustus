@@ -35,3 +35,8 @@ class Friendly(Personality):
             "Make listeners feel included in the conversation",
         ]
 
+
+
+
+
+

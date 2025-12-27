@@ -1,4 +1,4 @@
-"""Migration to add playback_position column to briefings table."""
+"""Migration to add description column to casts table."""
 
 import asyncio
 from sqlalchemy import text
@@ -8,23 +8,23 @@ from app.config import get_settings
 
 
 async def migrate():
-    """Add playback_position column to briefings table for resume functionality."""
+    """Add description column to casts table."""
     settings = get_settings()
     engine = create_async_engine(settings.database_url)
     
     async with engine.begin() as conn:
         # Check if column already exists
-        result = await conn.execute(text("PRAGMA table_info(briefings)"))
+        result = await conn.execute(text("PRAGMA table_info(casts)"))
         columns = [row[1] for row in result.fetchall()]
         
-        if 'playback_position' not in columns:
-            print("Adding 'playback_position' column to briefings table...")
+        if 'description' not in columns:
+            print("Adding 'description' column to casts table...")
             await conn.execute(text(
-                "ALTER TABLE briefings ADD COLUMN playback_position FLOAT"
+                "ALTER TABLE casts ADD COLUMN description VARCHAR(2000)"
             ))
-            print("Added 'playback_position' column")
+            print("Added 'description' column")
         else:
-            print("'playback_position' column already exists")
+            print("'description' column already exists")
     
     await engine.dispose()
     print("Migration complete!")
@@ -32,17 +32,4 @@ async def migrate():
 
 if __name__ == "__main__":
     asyncio.run(migrate())
-
-
-
-
-
-
-
-
-
-
-
-
-
 

@@ -291,30 +291,211 @@ Return ONLY the JSON output, no other text."""
         elif "```" in content:
             content = content.split("```")[1].split("```")[0].strip()
         
+        # Try multiple parsing strategies
+        facts_data = None
+        
+        # Strategy 1: Try parsing as-is
         try:
             facts_data = json.loads(content)
-            articles_facts = facts_data.get("articles", [])
+        except json.JSONDecodeError as e1:
+            print(f"[Facts Gatherer] Initial JSON parse failed: {e1}")
             
-            # Convert to dictionary mapping article index to formatted question-answer strings
-            # Article numbers in response are 1-based, convert to 0-based index
-            facts_dict = {}
-            for article_data in articles_facts:
-                article_num = article_data.get("article_num", 0)
-                qa_pairs = article_data.get("questions_and_answers", [])
-                # Convert 1-based article_num to 0-based index
-                idx = article_num - 1
-                if 0 <= idx < len(stories) and qa_pairs:
-                    # Format as list of strings: "Question: ...\nAnswer: ..."
-                    formatted_facts = []
-                    for qa in qa_pairs:
-                        question = qa.get("question", "")
-                        answer = qa.get("answer", "")
-                        if question and answer:
-                            formatted_facts.append(f"Question: {question}\nAnswer: {answer}")
-                    if formatted_facts:
-                        facts_dict[idx] = formatted_facts
+            # Strategy 2: Try to fix common issues and parse again
+            try:
+                fixed_content = self._fix_json_issues(content)
+                facts_data = json.loads(fixed_content)
+                print(f"[Facts Gatherer] Successfully parsed after fixing JSON issues")
+            except (json.JSONDecodeError, Exception) as e2:
+                print(f"[Facts Gatherer] Fixed JSON parse also failed: {e2}")
+                
+                # Strategy 3: Try to extract partial data using regex as fallback
+                try:
+                    facts_data = self._extract_partial_json(content)
+                    if facts_data:
+                        print(f"[Facts Gatherer] Extracted partial JSON data using fallback method")
+                except Exception as e3:
+                    print(f"[Facts Gatherer] Fallback extraction also failed: {e3}")
+                    # Log the problematic content for debugging
+                    error_pos = getattr(e1, 'pos', None)
+                    if error_pos:
+                        start = max(0, error_pos - 200)
+                        end = min(len(content), error_pos + 200)
+                        problematic_section = content[start:end]
+                        print(f"[Facts Gatherer] Original error at position {error_pos}")
+                        print(f"[Facts Gatherer] Problematic section: ...{problematic_section}...")
+                    raise ValueError(f"Failed to parse facts agent JSON: {e1}")
+        
+        if not facts_data:
+            raise ValueError("Failed to parse facts agent JSON: All parsing strategies failed")
+        
+        articles_facts = facts_data.get("articles", [])
+        
+        # Convert to dictionary mapping article index to formatted question-answer strings
+        # Article numbers in response are 1-based, convert to 0-based index
+        facts_dict = {}
+        for article_data in articles_facts:
+            article_num = article_data.get("article_num", 0)
+            qa_pairs = article_data.get("questions_and_answers", [])
+            # Convert 1-based article_num to 0-based index
+            idx = article_num - 1
+            if 0 <= idx < len(stories) and qa_pairs:
+                # Format as list of strings: "Question: ...\nAnswer: ..."
+                formatted_facts = []
+                for qa in qa_pairs:
+                    question = qa.get("question", "")
+                    answer = qa.get("answer", "")
+                    if question and answer:
+                        formatted_facts.append(f"Question: {question}\nAnswer: {answer}")
+                if formatted_facts:
+                    facts_dict[idx] = formatted_facts
+        
+        return facts_dict, raw_response
+    
+    def _fix_json_issues(self, content: str) -> str:
+        """Attempt to fix common JSON issues like unterminated strings.
+        
+        Args:
+            content: JSON string that may have issues
             
-            return facts_dict, raw_response
-        except json.JSONDecodeError as e:
-            raise ValueError(f"Failed to parse facts agent JSON: {e}")
+        Returns:
+            Fixed JSON string
+        """
+        import re
+        
+        # Remove trailing commas before closing braces/brackets (common JSON issue)
+        content = re.sub(r',(\s*[}\]])', r'\1', content)
+        
+        # Try to fix unterminated strings by tracking string state
+        # Find the main JSON object
+        first_brace = content.find('{')
+        if first_brace == -1:
+            return content
+        
+        # Track state while processing
+        result = []
+        i = first_brace
+        in_string = False
+        escape_next = False
+        brace_count = 0
+        bracket_count = 0
+        
+        while i < len(content):
+            char = content[i]
+            
+            if escape_next:
+                result.append(char)
+                escape_next = False
+                i += 1
+                continue
+            
+            if char == '\\':
+                result.append(char)
+                escape_next = True
+                i += 1
+                continue
+            
+            if char == '"':
+                result.append(char)
+                in_string = not in_string
+                i += 1
+                continue
+            
+            if not in_string:
+                if char == '{':
+                    brace_count += 1
+                    result.append(char)
+                elif char == '}':
+                    brace_count -= 1
+                    result.append(char)
+                elif char == '[':
+                    bracket_count += 1
+                    result.append(char)
+                elif char == ']':
+                    bracket_count -= 1
+                    result.append(char)
+                else:
+                    result.append(char)
+                i += 1
+            else:
+                # We're in a string - just copy characters
+                result.append(char)
+                i += 1
+        
+        fixed_content = ''.join(result)
+        
+        # If we ended in a string, try to close it intelligently
+        if in_string:
+            # Close the string and any unclosed structures
+            if bracket_count > 0:
+                fixed_content += '"' + ']' * bracket_count
+            if brace_count > 0:
+                fixed_content += '"' + '}' * brace_count
+            else:
+                fixed_content += '"'
+        
+        # Ensure the JSON object is properly closed
+        if brace_count > 0:
+            fixed_content += '}' * brace_count
+        if bracket_count > 0:
+            fixed_content += ']' * bracket_count
+        
+        return fixed_content
+    
+    def _extract_partial_json(self, content: str) -> Optional[dict]:
+        """Extract partial JSON data using regex as a fallback.
+        
+        Args:
+            content: JSON string that failed to parse
+            
+        Returns:
+            Dictionary with extracted data, or None if extraction fails
+        """
+        import re
+        
+        # Try to extract article data using regex patterns
+        # This is a fallback when JSON parsing completely fails
+        
+        articles = []
+        
+        # Look for article patterns: "article_num": number
+        article_pattern = r'"article_num"\s*:\s*(\d+)'
+        article_matches = list(re.finditer(article_pattern, content))
+        
+        for match in article_matches:
+            article_num = int(match.group(1))
+            
+            # Try to extract the title
+            title = ""
+            title_match = re.search(r'"title"\s*:\s*"([^"]*)"', content[match.start():match.start() + 2000])
+            if title_match:
+                title = title_match.group(1)
+            
+            # Try to extract questions and answers
+            qa_pattern = r'"questions_and_answers"\s*:\s*\[(.*?)\]'
+            qa_match = re.search(qa_pattern, content[match.start():match.start() + 5000], re.DOTALL)
+            
+            questions_and_answers = []
+            if qa_match:
+                qa_content = qa_match.group(1)
+                # Try to extract individual Q&A pairs
+                # More lenient pattern that handles multi-line answers
+                qa_pair_pattern = r'\{\s*"question"\s*:\s*"([^"]*)"\s*,\s*"answer"\s*:\s*"([^"]*)"'
+                qa_pairs = re.finditer(qa_pair_pattern, qa_content, re.DOTALL)
+                for qa_pair in qa_pairs:
+                    questions_and_answers.append({
+                        "question": qa_pair.group(1),
+                        "answer": qa_pair.group(2)
+                    })
+            
+            if questions_and_answers:
+                articles.append({
+                    "article_num": article_num,
+                    "title": title,
+                    "questions_and_answers": questions_and_answers
+                })
+        
+        if articles:
+            return {"articles": articles}
+        
+        return None
 

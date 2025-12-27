@@ -36,3 +36,8 @@ class Realist(Personality):
             "Balance optimism and pessimism with realistic assessment",
         ]
 
+
+
+
+
+

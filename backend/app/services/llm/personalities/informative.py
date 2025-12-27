@@ -35,3 +35,8 @@ class Informative(Personality):
             "Use examples and analogies to illustrate concepts",
         ]
 
+
+
+
+
+

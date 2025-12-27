@@ -22,7 +22,8 @@ import {
   Webhook,
   Power,
   Tag,
-  Waves
+  Waves,
+  Heart
 } from 'lucide-react'
 import clsx from 'clsx'
 import { briefingsApi, settingsApi, topicsApi, scheduledBriefingsApi, castsApi, Briefing, ScheduledBriefing } from '../api/client'
@@ -48,6 +49,7 @@ export default function Dashboard() {
   const [listenedFilter, setListenedFilter] = useState<boolean | undefined>(undefined)
   const [filterCastId, setFilterCastId] = useState<string | undefined>(undefined)
   const [filterTopicIds, setFilterTopicIds] = useState<string[]>([])
+  const [favoriteFilter, setFavoriteFilter] = useState<boolean | undefined>(undefined)
   const [currentPage, setCurrentPage] = useState(0)
   const [activeTab, setActiveTab] = useState<'audio-briefs' | 'generate'>('audio-briefs')
   const [isMobile, setIsMobile] = useState(false)
@@ -89,13 +91,14 @@ export default function Dashboard() {
     briefings?.some((b) => b.status === 'pending' || b.status === 'generating')
   
   const { data, isLoading, error } = useQuery({
-    queryKey: ['briefings', listenedFilter, filterCastId, filterTopicIds, currentPage],
+    queryKey: ['briefings', listenedFilter, filterCastId, filterTopicIds, favoriteFilter, currentPage],
     queryFn: () => briefingsApi.list(
       pageSize, 
       currentPage * pageSize, 
       listenedFilter,
       filterCastId,
-      filterTopicIds.length > 0 ? filterTopicIds : undefined
+      filterTopicIds.length > 0 ? filterTopicIds : undefined,
+      favoriteFilter
     ),
     refetchInterval: (query) => {
       // Poll more frequently (2s) when a briefing is in progress, otherwise every 10s
@@ -106,7 +109,7 @@ export default function Dashboard() {
   // Reset to first page when filter changes
   useEffect(() => {
     setCurrentPage(0)
-  }, [listenedFilter, filterCastId, filterTopicIds])
+  }, [listenedFilter, filterCastId, filterTopicIds, favoriteFilter])
   
   // Fetch settings for timezone
   const { data: settings } = useQuery({
@@ -942,7 +945,7 @@ export default function Dashboard() {
             <h2 className="text-base sm:text-lg font-semibold text-white flex items-center gap-2">
               <Tag className="w-5 h-5 text-accent" />
               Filters
-              {(listenedFilter !== undefined || filterCastId !== undefined || filterTopicIds.length > 0) && (
+              {(listenedFilter !== undefined || filterCastId !== undefined || filterTopicIds.length > 0 || favoriteFilter !== undefined) && (
                 <span className="text-xs sm:text-sm font-normal text-augustus-500">
                   (Active)
                 </span>
@@ -1004,6 +1007,40 @@ export default function Dashboard() {
                   >
                     <Circle className="w-4 h-4 sm:w-3 sm:h-3" />
                     <span>Not Listened</span>
+                  </button>
+                </div>
+              </div>
+              
+              {/* Favorites filter */}
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                <span className="text-xs sm:text-sm font-medium text-augustus-300 flex-shrink-0 sm:w-16">Favorites</span>
+                <div className="flex items-center gap-2 overflow-x-auto scroll-smooth pb-1 sm:pb-0 -mx-1 px-1 sm:mx-0 sm:px-0">
+                  <button
+                    onClick={() => setFavoriteFilter(undefined)}
+                    className={clsx(
+                      'px-3 sm:px-3 py-2 sm:py-1.5 rounded-full text-xs sm:text-sm font-medium transition-all whitespace-nowrap flex-shrink-0',
+                      'min-h-[44px] sm:min-h-[32px] flex items-center justify-center',
+                      'active:scale-95',
+                      favoriteFilter === undefined
+                        ? 'bg-accent text-white shadow-lg shadow-accent/20'
+                        : 'bg-augustus-800 text-augustus-300 hover:bg-augustus-700 active:bg-augustus-600'
+                    )}
+                  >
+                    All
+                  </button>
+                  <button
+                    onClick={() => setFavoriteFilter(true)}
+                    className={clsx(
+                      'px-3 sm:px-3 py-2 sm:py-1.5 rounded-full text-xs sm:text-sm font-medium transition-all flex items-center gap-1.5 whitespace-nowrap flex-shrink-0',
+                      'min-h-[44px] sm:min-h-[32px] justify-center',
+                      'active:scale-95',
+                      favoriteFilter === true
+                        ? 'bg-accent text-white shadow-lg shadow-accent/20'
+                        : 'bg-augustus-800 text-augustus-300 hover:bg-augustus-700 active:bg-augustus-600'
+                    )}
+                  >
+                    <Heart className={clsx('w-4 h-4 sm:w-3 sm:h-3', favoriteFilter === true && 'fill-current')} />
+                    <span>Favorites</span>
                   </button>
                 </div>
               </div>
@@ -1099,12 +1136,13 @@ export default function Dashboard() {
               )}
               
               {/* Clear filters button - show on mobile when filters are active */}
-              {(listenedFilter !== undefined || filterCastId !== undefined || filterTopicIds.length > 0) && (
+              {(listenedFilter !== undefined || filterCastId !== undefined || filterTopicIds.length > 0 || favoriteFilter !== undefined) && (
                 <button
                   onClick={() => {
                     setListenedFilter(undefined)
                     setFilterCastId(undefined)
                     setFilterTopicIds([])
+                    setFavoriteFilter(undefined)
                   }}
                   className="sm:hidden px-4 py-2 rounded-lg text-xs font-medium bg-augustus-800 text-augustus-300 hover:bg-augustus-700 active:bg-augustus-600 transition-all active:scale-95 flex items-center justify-center gap-1.5 min-h-[44px] border border-augustus-700"
                 >
@@ -1130,7 +1168,9 @@ export default function Dashboard() {
           <div className="card text-center py-10 sm:py-12">
             <Calendar className="w-10 sm:w-12 h-10 sm:h-12 text-augustus-600 mx-auto mb-3 sm:mb-4" />
             <p className="text-sm sm:text-base text-augustus-400">
-              {listenedFilter === true
+              {favoriteFilter === true
+                ? 'No favorite briefings found.'
+                : listenedFilter === true
                 ? 'No listened briefings found.'
                 : listenedFilter === false
                 ? 'No Not Listened briefings found.'

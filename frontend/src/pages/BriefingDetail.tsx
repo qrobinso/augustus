@@ -18,7 +18,12 @@ import {
   Check,
   Copy,
   ChevronDown,
-  BookOpen
+  BookOpen,
+  Cpu,
+  FileAudio,
+  Zap,
+  BarChart3,
+  Heart
 } from 'lucide-react'
 import clsx from 'clsx'
 import { briefingsApi, settingsApi, castsApi, SegmentTiming } from '../api/client'
@@ -43,6 +48,7 @@ export default function BriefingDetail() {
   const [showMenu, setShowMenu] = useState(false)
   const [hasAutoPlayed, setHasAutoPlayed] = useState(false)
   const [notesExpanded, setNotesExpanded] = useState(false)
+  const [nerdStatsExpanded, setNerdStatsExpanded] = useState(false)
   
   const { data: briefing, isLoading, error } = useQuery({
     queryKey: ['briefing', id],
@@ -83,6 +89,16 @@ export default function BriefingDetail() {
       queryClient.invalidateQueries({ queryKey: ['briefing', id] })
       queryClient.invalidateQueries({ queryKey: ['briefings'] })
       setShowMenu(false)
+    },
+  })
+  
+  // Mutation for updating favorite status
+  const favoriteMutation = useMutation({
+    mutationFn: ({ favorite }: { favorite: boolean }) => 
+      briefingsApi.updateFavorite(id!, favorite),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['briefing', id] })
+      queryClient.invalidateQueries({ queryKey: ['briefings'] })
     },
   })
   
@@ -708,15 +724,36 @@ export default function BriefingDetail() {
             )}
           </div>
           
-          {/* Menu button */}
+          {/* Actions */}
           {briefing.status === 'completed' && (
-            <div className="relative">
+            <div className="flex items-center gap-2">
+              {/* Favorite button */}
               <button
-                onClick={() => setShowMenu(!showMenu)}
-                className="btn btn-ghost p-2 text-augustus-400 hover:text-white"
+                onClick={() => favoriteMutation.mutate({ favorite: !briefing.favorite })}
+                disabled={favoriteMutation.isPending}
+                className={clsx(
+                  'btn btn-ghost p-2 transition-colors',
+                  briefing.favorite
+                    ? 'text-red-500 hover:text-red-400'
+                    : 'text-augustus-400 hover:text-white'
+                )}
+                title={briefing.favorite ? 'Remove from favorites' : 'Add to favorites'}
               >
-                <MoreVertical className="w-5 h-5" />
+                {favoriteMutation.isPending ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <Heart className={clsx('w-5 h-5', briefing.favorite && 'fill-current')} />
+                )}
               </button>
+              
+              {/* Menu button */}
+              <div className="relative">
+                <button
+                  onClick={() => setShowMenu(!showMenu)}
+                  className="btn btn-ghost p-2 text-augustus-400 hover:text-white"
+                >
+                  <MoreVertical className="w-5 h-5" />
+                </button>
               
               {/* Dropdown menu */}
               {showMenu && (
@@ -761,6 +798,7 @@ export default function BriefingDetail() {
                   </div>
                 </>
               )}
+              </div>
             </div>
           )}
         </div>
@@ -786,37 +824,43 @@ export default function BriefingDetail() {
       )}
       
       {/* Sources */}
-      {briefing.sources && briefing.sources.length > 0 && (
+      {((briefing.sources && briefing.sources.length > 0) || 
+        (briefing.extra_data?.story_analysis_raw || briefing.extra_data?.facts_analysis_raw) ||
+        (briefing.status === 'completed')) && (
         <div className="card mt-4 sm:mt-6">
-          <h2 className="text-base sm:text-lg font-semibold text-white mb-3 sm:mb-4">
-            Sources ({briefing.sources.length})
-          </h2>
-          
-          <div className="space-y-2 sm:space-y-3">
-            {briefing.sources.map((source, index) => (
-              <a
-                key={index}
-                href={source.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block p-3 rounded-lg bg-augustus-900/50 hover:bg-augustus-800/50 active:bg-augustus-700/50 transition-colors"
-              >
-                <div className="flex items-start gap-2">
-                  <ExternalLink className="w-4 h-4 text-augustus-500 flex-shrink-0 mt-0.5" />
-                  <div className="min-w-0">
-                    <h3 className="text-white font-medium text-sm">
-                      {source.title}
-                    </h3>
-                    {source.summary && (
-                      <p className="text-augustus-400 text-xs mt-1 line-clamp-2">
-                        {source.summary}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </a>
-            ))}
-          </div>
+          {briefing.sources && briefing.sources.length > 0 && (
+            <>
+              <h2 className="text-base sm:text-lg font-semibold text-white mb-3 sm:mb-4">
+                Sources ({briefing.sources.length})
+              </h2>
+              
+              <div className="space-y-2 sm:space-y-3">
+                {briefing.sources.map((source, index) => (
+                  <a
+                    key={index}
+                    href={source.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block p-3 rounded-lg bg-augustus-900/50 hover:bg-augustus-800/50 active:bg-augustus-700/50 transition-colors"
+                  >
+                    <div className="flex items-start gap-2">
+                      <ExternalLink className="w-4 h-4 text-augustus-500 flex-shrink-0 mt-0.5" />
+                      <div className="min-w-0">
+                        <h3 className="text-white font-medium text-sm">
+                          {source.title}
+                        </h3>
+                        {source.summary && (
+                          <p className="text-augustus-400 text-xs mt-1 line-clamp-2">
+                            {source.summary}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </a>
+                ))}
+              </div>
+            </>
+          )}
           
           {/* Briefing Notes Accordion */}
           {(briefing.extra_data?.story_analysis_raw || briefing.extra_data?.facts_analysis_raw) && (
@@ -853,6 +897,249 @@ export default function BriefingDetail() {
                       <pre className="text-xs sm:text-sm text-augustus-300 whitespace-pre-wrap leading-relaxed font-mono overflow-x-auto">
                         {briefing.extra_data.facts_analysis_raw}
                       </pre>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+          
+          {/* Nerd Stats Accordion */}
+          {briefing.status === 'completed' && (
+            <div className="mt-4 sm:mt-6 pt-4 sm:pt-6 border-t border-augustus-700">
+              <button
+                onClick={() => setNerdStatsExpanded(!nerdStatsExpanded)}
+                className="w-full flex items-center justify-between gap-2 text-left"
+              >
+                <h3 className="text-sm sm:text-base font-semibold text-white flex items-center gap-2">
+                  <BarChart3 className="w-4 h-4 sm:w-5 sm:h-5 text-accent" />
+                  Nerd Stats
+                </h3>
+                <ChevronDown 
+                  className={clsx(
+                    'w-4 h-4 sm:w-5 sm:h-5 text-augustus-400 transition-transform duration-200',
+                    nerdStatsExpanded && 'rotate-180'
+                  )}
+                />
+              </button>
+              
+              {nerdStatsExpanded && (
+                <div className="mt-3 sm:mt-4 space-y-4">
+                  {/* Time to Generation */}
+                  {briefing.created_at && briefing.generated_at && (
+                    <div className="p-3 sm:p-4 rounded-lg bg-augustus-900/50">
+                      <h4 className="text-xs sm:text-sm font-semibold text-augustus-200 mb-3 flex items-center gap-2">
+                        <Zap className="w-4 h-4 text-accent" />
+                        Time to Generation
+                      </h4>
+                      <div className="space-y-2 text-xs sm:text-sm">
+                        <div className="flex justify-between">
+                          <span className="text-augustus-400">Total Time:</span>
+                          <span className="text-white font-mono">
+                            {(() => {
+                              const created = new Date(briefing.created_at)
+                              const generated = new Date(briefing.generated_at)
+                              const diffMs = generated.getTime() - created.getTime()
+                              const diffSec = Math.floor(diffMs / 1000)
+                              const minutes = Math.floor(diffSec / 60)
+                              const seconds = diffSec % 60
+                              return minutes > 0 
+                                ? `${minutes}m ${seconds}s`
+                                : `${seconds}s`
+                            })()}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-augustus-400">Created:</span>
+                          <span className="text-augustus-300 font-mono text-xs">
+                            {new Date(briefing.created_at).toLocaleString()}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-augustus-400">Generated:</span>
+                          <span className="text-augustus-300 font-mono text-xs">
+                            {new Date(briefing.generated_at).toLocaleString()}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Audio File Details */}
+                  {briefing.audio_filename && (
+                    <div className="p-3 sm:p-4 rounded-lg bg-augustus-900/50">
+                      <h4 className="text-xs sm:text-sm font-semibold text-augustus-200 mb-3 flex items-center gap-2">
+                        <FileAudio className="w-4 h-4 text-accent" />
+                        Audio File Details
+                      </h4>
+                      <div className="space-y-2 text-xs sm:text-sm">
+                        <div className="flex justify-between">
+                          <span className="text-augustus-400">Filename:</span>
+                          <span className="text-white font-mono text-xs break-all text-right ml-2">
+                            {briefing.audio_filename}
+                          </span>
+                        </div>
+                        {briefing.duration_seconds && (
+                          <div className="flex justify-between">
+                            <span className="text-augustus-400">Duration:</span>
+                            <span className="text-white font-mono">
+                              {formatDuration(briefing.duration_seconds)}
+                            </span>
+                          </div>
+                        )}
+                        <div className="flex justify-between">
+                          <span className="text-augustus-400">Format:</span>
+                          <span className="text-white font-mono">MP3</span>
+                        </div>
+                        {briefing.extra_data?.segment_timings && (
+                          <div className="flex justify-between">
+                            <span className="text-augustus-400">Segments:</span>
+                            <span className="text-white font-mono">
+                              {Array.isArray(briefing.extra_data.segment_timings) 
+                                ? briefing.extra_data.segment_timings.length 
+                                : 0}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Generation Details */}
+                  <div className="p-3 sm:p-4 rounded-lg bg-augustus-900/50">
+                    <h4 className="text-xs sm:text-sm font-semibold text-augustus-200 mb-3 flex items-center gap-2">
+                      <FileText className="w-4 h-4 text-accent" />
+                      Generation Details
+                    </h4>
+                    <div className="space-y-2 text-xs sm:text-sm">
+                      {briefing.extra_data?.stories_analyzed !== undefined && (
+                        <div className="flex justify-between">
+                          <span className="text-augustus-400">Stories Analyzed:</span>
+                          <span className="text-white font-mono">
+                            {briefing.extra_data.stories_analyzed}
+                          </span>
+                        </div>
+                      )}
+                      {briefing.extra_data?.stories_selected !== undefined && (
+                        <div className="flex justify-between">
+                          <span className="text-augustus-400">Stories Selected:</span>
+                          <span className="text-white font-mono">
+                            {briefing.extra_data.stories_selected}
+                          </span>
+                        </div>
+                      )}
+                      {briefing.chapters && briefing.chapters.length > 0 && (
+                        <div className="flex justify-between">
+                          <span className="text-augustus-400">Chapters:</span>
+                          <span className="text-white font-mono">
+                            {briefing.chapters.length}
+                          </span>
+                        </div>
+                      )}
+                      {briefing.sources && (
+                        <div className="flex justify-between">
+                          <span className="text-augustus-400">Sources:</span>
+                          <span className="text-white font-mono">
+                            {briefing.sources.length}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  
+                  {/* LLM Details */}
+                  {briefing.extra_data?.model && (
+                    <div className="p-3 sm:p-4 rounded-lg bg-augustus-900/50">
+                      <h4 className="text-xs sm:text-sm font-semibold text-augustus-200 mb-3 flex items-center gap-2">
+                        <Cpu className="w-4 h-4 text-accent" />
+                        LLM Details
+                      </h4>
+                      <div className="space-y-2 text-xs sm:text-sm">
+                        <div className="flex justify-between">
+                          <span className="text-augustus-400">Model:</span>
+                          <span className="text-white font-mono text-xs break-all text-right ml-2">
+                            {String(briefing.extra_data.model)}
+                          </span>
+                        </div>
+                        {briefing.extra_data?.usage && typeof briefing.extra_data.usage === 'object' && (
+                          <>
+                            {briefing.extra_data.usage.prompt_tokens !== undefined && (
+                              <div className="flex justify-between">
+                                <span className="text-augustus-400">Prompt Tokens:</span>
+                                <span className="text-white font-mono">
+                                  {briefing.extra_data.usage.prompt_tokens.toLocaleString()}
+                                </span>
+                              </div>
+                            )}
+                            {briefing.extra_data.usage.completion_tokens !== undefined && (
+                              <div className="flex justify-between">
+                                <span className="text-augustus-400">Completion Tokens:</span>
+                                <span className="text-white font-mono">
+                                  {briefing.extra_data.usage.completion_tokens.toLocaleString()}
+                                </span>
+                              </div>
+                            )}
+                            {briefing.extra_data.usage.total_tokens !== undefined && (
+                              <div className="flex justify-between">
+                                <span className="text-augustus-400">Total Tokens:</span>
+                                <span className="text-white font-mono">
+                                  {briefing.extra_data.usage.total_tokens.toLocaleString()}
+                                </span>
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* TTS Details */}
+                  {settings && (
+                    <div className="p-3 sm:p-4 rounded-lg bg-augustus-900/50">
+                      <h4 className="text-xs sm:text-sm font-semibold text-augustus-200 mb-3 flex items-center gap-2">
+                        <Volume2 className="w-4 h-4 text-accent" />
+                        TTS Details
+                      </h4>
+                      <div className="space-y-2 text-xs sm:text-sm">
+                        <div className="flex justify-between">
+                          <span className="text-augustus-400">Provider:</span>
+                          <span className="text-white font-mono capitalize">
+                            {settings.tts_provider || 'Unknown'}
+                          </span>
+                        </div>
+                        {briefing.extra_data?.tts_voice && (
+                          <div className="flex justify-between">
+                            <span className="text-augustus-400">Voice:</span>
+                            <span className="text-white font-mono text-xs break-all text-right ml-2">
+                              {String(briefing.extra_data.tts_voice)}
+                            </span>
+                          </div>
+                        )}
+                        {settings.tts_provider === 'piper' && settings.piper_model && (
+                          <div className="flex justify-between">
+                            <span className="text-augustus-400">Piper Model:</span>
+                            <span className="text-white font-mono text-xs break-all text-right ml-2">
+                              {settings.piper_model}
+                            </span>
+                          </div>
+                        )}
+                        {settings.tts_provider === 'elevenlabs' && settings.elevenlabs_model && (
+                          <div className="flex justify-between">
+                            <span className="text-augustus-400">ElevenLabs Model:</span>
+                            <span className="text-white font-mono text-xs break-all text-right ml-2">
+                              {settings.elevenlabs_model}
+                            </span>
+                          </div>
+                        )}
+                        {settings.tts_provider === 'gemini' && settings.gemini_model && (
+                          <div className="flex justify-between">
+                            <span className="text-augustus-400">Gemini Model:</span>
+                            <span className="text-white font-mono text-xs break-all text-right ml-2">
+                              {settings.gemini_model}
+                            </span>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>

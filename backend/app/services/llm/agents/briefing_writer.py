@@ -10,6 +10,58 @@ from app.services.llm.prompts import (
 from app.services.llm.personalities import get_personality
 
 
+# Non-speech sounds guide for Gemini TTS
+NON_SPEECH_SOUNDS_GUIDE = """
+
+=== NON-SPEECH SOUNDS & STYLE MARKUP ===
+
+Use these tags sparingly to add realism and natural pacing:
+
+SOUNDS (audible vocalizations): [sigh], [laughing], [uhm]
+STYLE (modifies delivery): [sarcasm], [shouting], [whispering], [extremely fast]
+PAUSES: [short pause] ~250ms, [medium pause] ~500ms, [long pause] ~1s
+
+Examples:
+- "That's... [sigh] honestly not surprising."
+- "[laughing] Okay, that's actually pretty clever."
+- "So... [uhm] what happens next?"
+- "[sarcasm] Oh yes, because that worked so well last time."
+- "[whispering] Here's the thing most people don't realize..."
+
+Guidelines: Use a few tags per segment max. Place sounds at natural break points. Match tags to the host's personality.
+"""
+
+# Conversational dynamics for natural multi-host dialogue
+CONVERSATIONAL_DYNAMICS = """
+=== CONVERSATIONAL DYNAMICS ===
+
+Real conversations aren't perfectly choreographed. Add these natural patterns throughout:
+
+FRICTION & PUSHBACK:
+- One host challenges an assumption: "Wait, doesn't that contradict what they said last quarter?"
+- Genuine skepticism: "I don't know, I'm not totally sold on that read..."
+- Requesting clarification: "Hang on, walk me through that again—why would they do that?"
+- Mild disagreement: "See, I read that differently..." or "I think that's only half the story."
+
+INCOMPLETE THOUGHTS & CALLBACKS:
+- Start a point, get interrupted, return to it: "Actually—going back to what I was saying about [X]..."
+- Callbacks to earlier in the conversation: "This connects to that [topic] thing we mentioned earlier..."
+- Self-revision: "Wait, actually... let me rephrase that."
+- Building on partner's point: "To add to that..." or "That reminds me..."
+
+KNOWLEDGE ASYMMETRY:
+- One host genuinely learns something: "Oh, I didn't realize that. So basically..."
+- Admitting uncertainty: "I'm not sure I fully understand their angle here..."
+- Asking for the other's take: "What's your read on this?"
+
+TANGENTS & RECOVERY:
+- Brief tangent that gets pulled back: "—anyway, that's a whole other thing. Point is..."
+- Catching yourself: "Sorry, I'm going down a rabbit hole. The main takeaway is..."
+
+Use these SPARINGLY (2-4 instances per segment). They should feel organic, not forced. The goal is texture, not chaos.
+"""
+
+
 class BriefingWriterAgent:
     """Agent responsible for writing the podcast script for briefings."""
     
@@ -25,18 +77,22 @@ class BriefingWriterAgent:
         self,
         cast_members: list[dict],
         cast_name: Optional[str] = None,
+        cast_description: Optional[str] = None,
         topics: Optional[list[str]] = None,
         briefing_title: Optional[str] = None,
         complexity: int = 3,
+        enable_non_speech_sounds: bool = False,
     ) -> str:
         """Build briefing system prompt dynamically based on cast members.
         
         Args:
             cast_members: List of dicts with 'name' and 'personality' keys, sorted by order
             cast_name: Optional name of the cast
+            cast_description: Optional description of how the cast works
             topics: Optional list of topic names
             briefing_title: Optional briefing title (e.g., "Morning X" for scheduled briefings)
             complexity: Conversation complexity level 1-5
+            enable_non_speech_sounds: Whether to include non-speech sounds markup guide
             
         Returns:
             System prompt string
@@ -245,25 +301,48 @@ CRITICAL: You MUST mention all the topics ({topics_str}) in the opening. Vary ho
 - "we're exploring {topics_str}"
 """
         
+        # Build banter instruction for multi-host shows
+        banter_instruction = ""
+        if num_hosts >= 2:
+            host_personality_hints = []
+            for member in cast_members:
+                name = member.get("name", "Host")
+                personality_name = member.get("personality", "Casual")
+                host_personality_hints.append(f"{name} ({personality_name})")
+            hosts_hint = ", ".join(host_personality_hints)
+            
+            banter_instruction = f"""
+PLAYFUL BANTER: After introductions but BEFORE the first story, include 2-4 lines of brief, playful banter between hosts. This should:
+- Be grounded in the ACTUAL CONTENT - tease an upcoming story, react to a headline, or express excitement/skepticism about something you'll discuss
+- OR reference previous shows - "Remember when we talked about X last time? Well..." or "Called it!" moments
+- Reflect each host's personality ({hosts_hint}) - a skeptic might groan about a story, an optimist might be excited
+- Be short and punchy - not a full conversation
+- Naturally set up or transition into the first story
+
+Examples of good banter:
+- "Did you see that [Company] headline?" / "Oh, we're definitely getting into that one. I have thoughts."
+- "Remember when we said [prediction] last week?" / "And look what happened. Called it."
+- "I've been waiting all morning to talk about this first story." / "The [topic] thing? Yeah, that's a wild one."
+- "You ready for this one?" / "I saw the headlines. This is going to be good."
+"""
+        
         if briefing_name:
             cast_intro_text = f"""Start with a natural, conversational greeting - like a real podcast. Lead with "welcome back", "hey everyone", "good morning", etc. Then mention this is {briefing_name} and introduce the hosts naturally.
 {topic_instruction}
 Vary your openings - don't use the same format every time. Some examples:
 {chr(10).join('- ' + ex for ex in intro_examples)}
 
-Keep it SHORT (1-2 sentences max for the intro). Don't list the date in the opening line - weave it in naturally later if needed.
-
-CRITICAL: After the brief greeting, IMMEDIATELY jump into the first story with concrete details. DO NOT use filler phrases like:
+Keep the intro itself SHORT (1-2 sentences max). Don't list the date in the opening line - weave it in naturally later if needed.
+{banter_instruction}
+After any banter, jump into the first story with concrete details. DO NOT use filler phrases like:
 - "there's a lot to unpack here"
 - "we've got a lot to cover"
 - "there's a lot happening"
 - "we've got some interesting stuff"
-- "there's a lot to get into"
-- "we've got a packed show"
 
-Instead, go straight from the greeting to the actual story content. For example:
-- BAD: "Hey everyone, welcome back! There's a lot to unpack here today..."
-- GOOD: "Hey everyone, welcome back! We're covering {topics[0] if topics else 'tech'} today. First up, [company] just announced [specific detail]..."
+Instead, transition from banter to the actual story content naturally. For example:
+- BAD: "Alright, there's a lot to unpack here today..."
+- GOOD: "Alright, first up - [company] just announced [specific detail]..."
 """
         else:
             cast_intro_text = f"""Start with a natural, conversational greeting - like a real podcast. Lead with "welcome back", "hey everyone", "good morning", etc. Then introduce the show and hosts naturally.
@@ -271,32 +350,30 @@ Instead, go straight from the greeting to the actual story content. For example:
 Vary your openings - don't use the same format every time. Some examples:
 {chr(10).join('- ' + ex for ex in intro_examples)}
 
-Keep it SHORT (1-2 sentences max for the intro). Don't list the date in the opening line - weave it in naturally later if needed.
-
-CRITICAL: After the brief greeting, IMMEDIATELY jump into the first story with concrete details. DO NOT use filler phrases like:
+Keep the intro itself SHORT (1-2 sentences max). Don't list the date in the opening line - weave it in naturally later if needed.
+{banter_instruction}
+After any banter, jump into the first story with concrete details. DO NOT use filler phrases like:
 - "there's a lot to unpack here"
 - "we've got a lot to cover"
 - "there's a lot happening"
 - "we've got some interesting stuff"
-- "there's a lot to get into"
-- "we've got a packed show"
 
-Instead, go straight from the greeting to the actual story content. For example:
-- BAD: "Hey everyone, welcome back! There's a lot to unpack here today..."
-- GOOD: "Hey everyone, welcome back! We're covering {topics[0] if topics else 'tech'} today. First up, [company] just announced [specific detail]..."
+Instead, transition from banter to the actual story content naturally. For example:
+- BAD: "Alright, there's a lot to unpack here today..."
+- GOOD: "Alright, first up - [company] just announced [specific detail]..."
 """
         
         # Build format example based on number of hosts
         if num_hosts == 1:
-            format_example = f"TITLE: Tech & Business Update - Dec 15\n{host_names[0]}: Hey, welcome back to {show_name}! I'm {host_names[0]}. We've got some interesting stories to get into today...\n[CHAPTER: Tech News]\n{host_names[0]}: First up, let's talk about..."
+            format_example = f"TITLE: Tech & Business Update - Dec 15\n{host_names[0]}: Hey, welcome back to {show_name}! I'm {host_names[0]}. We're diving into tech today.\n[CHAPTER: Tech News]\n{host_names[0]}: First up, let's talk about..."
             host_intro = f"You are {host_names[0]}, an expert podcast host creating insightful daily audio briefings."
             style_note = "Your Style:\n- Engaging solo narration - like a knowledgeable friend explaining the news\n"
         elif num_hosts == 2:
-            format_example = f"TITLE: Tech & Business Update - Dec 15\n{host_names[0]}: Hey everyone, welcome back to {show_name}! I'm {host_names[0]} here with {host_names[1]}.\n{host_names[1]}: Good to be here.\n[CHAPTER: Tech News]\n{host_names[0]}: First up, [Company] just announced [specific detail]..."
+            format_example = f"TITLE: Tech & Business Update - Dec 15\n{host_names[0]}: Hey everyone, welcome back to {show_name}! I'm {host_names[0]} here with {host_names[1]}. We're covering tech and business today.\n{host_names[1]}: Good to be here. Did you see that [Company] announcement this morning?\n{host_names[0]}: Oh yeah, we're definitely getting into that. I have thoughts.\n[CHAPTER: Tech News]\n{host_names[0]}: Alright, so [Company] just announced [specific detail]..."
             host_intro = f"You are a team of two expert podcast hosts ({host_names[0]} and {host_names[1]}) creating insightful daily audio briefings."
             style_note = "Your Style:\n- Casual and informative - like smart friends having an engaging conversation about the news\n"
         else:
-            format_example = f"TITLE: Tech & Business Update - Dec 15\n{host_names[0]}: What's up everybody, welcome back to {show_name}! I'm {host_names[0]}, got {other_hosts} with me.\n{host_names[1]}: Good to be here.\n{host_names[2]}: Yeah, let's get into it.\n[CHAPTER: Tech News]\n{host_names[1]}: First up, [Company] just announced [specific detail]...\n{host_names[0]}: That's interesting because...\n{host_names[2]}: I think what's really important here is..."
+            format_example = f"TITLE: Tech & Business Update - Dec 15\n{host_names[0]}: What's up everybody, welcome back to {show_name}! I'm {host_names[0]}, got {other_hosts} with me. We're diving into tech, business, and more.\n{host_names[1]}: Good to be here.\n{host_names[2]}: Yeah, I've been waiting to talk about that first story all morning.\n{host_names[1]}: The [Company] thing? That one's wild.\n{host_names[0]}: Let's get into it.\n[CHAPTER: Tech News]\n{host_names[1]}: So [Company] just announced [specific detail]...\n{host_names[0]}: That's interesting because...\n{host_names[2]}: I think what's really important here is..."
             host_intro = f"You are a team of three expert podcast hosts ({host_names[0]}, {host_names[1]}, and {host_names[2]}) creating insightful daily audio briefings."
             style_note = "Your Style:\n- Engaging panel discussion - like knowledgeable friends having a dynamic conversation about the news\n"
         
@@ -314,18 +391,30 @@ Instead, go straight from the greeting to the actual story content. For example:
         if personality_additions:
             personality_additions_text = "\n\n" + "\n".join(personality_additions) + "\n"
         
+        # Add cast description if provided
+        cast_description_text = ""
+        if cast_description:
+            cast_description_text = f"""
+
+=== CAST DESCRIPTION ===
+{cast_description}
+
+This description provides context about how this cast works and should guide the overall tone, style, and approach of the briefing.
+"""
+        
         # Build the prompt
         prompt = f"""{host_intro}
 
 {chr(10).join(host_descriptions)}
 {personality_additions_text}
+{cast_description_text}
 {style_note}- Go beyond headlines to explain WHY stories matter
 - Connect dots between stories and broader trends
 - Provide historical context when relevant
 - Offer balanced perspectives on complex issues
 - Use analogies and examples to make abstract concepts concrete
 - Keep it relaxed and conversational, not formal or stiff
-
+{CONVERSATIONAL_DYNAMICS if num_hosts >= 2 else ''}
 Guidelines:
 - Write in a natural, casual, conversational tone suitable for text-to-speech
 - Be informative without being dry or academic
@@ -337,12 +426,13 @@ Guidelines:
 - Use direct transitions like "Speaking of which...", "Here's what happened...", "The key point is..."
 - Sound like you're genuinely interested and engaged, not just reading a script
 {f"- CRITICAL FOR {num_hosts}+ HOSTS: Mix up the order and frequency of who speaks. Don't always go in the same sequence (e.g., {host_names[0]} -> {host_names[1]} -> {host_names[2]}). Vary it naturally - sometimes {host_names[1]} might speak twice in a row, or {host_names[2]} might jump in before {host_names[1]}. Make it feel like a real conversation where people naturally interject and respond, not a rigid rotation. Different hosts should speak different amounts based on their personality and the topic at hand." if num_hosts > 2 else ""}
+{f"- Incorporate natural conversational friction—pushback, clarifications, incomplete thoughts (see CONVERSATIONAL DYNAMICS section above)" if num_hosts >= 2 else ""}
 
 AVOID:
-- Fluffy language, filler words, or unnecessary embellishment (e.g., avoid phrases like "incredibly fascinating", "absolutely amazing", "truly remarkable", "simply incredible")
+- Excessive fluffy language or embellishment (e.g., "incredibly fascinating", "absolutely amazing", "truly remarkable" - occasional use is fine, but don't overdo it)
 - Catastrophizing or exaggerating severity (e.g., avoid "devastating", "catastrophic", "disastrous" unless truly warranted by facts)
 - Overly dramatic language or hyperbole
-- Unnecessary qualifiers that add no meaning (e.g., "very", "really", "quite", "extremely" used excessively)
+- Overuse of qualifiers (e.g., "very", "really", "quite" are fine occasionally, but don't lean on them)
 - Sensationalism - stick to facts and measured analysis
 - Doom-and-gloom framing - present information accurately without making things sound worse than they are
 
@@ -374,7 +464,12 @@ When specific topics are provided, make sure to cover stories from ALL of those 
         # Add complexity instruction
         complexity_instruction = get_complexity_instruction(complexity)
         
-        return prompt + complexity_instruction
+        # Add non-speech sounds guide if enabled
+        non_speech_sounds_section = ""
+        if enable_non_speech_sounds:
+            non_speech_sounds_section = NON_SPEECH_SOUNDS_GUIDE
+        
+        return prompt + complexity_instruction + non_speech_sounds_section
     
     def _build_user_prompt(
         self,
@@ -569,9 +664,11 @@ Generate the podcast script now:"""
         additional_facts: Optional[dict[int, list[str]]] = None,
         ranked_items: Optional[list] = None,
         cast_name: Optional[str] = None,
+        cast_description: Optional[str] = None,
         briefing_title: Optional[str] = None,
         recent_articles: Optional[list[dict]] = None,
         last_script: Optional[str] = None,
+        enable_non_speech_sounds: bool = False,
     ):
         """Generate podcast script for a briefing.
         
@@ -585,9 +682,11 @@ Generate the podcast script now:"""
             additional_facts: Dictionary mapping article index to lists of facts
             ranked_items: List of ranked news items
             cast_name: Optional name of the cast
+            cast_description: Optional description of how the cast works
             briefing_title: Optional briefing title
             recent_articles: List of recent articles for continuity
             last_script: Transcript from last briefing for continuity
+            enable_non_speech_sounds: Whether to include non-speech sounds markup
             
         Returns:
             LLMResponse object with generated content, model, and usage info
@@ -595,9 +694,11 @@ Generate the podcast script now:"""
         system_prompt = self._build_system_prompt(
             cast_members=cast_members,
             cast_name=cast_name,
+            cast_description=cast_description,
             topics=topics,
             briefing_title=briefing_title,
             complexity=complexity,
+            enable_non_speech_sounds=enable_non_speech_sounds,
         )
         user_prompt = self._build_user_prompt(
             content=content,

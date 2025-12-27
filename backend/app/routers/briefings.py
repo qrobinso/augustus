@@ -14,6 +14,7 @@ from app.schemas.briefing import (
     BriefingListResponse,
     BriefingListenedUpdate,
     BriefingPlaybackPositionUpdate,
+    BriefingFavoriteUpdate,
 )
 from app.services.briefing import BriefingService
 
@@ -28,7 +29,7 @@ async def generate_briefing_task(
 ):
     """Background task to generate briefing."""
     from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
-    from app.services.briefing import BriefingCancelledException
+    from app.services.briefing import BriefingCancelledException, BriefingTimeoutException
     
     engine = create_async_engine(db_url)
     async_session = async_sessionmaker(engine, expire_on_commit=False)
@@ -44,6 +45,9 @@ async def generate_briefing_task(
         except BriefingCancelledException:
             # Briefing was cancelled - this is expected, just log it
             print(f"[Briefing] Briefing {briefing_id} was cancelled by user")
+        except BriefingTimeoutException:
+            # Briefing timed out - already handled in generate_briefing
+            print(f"[Briefing] Briefing {briefing_id} exceeded timeout")
         except Exception as e:
             print(f"[Briefing] Briefing generation failed: {e}")
         finally:
@@ -57,6 +61,7 @@ async def list_briefings(
     listened: Optional[bool] = None,
     cast_id: Optional[str] = None,
     topic_ids: Optional[list[str]] = Query(None),
+    favorite: Optional[bool] = None,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -69,6 +74,7 @@ async def list_briefings(
         listened=listened,
         cast_id=cast_id,
         topic_ids=topic_ids,
+        favorite=favorite,
     )
     
     return BriefingListResponse(
@@ -227,6 +233,33 @@ async def update_playback_position(
         )
     
     updated = await service.update_playback_position(briefing_id, update.position)
+    return BriefingResponse.model_validate(updated)
+
+
+@router.patch("/{briefing_id}/favorite", response_model=BriefingResponse)
+async def update_favorite_status(
+    briefing_id: str,
+    update: BriefingFavoriteUpdate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update the favorite status of a briefing."""
+    service = BriefingService(db)
+    briefing = await service.get_briefing(briefing_id)
+    
+    if not briefing:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Briefing not found",
+        )
+    
+    if briefing.user_id != user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied",
+        )
+    
+    updated = await service.update_favorite_status(briefing_id, update.favorite)
     return BriefingResponse.model_validate(updated)
 
 

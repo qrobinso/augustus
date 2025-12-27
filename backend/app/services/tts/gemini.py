@@ -1,6 +1,8 @@
 """Google Gemini TTS provider."""
 
 import asyncio
+import mimetypes
+import struct
 import subprocess
 import tempfile
 import wave
@@ -12,7 +14,80 @@ from google.genai import types
 
 from app.config import get_settings
 from app.services.tts.base import TTSProvider, TTSResult, Voice, SegmentTiming
-from app.utils.audio import concatenate_audio_files, convert_to_mp3 as audio_convert_to_mp3
+from app.utils.audio import convert_to_mp3 as audio_convert_to_mp3
+
+
+def parse_audio_mime_type(mime_type: str) -> dict[str, int]:
+    """Parses bits per sample and rate from an audio MIME type string.
+
+    Assumes bits per sample is encoded like "L16" and rate as "rate=xxxxx".
+
+    Args:
+        mime_type: The audio MIME type string (e.g., "audio/L16;rate=24000").
+
+    Returns:
+        A dictionary with "bits_per_sample" and "rate" keys.
+    """
+    bits_per_sample = 16
+    rate = 24000
+
+    # Extract rate from parameters
+    parts = mime_type.split(";")
+    for param in parts:
+        param = param.strip()
+        if param.lower().startswith("rate="):
+            try:
+                rate_str = param.split("=", 1)[1]
+                rate = int(rate_str)
+            except (ValueError, IndexError):
+                pass  # Keep rate as default
+        elif param.startswith("audio/L"):
+            try:
+                bits_per_sample = int(param.split("L", 1)[1])
+            except (ValueError, IndexError):
+                pass  # Keep bits_per_sample as default if conversion fails
+
+    return {"bits_per_sample": bits_per_sample, "rate": rate}
+
+
+def convert_to_wav(audio_data: bytes, mime_type: str) -> bytes:
+    """Generates a WAV file from raw audio data.
+
+    Args:
+        audio_data: The raw audio data as a bytes object.
+        mime_type: Mime type of the audio data.
+
+    Returns:
+        A bytes object representing the complete WAV file.
+    """
+    parameters = parse_audio_mime_type(mime_type)
+    bits_per_sample = parameters["bits_per_sample"]
+    sample_rate = parameters["rate"]
+    num_channels = 1
+    data_size = len(audio_data)
+    bytes_per_sample = bits_per_sample // 8
+    block_align = num_channels * bytes_per_sample
+    byte_rate = sample_rate * block_align
+    chunk_size = 36 + data_size  # 36 bytes for header fields before data chunk size
+
+    # http://soundfile.sapp.org/doc/WaveFormat/
+    header = struct.pack(
+        "<4sI4s4sIHHIIHH4sI",
+        b"RIFF",          # ChunkID
+        chunk_size,       # ChunkSize (total file size - 8 bytes)
+        b"WAVE",          # Format
+        b"fmt ",          # Subchunk1ID
+        16,               # Subchunk1Size (16 for PCM)
+        1,                # AudioFormat (1 for PCM)
+        num_channels,     # NumChannels
+        sample_rate,      # SampleRate
+        byte_rate,        # ByteRate
+        block_align,      # BlockAlign
+        bits_per_sample,  # BitsPerSample
+        b"data",          # Subchunk2ID
+        data_size         # Subchunk2Size (size of audio data)
+    )
+    return header + audio_data
 
 
 class GeminiProvider(TTSProvider):
@@ -79,60 +154,75 @@ class GeminiProvider(TTSProvider):
         if not text:
             raise ValueError("Text cannot be empty")
 
-        print(f"[Gemini] Synthesizing text with voice {actual_voice_id}...")
+        print(f"[Gemini] Synthesizing text with voice {actual_voice_id}, model {self.model_name}...")
         
-        # Call Gemini API
-        # Since the google-genai library might be blocking or use its own async, 
-        # we'll wrap the call if necessary, but according to docs it's synchronous in the example.
-        # However, we are in an async context, so we should run it in a thread if it's blocking.
-        
+        # Call Gemini API using the proper content structure
         def _call_gemini():
-            return self._client.models.generate_content(
-                model=self.model_name,
-                contents=text,
-                config=types.GenerateContentConfig(
-                    response_modalities=["AUDIO"],
-                    speech_config=types.SpeechConfig(
-                        voice_config=types.VoiceConfig(
-                            prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                                voice_name=actual_voice_id,
-                            )
-                        )
-                    ),
-                )
-            )
-
-        response = await asyncio.to_thread(_call_gemini)
-        
-        if not response or not hasattr(response, 'candidates') or not response.candidates:
-            raise RuntimeError("Gemini TTS failed: No response or candidates")
-        
-        candidate = response.candidates[0]
-        if not candidate or not hasattr(candidate, 'content') or not candidate.content:
-            raise RuntimeError("Gemini TTS failed: No content in response candidate")
-        
-        if not hasattr(candidate.content, 'parts') or not candidate.content.parts:
-            raise RuntimeError("Gemini TTS failed: No parts in response content")
-
-        audio_part = candidate.content.parts[0]
-        if not audio_part or not hasattr(audio_part, 'inline_data') or not audio_part.inline_data:
-            raise RuntimeError("Gemini TTS response did not contain audio data")
+            contents = [
+                types.Content(
+                    role="user",
+                    parts=[
+                        types.Part.from_text(text=text),
+                    ],
+                ),
+            ]
             
-        data = audio_part.inline_data.data
+            config = types.GenerateContentConfig(
+                temperature=1,
+                response_modalities=["audio"],
+                speech_config=types.SpeechConfig(
+                    voice_config=types.VoiceConfig(
+                        prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                            voice_name=actual_voice_id,
+                        )
+                    )
+                ),
+            )
+            
+            # Use streaming to handle potentially large responses
+            all_audio_data = b""
+            mime_type = None
+            
+            for chunk in self._client.models.generate_content_stream(
+                model=self.model_name,
+                contents=contents,
+                config=config,
+            ):
+                if (
+                    chunk.candidates is None
+                    or chunk.candidates[0].content is None
+                    or chunk.candidates[0].content.parts is None
+                ):
+                    continue
+                    
+                part = chunk.candidates[0].content.parts[0]
+                if part.inline_data and part.inline_data.data:
+                    all_audio_data += part.inline_data.data
+                    if mime_type is None:
+                        mime_type = part.inline_data.mime_type
+            
+            return all_audio_data, mime_type
 
-        # Save as WAV first (Gemini outputs raw PCM 16-bit 24kHz mono)
-        # We use a temporary wav file if the final requested format is different
+        audio_data, mime_type = await asyncio.to_thread(_call_gemini)
+        
+        if not audio_data:
+            raise RuntimeError("Gemini TTS failed: No audio data received")
+        
+        print(f"[Gemini] Received {len(audio_data)} bytes of audio data, mime_type: {mime_type}")
+
+        # Convert raw audio to WAV using proper header generation
+        wav_data = convert_to_wav(audio_data, mime_type or "audio/L16;rate=24000")
+        
+        # Save as WAV first
         is_mp3 = output_path.suffix.lower() == ".mp3"
         
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
             tmp_path = Path(tmp.name)
         
         try:
-            with wave.open(str(tmp_path), "wb") as wf:
-                wf.setnchannels(1)
-                wf.setsampwidth(2) # 16-bit
-                wf.setframerate(24000)
-                wf.writeframes(data)
+            # Write WAV data
+            with open(tmp_path, "wb") as f:
+                f.write(wav_data)
             
             if is_mp3:
                 await self._convert_to_mp3(tmp_path, output_path)
@@ -159,92 +249,164 @@ class GeminiProvider(TTSProvider):
         output_path: Path,
         voice_map: Optional[dict[str, str]] = None,
     ) -> TTSResult:
-        """Synthesize a multi-speaker conversation by segments to maintain timings."""
+        """Synthesize a multi-speaker conversation using Gemini's native multi-speaker support."""
         if voice_map is None:
-            # Use default voices (should always be passed from cast, but fallback just in case)
             voice_map = {
                 "HOST1": "Kore",
                 "HOST2": "Puck",
             }
             print(f"[Gemini] WARNING: No voice_map provided, using defaults")
-
-        segment_paths = []
+        
+        # Build the conversation text with speaker labels
+        # Format: "Speaker Name: dialogue text"
+        conversation_parts = []
         segment_data = []
-        temp_files = []
+        unique_speakers = set()
+        
+        segment_index = 0
+        for segment in script:
+            speaker = segment.get("speaker", "HOST1")
+            text = segment.get("text", "").strip()
+            
+            if not text:
+                continue
+            
+            unique_speakers.add(speaker)
+            conversation_parts.append(f"{speaker}: {text}")
+            segment_data.append({
+                "index": segment_index,
+                "speaker": speaker,
+                "text": text,
+            })
+            segment_index += 1
+        
+        if not conversation_parts:
+            raise RuntimeError("No valid conversation segments provided")
+        
+        # Join with newlines for clear speaker separation
+        full_conversation = "\n".join(conversation_parts)
+        
+        # Build speaker voice configs for each unique speaker
+        speaker_voice_configs = []
+        for speaker in unique_speakers:
+            # Get voice ID from map, resolve to valid Gemini voice
+            voice_id = voice_map.get(speaker, "Kore")
+            actual_voice = self._resolve_voice_id(voice_id)
+            
+            speaker_voice_configs.append(
+                types.SpeakerVoiceConfig(
+                    speaker=speaker,
+                    voice_config=types.VoiceConfig(
+                        prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                            voice_name=actual_voice
+                        )
+                    ),
+                )
+            )
+        
+        print(f"[Gemini] Generating multi-speaker conversation with {len(unique_speakers)} speakers, {len(segment_data)} segments...")
+        speaker_info = ', '.join(f'{s}={self._resolve_voice_id(voice_map.get(s, "Kore"))}' for s in unique_speakers)
+        print(f"[Gemini] Speakers: {speaker_info}")
+        
+        # Call Gemini API with multi-speaker config
+        def _call_gemini_multispeaker():
+            contents = [
+                types.Content(
+                    role="user",
+                    parts=[
+                        types.Part.from_text(text=full_conversation),
+                    ],
+                ),
+            ]
+            
+            config = types.GenerateContentConfig(
+                temperature=1,
+                response_modalities=["audio"],
+                speech_config=types.SpeechConfig(
+                    multi_speaker_voice_config=types.MultiSpeakerVoiceConfig(
+                        speaker_voice_configs=speaker_voice_configs
+                    ),
+                ),
+            )
+            
+            # Use streaming to handle potentially large responses
+            all_audio_data = b""
+            mime_type = None
+            
+            for chunk in self._client.models.generate_content_stream(
+                model=self.model_name,
+                contents=contents,
+                config=config,
+            ):
+                if (
+                    chunk.candidates is None
+                    or chunk.candidates[0].content is None
+                    or chunk.candidates[0].content.parts is None
+                ):
+                    continue
+                    
+                part = chunk.candidates[0].content.parts[0]
+                if part.inline_data and part.inline_data.data:
+                    all_audio_data += part.inline_data.data
+                    if mime_type is None:
+                        mime_type = part.inline_data.mime_type
+            
+            return all_audio_data, mime_type
+        
+        audio_data, mime_type = await asyncio.to_thread(_call_gemini_multispeaker)
+        
+        if not audio_data:
+            raise RuntimeError("Gemini multi-speaker TTS failed: No audio data received")
+        
+        print(f"[Gemini] Received {len(audio_data)} bytes of audio data, mime_type: {mime_type}")
+        
+        # Convert raw audio to WAV
+        wav_data = convert_to_wav(audio_data, mime_type or "audio/L16;rate=24000")
+        
+        # Save as WAV first, then convert if needed
+        is_mp3 = output_path.suffix.lower() == ".mp3"
+        
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+            tmp_path = Path(tmp.name)
         
         try:
-            print(f"[Gemini] Generating {len(script)} segments...")
+            # Write WAV data
+            with open(tmp_path, "wb") as f:
+                f.write(wav_data)
             
-            segment_index = 0
-            for i, segment in enumerate(script):
-                speaker = segment.get("speaker", "HOST1")
-                text = segment.get("text", "")
-                
-                if not text.strip():
-                    continue
-                
-                voice_id = voice_map.get(speaker, speaker) # fallback to speaker name as voice id
-                
-                temp_path = output_path.parent / f"_gemini_seg_{i}.wav"
-                temp_files.append(temp_path)
-                
-                print(f"[Gemini] Generating segment {segment_index+1}/{len(script)} ({speaker})...")
-                result = await self.synthesize(text, voice_id, temp_path)
-                
-                # Verify the file was created and is readable
-                if not temp_path.exists():
-                    raise RuntimeError(f"Segment file was not created: {temp_path}")
-                if temp_path.stat().st_size == 0:
-                    raise RuntimeError(f"Segment file is empty: {temp_path}")
-                
-                segment_paths.append(temp_path)
-                segment_data.append({
-                    "index": segment_index,
-                    "speaker": speaker,
-                    "text": text,
-                    "duration": result.duration_seconds,
-                })
-                segment_index += 1
-            
-            # Verify all segment files are valid WAV files before concatenation
-            print(f"[Gemini] Verifying {len(segment_paths)} segment files...")
-            for i, seg_path in enumerate(segment_paths):
-                try:
-                    with wave.open(str(seg_path), 'rb') as wf:
-                        channels = wf.getnchannels()
-                        sampwidth = wf.getsampwidth()
-                        framerate = wf.getframerate()
-                        frames = wf.getnframes()
-                        print(f"[Gemini]   Segment {i}: {channels}ch, {sampwidth*8}bit, {framerate}Hz, {frames} frames")
-                        # Verify format matches expected (1 channel, 16-bit, 24kHz)
-                        if channels != 1 or sampwidth != 2 or framerate != 24000:
-                            print(f"[Gemini]   WARNING: Segment {i} format mismatch - expected 1ch 16bit 24kHz, got {channels}ch {sampwidth*8}bit {framerate}Hz")
-                except Exception as e:
-                    print(f"[Gemini]   ERROR: Could not verify segment {i}: {e}")
-                    raise RuntimeError(f"Invalid WAV file for segment {i}: {seg_path} - {e}")
-            
-            # Concatenate all segments
-            if segment_paths:
-                await self._concatenate_audio(segment_paths, output_path)
+            if is_mp3:
+                await self._convert_to_mp3(tmp_path, output_path)
             else:
-                raise RuntimeError("No audio segments were generated")
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                import shutil
+                shutil.copy(tmp_path, output_path)
             
-            duration = await self._get_audio_duration(output_path)
+            # Get actual duration from the audio file
+            duration = await self._get_audio_duration(output_path if not is_mp3 else tmp_path)
             
-            # Calculate segment timings
+            # Estimate segment timings based on text length
+            # Since we can't get exact timings from multi-speaker audio, we estimate proportionally
+            total_chars = sum(len(seg["text"]) for seg in segment_data)
             segment_timings = []
             current_time = 0.0
+            
             for seg in segment_data:
+                # Estimate segment duration proportional to text length
+                seg_proportion = len(seg["text"]) / total_chars if total_chars > 0 else 0
+                seg_duration = duration * seg_proportion
+                
                 timing = SegmentTiming(
                     index=seg["index"],
                     speaker=seg["speaker"],
                     text=seg["text"],
                     start_seconds=current_time,
-                    end_seconds=current_time + seg["duration"],
-                    duration_seconds=seg["duration"],
+                    end_seconds=current_time + seg_duration,
+                    duration_seconds=seg_duration,
                 )
                 segment_timings.append(timing)
-                current_time += seg["duration"]
+                current_time += seg_duration
+            
+            print(f"[Gemini] Multi-speaker conversation complete: {duration:.2f}s total, {len(segment_timings)} segments")
             
             return TTSResult(
                 audio_path=output_path,
@@ -255,12 +417,8 @@ class GeminiProvider(TTSProvider):
             )
             
         finally:
-            for temp_file in temp_files:
-                if temp_file.exists():
-                    try:
-                        temp_file.unlink()
-                    except Exception:
-                        pass
+            if tmp_path.exists():
+                tmp_path.unlink()
 
     def list_voices(self) -> list[Voice]:
         """List available Gemini voices."""
@@ -310,62 +468,6 @@ class GeminiProvider(TTSProvider):
                 # If ffmpeg fails, just copy the wav (though it won't be mp3)
                 import shutil
                 shutil.copy(wav_path, mp3_path)
-
-    async def _concatenate_audio(self, segments: list[Path], output_path: Path):
-        """Concatenate audio segments using common audio utility."""
-        is_mp3 = output_path.suffix.lower() == ".mp3"
-        
-        if is_mp3:
-            # Two-step process: concatenate to WAV first, then convert to MP3
-            # This is more reliable than trying to do both in one step
-            temp_wav_output = output_path.with_suffix(".wav")
-            
-            print(f"[Gemini] Step 1: Concatenating {len(segments)} WAV segments...")
-            # Re-encode to ensure format consistency (all segments are PCM 16-bit 24kHz mono)
-            success = await concatenate_audio_files(
-                segments,
-                temp_wav_output,
-                reencode=True,
-                sample_rate=24000,
-                channels=1,
-            )
-            
-            if not success:
-                raise RuntimeError("Failed to concatenate WAV segments")
-            
-            if not temp_wav_output.exists():
-                raise RuntimeError(f"Concatenated WAV file was not created: {temp_wav_output}")
-            
-            # Step 2: Convert WAV to MP3
-            print(f"[Gemini] Step 2: Converting WAV to MP3...")
-            success = await audio_convert_to_mp3(temp_wav_output, output_path, bitrate="192k")
-            
-            # Clean up temp WAV file
-            if temp_wav_output.exists():
-                try:
-                    temp_wav_output.unlink()
-                except Exception:
-                    pass
-            
-            if not success:
-                raise RuntimeError("Failed to convert concatenated WAV to MP3")
-        else:
-            # Single step: concatenate WAV files
-            print(f"[Gemini] Concatenating {len(segments)} WAV segments...")
-            # Re-encode to ensure format consistency
-            success = await concatenate_audio_files(
-                segments,
-                output_path,
-                reencode=True,
-                sample_rate=24000,
-                channels=1,
-            )
-            
-            if not success:
-                raise RuntimeError("Failed to concatenate WAV segments")
-        
-        output_size = output_path.stat().st_size
-        print(f"[Gemini] Successfully concatenated {len(segments)} segments into {output_path.name} ({output_size} bytes)")
 
     async def _get_audio_duration(self, audio_path: Path) -> float:
         """Get audio duration in seconds."""

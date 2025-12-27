@@ -20,13 +20,17 @@ class SettingsResponse(BaseModel):
     # OpenRouter
     openrouter_api_key: Optional[str] = None
     openrouter_model: str = "anthropic/claude-3.5-sonnet"
+    openrouter_writer_model: Optional[str] = None
     
     # TTS
     tts_provider: str = "piper"
+    piper_url: Optional[str] = None
+    piper_model: Optional[str] = None
     elevenlabs_api_key: Optional[str] = None
     elevenlabs_model: str = "eleven_turbo_v2_5"
     gemini_api_key: Optional[str] = None
     gemini_model: str = "gemini-2.5-flash-preview-tts"
+    enable_non_speech_sounds: bool = False
     # Content Durations (minutes)
     briefing_duration_minutes: int = 5
     
@@ -58,11 +62,15 @@ class SettingsUpdate(BaseModel):
     """Settings update request."""
     openrouter_api_key: Optional[str] = None
     openrouter_model: Optional[str] = None
+    openrouter_writer_model: Optional[str] = None
     tts_provider: Optional[str] = None
+    piper_url: Optional[str] = None
+    piper_model: Optional[str] = None
     elevenlabs_api_key: Optional[str] = None
     elevenlabs_model: Optional[str] = None
     gemini_api_key: Optional[str] = None
     gemini_model: Optional[str] = None
+    enable_non_speech_sounds: Optional[bool] = None
     briefing_duration_minutes: Optional[int] = None
     conversation_complexity: Optional[int] = None
     timezone: Optional[str] = None
@@ -173,11 +181,15 @@ def get_current_settings() -> dict:
     settings = {
         "openrouter_api_key": os.environ.get("OPENROUTER_API_KEY") or env_vars.get("OPENROUTER_API_KEY"),
         "openrouter_model": os.environ.get("OPENROUTER_MODEL") or env_vars.get("OPENROUTER_MODEL", "anthropic/claude-3.5-sonnet"),
+        "openrouter_writer_model": os.environ.get("OPENROUTER_WRITER_MODEL") or env_vars.get("OPENROUTER_WRITER_MODEL"),
         "tts_provider": os.environ.get("TTS_PROVIDER") or env_vars.get("TTS_PROVIDER", "piper"),
+        "piper_url": os.environ.get("PIPER_URL") or env_vars.get("PIPER_URL"),
+        "piper_model": os.environ.get("PIPER_MODEL") or env_vars.get("PIPER_MODEL"),
         "elevenlabs_api_key": os.environ.get("ELEVENLABS_API_KEY") or env_vars.get("ELEVENLABS_API_KEY"),
         "elevenlabs_model": os.environ.get("ELEVENLABS_MODEL") or env_vars.get("ELEVENLABS_MODEL", "eleven_turbo_v2_5"),
         "gemini_api_key": os.environ.get("GEMINI_API_KEY") or env_vars.get("GEMINI_API_KEY"),
         "gemini_model": os.environ.get("GEMINI_MODEL") or env_vars.get("GEMINI_MODEL", "gemini-2.5-flash-preview-tts"),
+        "enable_non_speech_sounds": (os.environ.get("ENABLE_NON_SPEECH_SOUNDS") or env_vars.get("ENABLE_NON_SPEECH_SOUNDS", "false")).lower() == "true",
         "briefing_duration_minutes": get_int("BRIEFING_DURATION_MINUTES", 5),
         "conversation_complexity": get_int("CONVERSATION_COMPLEXITY", 3),
         "timezone": os.environ.get("TIMEZONE") or env_vars.get("TIMEZONE", "UTC"),
@@ -198,11 +210,15 @@ async def get_settings_endpoint():
     return SettingsResponse(
         openrouter_api_key=mask_api_key(settings["openrouter_api_key"]),
         openrouter_model=settings["openrouter_model"],
+        openrouter_writer_model=settings.get("openrouter_writer_model"),
         tts_provider=settings["tts_provider"],
+        piper_url=settings.get("piper_url"),
+        piper_model=settings.get("piper_model"),
         elevenlabs_api_key=mask_api_key(settings["elevenlabs_api_key"]),
         elevenlabs_model=settings["elevenlabs_model"],
         gemini_api_key=mask_api_key(settings["gemini_api_key"]),
         gemini_model=settings["gemini_model"],
+        enable_non_speech_sounds=settings["enable_non_speech_sounds"],
         briefing_duration_minutes=settings["briefing_duration_minutes"],
         conversation_complexity=settings["conversation_complexity"],
         timezone=settings["timezone"],
@@ -234,9 +250,21 @@ async def update_settings(updates: SettingsUpdate):
             env_updates["OPENROUTER_MODEL"] = updates.openrouter_model
             os.environ["OPENROUTER_MODEL"] = updates.openrouter_model
         
+        if updates.openrouter_writer_model is not None:
+            env_updates["OPENROUTER_WRITER_MODEL"] = updates.openrouter_writer_model
+            os.environ["OPENROUTER_WRITER_MODEL"] = updates.openrouter_writer_model
+        
         if updates.tts_provider is not None:
             env_updates["TTS_PROVIDER"] = updates.tts_provider
             os.environ["TTS_PROVIDER"] = updates.tts_provider
+        
+        if updates.piper_url is not None:
+            env_updates["PIPER_URL"] = updates.piper_url
+            os.environ["PIPER_URL"] = updates.piper_url
+        
+        if updates.piper_model is not None:
+            env_updates["PIPER_MODEL"] = updates.piper_model
+            os.environ["PIPER_MODEL"] = updates.piper_model
         
         if updates.elevenlabs_api_key is not None:
             env_updates["ELEVENLABS_API_KEY"] = updates.elevenlabs_api_key
@@ -253,6 +281,10 @@ async def update_settings(updates: SettingsUpdate):
         if updates.gemini_model is not None:
             env_updates["GEMINI_MODEL"] = updates.gemini_model
             os.environ["GEMINI_MODEL"] = updates.gemini_model
+        
+        if updates.enable_non_speech_sounds is not None:
+            env_updates["ENABLE_NON_SPEECH_SOUNDS"] = str(updates.enable_non_speech_sounds).lower()
+            os.environ["ENABLE_NON_SPEECH_SOUNDS"] = str(updates.enable_non_speech_sounds).lower()
         
         if updates.briefing_duration_minutes is not None:
             env_updates["BRIEFING_DURATION_MINUTES"] = str(updates.briefing_duration_minutes)
@@ -286,14 +318,22 @@ async def update_settings(updates: SettingsUpdate):
         
         # Write to .env file
         if env_updates:
+            print(f"[Settings] Writing to .env file: {list(env_updates.keys())}")
             write_env_file(env_updates)
+            # Verify TTS_PROVIDER was written if it was updated
+            if "TTS_PROVIDER" in env_updates:
+                print(f"[Settings] TTS_PROVIDER written to .env: {env_updates['TTS_PROVIDER']}")
         
         # Clear the cached settings in app.config
         from app.config import get_settings
         get_settings.cache_clear()
         
+        # Verify settings were loaded correctly after cache clear
+        fresh_settings = get_settings()
+        print(f"[Settings] TTS Provider after update: {fresh_settings.tts_provider}")
+        
         # Reset LLM provider if model or API key changed
-        if updates.openrouter_model is not None or updates.openrouter_api_key is not None:
+        if updates.openrouter_model is not None or updates.openrouter_writer_model is not None or updates.openrouter_api_key is not None:
             from app.services.llm.openrouter import reset_llm_provider
             reset_llm_provider()
         

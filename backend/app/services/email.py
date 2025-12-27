@@ -1,14 +1,77 @@
 """Email service for sending notifications via Resend."""
 
 import httpx
+import re
+import socket
+from datetime import datetime
 from typing import Optional, List
 from app.config import get_settings
 from app.models.briefing import Briefing
 
 
+def get_network_ip() -> Optional[str]:
+    """Get the machine's network IP address for external access.
+    
+    Returns:
+        Network IP address (e.g., '192.168.1.100') or None if not found
+    """
+    try:
+        # Connect to a remote address to determine the local network IP
+        # This doesn't actually send data, just determines which interface would be used
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            # Connect to a public DNS server (doesn't actually connect)
+            s.connect(('8.8.8.8', 80))
+            ip = s.getsockname()[0]
+            return ip
+        finally:
+            s.close()
+    except Exception:
+        # Fallback: try to get IP from hostname
+        try:
+            hostname = socket.gethostname()
+            ip = socket.gethostbyname(hostname)
+            # Filter out localhost
+            if ip and ip != '127.0.0.1':
+                return ip
+        except Exception:
+            pass
+    return None
+
+
+def get_external_frontend_url(frontend_url: str) -> str:
+    """Convert localhost frontend URL to network-accessible URL.
+    
+    Args:
+        frontend_url: The configured frontend URL (may be localhost)
+    
+    Returns:
+        Network-accessible URL (replaces localhost with network IP)
+    """
+    # If already using an external URL (not localhost), return as-is
+    if 'localhost' not in frontend_url and '127.0.0.1' not in frontend_url:
+        return frontend_url
+    
+    # Extract port from URL using more robust method
+    port_match = re.search(r':(\d+)(?:/|$)', frontend_url)
+    port = port_match.group(1) if port_match else '3000'
+    
+    # Determine protocol
+    protocol = 'https://' if frontend_url.startswith('https://') else 'http://'
+    
+    # Get network IP
+    network_ip = get_network_ip()
+    if network_ip:
+        # Replace localhost/127.0.0.1 with network IP
+        return f"{protocol}{network_ip}:{port}"
+    
+    # If we can't detect network IP, return original (will log warning)
+    return frontend_url
+
+
 async def send_briefing_email(
     briefing_title: str,
-    briefing_transcript: Optional[str],
+    briefing_summary: Optional[str],
     audio_url: Optional[str],
     recipients: List[str],
     briefing_id: Optional[str] = None,
@@ -18,7 +81,7 @@ async def send_briefing_email(
     
     Args:
         briefing_title: Title of the briefing
-        briefing_transcript: Transcript text (optional)
+        briefing_summary: Summary of the briefing content (optional)
         audio_url: URL to the audio file (optional)
         recipients: List of email addresses to send to
         briefing_id: Briefing ID for constructing detail page link (optional)
@@ -44,109 +107,109 @@ async def send_briefing_email(
     settings = get_settings()
     frontend_url = getattr(settings, 'frontend_url', 'http://localhost:3000')
     
-    # Prepare email content
-    transcript_preview = ""
-    if briefing_transcript:
-        # Remove HOST1:/HOST2: prefixes and truncate
-        import re
-        cleaned = re.sub(r'HOST[12]:\s*', '', briefing_transcript, flags=re.IGNORECASE).strip()
-        transcript_preview = cleaned[:500] + "..." if len(cleaned) > 500 else cleaned
+    # Convert localhost to network-accessible URL for email links
+    external_url = get_external_frontend_url(frontend_url)
+    if external_url != frontend_url:
+        print(f"[Email] Using network-accessible URL: {external_url} (instead of {frontend_url})")
+    elif 'localhost' in frontend_url or '127.0.0.1' in frontend_url:
+        print(f"[Email] WARNING: Frontend URL is localhost ({frontend_url}). Email links may not work on external devices.")
+        print(f"[Email] WARNING: Set FRONTEND_URL to your network IP or domain (e.g., http://192.168.1.100:3000)")
+    
+    frontend_url = external_url
+    
+    # Prepare email content - use summary directly (already clean text)
+    summary_text = ""
+    if briefing_summary:
+        summary_text = briefing_summary[:500] + "..." if len(briefing_summary) > 500 else briefing_summary
     
     # Construct briefing detail page URL with auto-play if briefing_id is provided
     briefing_url = f"{frontend_url}/briefing/{briefing_id}?autoplay=true" if briefing_id else audio_url
     
-    # Build email HTML with app's dark theme styling
+    # Build email HTML optimized for Gmail compatibility
+    # Use table-based layout with inline styles (Gmail strips style tags)
     html_content = f"""
     <!DOCTYPE html>
     <html>
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <style>
-            body {{ 
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'DM Sans', system-ui, sans-serif; 
-                line-height: 1.6; 
-                color: #eeeef0; 
-                background-color: #1a1a1e;
-                margin: 0;
-                padding: 0;
-            }}
-            .container {{ 
-                max-width: 600px; 
-                margin: 0 auto; 
-                padding: 0;
-                background-color: #1a1a1e;
-            }}
-            .header {{ 
-                background: linear-gradient(135deg, rgba(232, 93, 4, 0.1) 0%, rgba(232, 93, 4, 0.05) 100%);
-                border-bottom: 1px solid rgba(66, 66, 75, 0.5);
-                padding: 32px 24px;
-                text-align: center;
-            }}
-            .header h1 {{
-                margin: 0 0 8px 0;
-                color: #ffffff;
-                font-size: 24px;
-                font-weight: 600;
-            }}
-            .content {{ 
-                padding: 24px;
-                background-color: #1a1a1e;
-            }}
-            .briefing-item {{
-                background-color: rgba(58, 58, 65, 0.5);
-                border: 1px solid rgba(66, 66, 75, 0.5);
-                padding: 20px;
-                border-radius: 12px;
-                backdrop-filter: blur(8px);
-            }}
-            .briefing-item h2 {{
-                margin-top: 0;
-                margin-bottom: 12px;
-                color: #ffffff;
-                font-size: 18px;
-                font-weight: 600;
-            }}
-            .transcript {{
-                background-color: rgba(58, 58, 65, 0.3);
-                padding: 15px;
-                border-radius: 8px;
-                margin-top: 15px;
-            }}
-            .transcript p {{
-                color: #b8b8c1;
-                font-size: 14px;
-                line-height: 1.6;
-                margin: 0;
-            }}
-        </style>
     </head>
-    <body>
-        <div class="container">
-            <div class="header">
-                <h1>Daily Briefing Ready</h1>
-            </div>
-            <div class="content">
-                <div class="briefing-item">
-                    <h2>{briefing_title}</h2>
-                    {f'<div class="transcript"><p><strong>Preview:</strong></p><p>{transcript_preview}</p></div>' if transcript_preview else ''}
-                    {f'<div style="display: flex; align-items: center; gap: 12px; margin-top: 16px;"><a href="{briefing_url}" style="display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; background-color: #e85d04; color: white; text-decoration: none; border-radius: 50%; transition: all 0.2s; box-shadow: 0 0 20px -5px rgba(232, 93, 4, 0.4);"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-left: 2px;"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg></a></div>' if briefing_url else ''}
-                </div>
-            </div>
-        </div>
+    <body style="margin: 0; padding: 0; background-color: #f5f5f5; font-family: Arial, Helvetica, sans-serif;">
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #f5f5f5;">
+            <tr>
+                <td align="center" style="padding: 20px 0;">
+                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" style="max-width: 600px; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                        <!-- Header -->
+                        <tr>
+                            <td style="background-color: #e85d04; padding: 32px 24px; text-align: center;">
+                                <h1 style="margin: 0; color: #ffffff; font-size: 24px; font-weight: 600; font-family: Arial, Helvetica, sans-serif;">Augustus Today</h1>
+                            </td>
+                        </tr>
+                        <!-- Content -->
+                        <tr>
+                            <td style="padding: 24px; background-color: #ffffff;">
+                                <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                                    <tr>
+                                        <td style="background-color: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 6px; padding: 20px;">
+                                            <h2 style="margin: 0 0 16px 0; color: #333333; font-size: 20px; font-weight: 600; font-family: Arial, Helvetica, sans-serif;">{briefing_title}</h2>
+                                            {f'<p style="margin: 0 0 20px 0; color: #666666; font-size: 14px; line-height: 1.6; font-family: Arial, Helvetica, sans-serif;">{summary_text}</p>' if summary_text else ''}
+                                            {f'<table role="presentation" cellspacing="0" cellpadding="0" border="0"><tr><td><a href="{briefing_url}" style="display: inline-block; padding: 12px 24px; background-color: #e85d04; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 14px; font-family: Arial, Helvetica, sans-serif;">▶ Play Now</a></td></tr></table>' if briefing_url else ''}
+                                        </td>
+                                    </tr>
+                                </table>
+                            </td>
+                        </tr>
+                        <!-- Footer -->
+                        <tr>
+                            <td style="padding: 24px; background-color: #f8f9fa; border-top: 1px solid #e0e0e0;">
+                                <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                                    <tr>
+                                        <td style="text-align: center; padding-bottom: 12px;">
+                                            <p style="margin: 0; color: #666666; font-size: 12px; font-family: Arial, Helvetica, sans-serif;">
+                                                You're receiving this email because you've set up scheduled briefings.
+                                            </p>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td style="text-align: center; padding-bottom: 8px;">
+                                            <a href="{frontend_url}/dashboard" style="color: #e85d04; text-decoration: none; font-size: 12px; font-family: Arial, Helvetica, sans-serif;">Manage Briefings</a>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td style="text-align: center; padding-top: 12px; border-top: 1px solid #e0e0e0;">
+                                            <p style="margin: 0; color: #999999; font-size: 11px; font-family: Arial, Helvetica, sans-serif; line-height: 1.5;">
+                                                © {datetime.now().year} Augustus. All rights reserved.<br>
+                                                This is an automated briefing notification.
+                                            </p>
+                                        </td>
+                                    </tr>
+                                </table>
+                            </td>
+                        </tr>
+                    </table>
+                </td>
+            </tr>
+        </table>
     </body>
     </html>
     """
     
     # Plain text version
     text_content = f"""
-Daily Briefing Ready
+Augustus Today
 
 {briefing_title}
 
-{transcript_preview if transcript_preview else ''}
+{summary_text if summary_text else ''}
 
-{f'Listen to briefing: {briefing_url}' if briefing_url else ''}
+{f'Play Now: {briefing_url}' if briefing_url else ''}
+
+---
+You're receiving this email because you've set up scheduled briefings.
+Manage Briefings: {frontend_url}/dashboard
+
+© {datetime.now().year} Augustus. All rights reserved.
+This is an automated briefing notification.
     """
     
     # Resend API endpoint
@@ -160,7 +223,7 @@ Daily Briefing Ready
     payload = {
         "from": f"Augustus Briefings <{from_email}>",
         "to": recipients,
-        "subject": f"Daily Briefing: {briefing_title}",
+        "subject": f"Augustus Today: {briefing_title}",
         "html": html_content,
         "text": text_content,
     }
@@ -223,12 +286,24 @@ async def send_batched_briefings_email(
     settings = get_settings()
     frontend_url = getattr(settings, 'frontend_url', 'http://localhost:3000')
     
+    # Convert localhost to network-accessible URL for email links
+    external_url = get_external_frontend_url(frontend_url)
+    if external_url != frontend_url:
+        print(f"[Email] Using network-accessible URL: {external_url} (instead of {frontend_url})")
+    elif 'localhost' in frontend_url or '127.0.0.1' in frontend_url:
+        print(f"[Email] WARNING: Frontend URL is localhost ({frontend_url}). Email links may not work on external devices.")
+        print(f"[Email] WARNING: Set FRONTEND_URL to your network IP or domain (e.g., http://192.168.1.100:3000)")
+    
+    frontend_url = external_url
+    
     briefing_sections = []
     for briefing in briefings:
-        transcript_preview = ""
-        if briefing.transcript:
-            cleaned = re.sub(r'HOST[12]:\s*', '', briefing.transcript, flags=re.IGNORECASE).strip()
-            transcript_preview = cleaned[:300] + "..." if len(cleaned) > 300 else cleaned
+        # Get summary from extra_data (story_analysis) or fall back to empty
+        summary = ""
+        if hasattr(briefing, 'extra_data') and briefing.extra_data:
+            summary = briefing.extra_data.get('story_analysis', '') or ''
+        if summary:
+            summary = summary[:300] + "..." if len(summary) > 300 else summary
         
         # Construct briefing detail page URL with auto-play
         briefing_url = f"{frontend_url}/briefing/{briefing.id}?autoplay=true"
@@ -242,27 +317,36 @@ async def send_batched_briefings_email(
         
         briefing_sections.append({
             'title': briefing.title,
-            'transcript_preview': transcript_preview,
+            'summary': summary,
             'briefing_url': briefing_url,
             'duration': duration_str,
         })
     
-    # Build email HTML with app's dark theme styling
+    # Build email HTML optimized for Gmail compatibility
+    # Use table-based layout with inline styles (Gmail strips style tags)
     briefing_items_html = ""
     for i, section in enumerate(briefing_sections, 1):
         briefing_items_html += f"""
-        <div class="briefing-item" style="background-color: rgba(58, 58, 65, 0.5); border: 1px solid rgba(66, 66, 75, 0.5); padding: 20px; border-radius: 12px; margin-bottom: 16px; backdrop-filter: blur(8px);">
-            <h3 style="margin-top: 0; margin-bottom: 12px; color: #ffffff; font-size: 18px; font-weight: 600;">{section['title']}</h3>
-            {f'<p style="color: #b8b8c1; font-size: 14px; line-height: 1.6; margin-bottom: 16px;">{section["transcript_preview"]}</p>' if section['transcript_preview'] else ''}
-            <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
-                <a href="{section['briefing_url']}" style="display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; background-color: #e85d04; color: white; text-decoration: none; border-radius: 50%; transition: all 0.2s; box-shadow: 0 0 20px -5px rgba(232, 93, 4, 0.4);">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-left: 2px;">
-                        <polygon points="5 3 19 12 5 21 5 3"></polygon>
-                    </svg>
-                </a>
-                {f'<span style="color: #747484; font-size: 13px; font-family: monospace;">{section["duration"]}</span>' if section['duration'] else ''}
-            </div>
-        </div>
+                            <tr>
+                                <td style="padding-bottom: 16px;">
+                                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 6px; padding: 20px;">
+                                        <tr>
+                                            <td>
+                                                <h3 style="margin: 0 0 12px 0; color: #333333; font-size: 18px; font-weight: 600; font-family: Arial, Helvetica, sans-serif;">{section['title']}</h3>
+                                                {f'<p style="margin: 0 0 16px 0; color: #666666; font-size: 14px; line-height: 1.6; font-family: Arial, Helvetica, sans-serif;">{section["summary"]}</p>' if section['summary'] else ''}
+                                                <table role="presentation" cellspacing="0" cellpadding="0" border="0">
+                                                    <tr>
+                                                        <td>
+                                                            <a href="{section['briefing_url']}" style="display: inline-block; padding: 10px 20px; background-color: #e85d04; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 13px; font-family: Arial, Helvetica, sans-serif;">▶ Play Now</a>
+                                                            {f'<span style="color: #999999; font-size: 13px; font-family: monospace; margin-left: 12px;">{section["duration"]}</span>' if section['duration'] else ''}
+                                                        </td>
+                                                    </tr>
+                                                </table>
+                                            </td>
+                                        </tr>
+                                    </table>
+                                </td>
+                            </tr>
         """
     
     html_content = f"""
@@ -271,54 +355,58 @@ async def send_batched_briefings_email(
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <style>
-            body {{ 
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'DM Sans', system-ui, sans-serif; 
-                line-height: 1.6; 
-                color: #eeeef0; 
-                background-color: #1a1a1e;
-                margin: 0;
-                padding: 0;
-            }}
-            .container {{ 
-                max-width: 600px; 
-                margin: 0 auto; 
-                padding: 0;
-                background-color: #1a1a1e;
-            }}
-            .header {{ 
-                background: linear-gradient(135deg, rgba(232, 93, 4, 0.1) 0%, rgba(232, 93, 4, 0.05) 100%);
-                border-bottom: 1px solid rgba(66, 66, 75, 0.5);
-                padding: 32px 24px;
-                text-align: center;
-            }}
-            .header h1 {{
-                margin: 0 0 8px 0;
-                color: #ffffff;
-                font-size: 24px;
-                font-weight: 600;
-            }}
-            .header p {{
-                margin: 0;
-                font-size: 14px;
-                color: #b8b8c1;
-            }}
-            .content {{ 
-                padding: 24px;
-                background-color: #1a1a1e;
-            }}
-        </style>
     </head>
-    <body>
-        <div class="container">
-            <div class="header">
-                <h1>Daily Briefings Ready</h1>
-                <p>You have {len(briefings)} new briefing{'' if len(briefings) == 1 else 's'}</p>
-            </div>
-            <div class="content">
-                {briefing_items_html}
-            </div>
-        </div>
+    <body style="margin: 0; padding: 0; background-color: #f5f5f5; font-family: Arial, Helvetica, sans-serif;">
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #f5f5f5;">
+            <tr>
+                <td align="center" style="padding: 20px 0;">
+                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" style="max-width: 600px; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                        <!-- Header -->
+                        <tr>
+                            <td style="background-color: #e85d04; padding: 32px 24px; text-align: center;">
+                                <h1 style="margin: 0 0 8px 0; color: #ffffff; font-size: 24px; font-weight: 600; font-family: Arial, Helvetica, sans-serif;">Augustus Today</h1>
+                                <p style="margin: 0; color: #ffffff; font-size: 14px; font-family: Arial, Helvetica, sans-serif;">You have {len(briefings)} new briefing{'' if len(briefings) == 1 else 's'}</p>
+                            </td>
+                        </tr>
+                        <!-- Content -->
+                        <tr>
+                            <td style="padding: 24px; background-color: #ffffff;">
+                                <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                                    {briefing_items_html}
+                                </table>
+                            </td>
+                        </tr>
+                        <!-- Footer -->
+                        <tr>
+                            <td style="padding: 24px; background-color: #f8f9fa; border-top: 1px solid #e0e0e0;">
+                                <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                                    <tr>
+                                        <td style="text-align: center; padding-bottom: 12px;">
+                                            <p style="margin: 0; color: #666666; font-size: 12px; font-family: Arial, Helvetica, sans-serif;">
+                                                You're receiving this email because you've set up scheduled briefings.
+                                            </p>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td style="text-align: center; padding-bottom: 8px;">
+                                            <a href="{frontend_url}/dashboard" style="color: #e85d04; text-decoration: none; font-size: 12px; font-family: Arial, Helvetica, sans-serif;">Manage Briefings</a>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td style="text-align: center; padding-top: 12px; border-top: 1px solid #e0e0e0;">
+                                            <p style="margin: 0; color: #999999; font-size: 11px; font-family: Arial, Helvetica, sans-serif; line-height: 1.5;">
+                                                © {datetime.now().year} Augustus. All rights reserved.<br>
+                                                This is an automated briefing notification.
+                                            </p>
+                                        </td>
+                                    </tr>
+                                </table>
+                            </td>
+                        </tr>
+                    </table>
+                </td>
+            </tr>
+        </table>
     </body>
     </html>
     """
@@ -328,17 +416,23 @@ async def send_batched_briefings_email(
     for i, section in enumerate(briefing_sections, 1):
         briefing_items_text += f"""
 {i}. {section['title']}
-{f"   Preview: {section['transcript_preview']}" if section['transcript_preview'] else ''}
+{f"   {section['summary']}" if section['summary'] else ''}
 {f"   Duration: {section['duration']}" if section['duration'] else ''}
-   Listen: {section['briefing_url']}
+   Play Now: {section['briefing_url']}
 
 """
     
-    text_content = f"""Daily Briefings Ready
+    text_content = f"""Augustus Today
 
 You have {len(briefings)} new briefing{'' if len(briefings) == 1 else 's'}:
 
 {briefing_items_text}
+---
+You're receiving this email because you've set up scheduled briefings.
+Manage Briefings: {frontend_url}/dashboard
+
+© {datetime.now().year} Augustus. All rights reserved.
+This is an automated briefing notification.
     """
     
     # Resend API endpoint
@@ -349,7 +443,7 @@ You have {len(briefings)} new briefing{'' if len(briefings) == 1 else 's'}:
     from_email = "onboarding@resend.dev"
     
     # Build email payload for Resend API
-    subject = f"Daily Briefings Ready ({len(briefings)} briefing{'' if len(briefings) == 1 else 's'})"
+    subject = f"Augustus Today ({len(briefings)} briefing{'' if len(briefings) == 1 else 's'})"
     
     payload = {
         "from": f"Augustus Briefings <{from_email}>",

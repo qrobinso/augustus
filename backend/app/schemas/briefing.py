@@ -66,6 +66,7 @@ class BriefingResponse(BriefingBase):
     listened: bool = False
     listened_at: Optional[datetime] = None
     playback_position: Optional[float] = None
+    favorite: bool = False
     chapters: list[ChapterSchema] = Field(default_factory=list)
     
     model_config = {
@@ -99,6 +100,11 @@ class BriefingListenedUpdate(BaseModel):
 class BriefingPlaybackPositionUpdate(BaseModel):
     """Request to update playback position."""
     position: float = Field(ge=0, description="Playback position in seconds")
+
+
+class BriefingFavoriteUpdate(BaseModel):
+    """Request to update favorite state."""
+    favorite: bool
 
 
 class BriefingListResponse(BaseModel):

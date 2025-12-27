@@ -27,11 +27,13 @@ class CastMemberResponse(CastMemberBase):
 class CastBase(BaseModel):
     """Base cast schema."""
     name: str = Field(..., description="Name of the cast")
+    description: Optional[str] = Field(None, description="Description of how the cast works")
 
 
 class CastCreate(BaseModel):
     """Schema for creating a cast."""
     name: str = Field(..., description="Name of the cast")
+    description: Optional[str] = Field(None, description="Description of how the cast works")
     members: list[CastMemberBase] = Field(
         ...,
         min_length=1,
@@ -43,6 +45,7 @@ class CastCreate(BaseModel):
 class CastUpdate(BaseModel):
     """Schema for updating a cast."""
     name: Optional[str] = Field(None, description="Name of the cast")
+    description: Optional[str] = Field(None, description="Description of how the cast works")
     members: Optional[list[CastMemberBase]] = Field(
         None,
         min_length=1,
@@ -68,6 +71,12 @@ class CastResponse(CastBase):
 class CastListResponse(BaseModel):
     """Schema for listing casts."""
     casts: list[CastResponse]
+
+
+
+
+
+
 
 
 

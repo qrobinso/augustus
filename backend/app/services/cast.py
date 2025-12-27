@@ -50,6 +50,7 @@ class CastService:
             id=str(uuid.uuid4()),
             user_id=user_id,
             name=cast_data.name,
+            description=cast_data.description,
             is_default=False,  # Only set via set_default_cast
         )
         self.db.add(cast)
@@ -189,6 +190,10 @@ class CastService:
         # Update cast name if provided
         if cast_data.name is not None:
             cast.name = cast_data.name
+        
+        # Update cast description if provided
+        if cast_data.description is not None:
+            cast.description = cast_data.description
         
         # Update members if provided
         if cast_data.members is not None:

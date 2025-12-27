@@ -18,9 +18,12 @@ def find_env_file() -> Optional[str]:
     
     for loc in locations:
         if loc.exists():
-            return str(loc.resolve())
+            env_path = str(loc.resolve())
+            print(f"[Config] Found .env file at: {env_path}")
+            return env_path
     
     # Return None to let pydantic-settings use its default behavior
+    print(f"[Config] No .env file found in standard locations")
     return None
 
 
@@ -49,6 +52,7 @@ class Settings(BaseSettings):
     openrouter_api_key: Optional[str] = None
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     openrouter_model: str = "anthropic/claude-3.5-sonnet"
+    openrouter_writer_model: Optional[str] = None  # Optional separate model for briefing writing (uses openrouter_model if not set)
     
     # TTS Providers
     tts_provider: str = "piper"  # "piper", "elevenlabs", or "gemini"
@@ -56,6 +60,8 @@ class Settings(BaseSettings):
     # Piper TTS
     piper_model_path: str = "./models/en_US-lessac-medium.onnx"
     piper_config_path: Optional[str] = None
+    piper_url: Optional[str] = None  # URL for remote Piper TTS API (e.g., http://localhost:5000)
+    piper_model: Optional[str] = None  # Model name to use with remote Piper API
     
     # ElevenLabs TTS
     elevenlabs_api_key: Optional[str] = None
@@ -65,6 +71,8 @@ class Settings(BaseSettings):
     gemini_api_key: Optional[str] = None
     gemini_model: str = "gemini-2.5-flash-preview-tts"
     
+    # Non-speech sounds (for Gemini TTS - adds sighs, laughs, pauses, etc.)
+    enable_non_speech_sounds: bool = False
     
     # Content Duration Settings (in minutes)
     briefing_duration_minutes: int = 5  # Daily briefing duration
@@ -97,6 +105,9 @@ class Settings(BaseSettings):
     briefing_schedule_hour: int = 7
     briefing_schedule_minute: int = 0
     
+    # Briefing Generation Timeout
+    briefing_timeout_minutes: int = 15  # Timeout in minutes for briefing generation
+    
     @property
     def rss_feed_list(self) -> list[str]:
         """Parse RSS feeds from comma-separated string."""
@@ -106,4 +117,11 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     """Get cached settings instance."""
-    return Settings()
+    settings = Settings()
+    # Log TTS provider on startup to verify it's loaded correctly
+    print(f"[Config] TTS Provider loaded: {settings.tts_provider}")
+    if settings.piper_url:
+        print(f"[Config] Piper URL loaded: {settings.piper_url}")
+    if settings.piper_model:
+        print(f"[Config] Piper Model loaded: {settings.piper_model}")
+    return settings

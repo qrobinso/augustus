@@ -36,3 +36,8 @@ class Scholar(Personality):
             "Build on points with additional scholarly context",
         ]
 
+
+
+
+
+

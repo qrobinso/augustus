@@ -31,11 +31,15 @@ export default function Settings() {
   // Form state
   const [openrouterKey, setOpenrouterKey] = useState('')
   const [openrouterModel, setOpenrouterModel] = useState('')
+  const [openrouterWriterModel, setOpenrouterWriterModel] = useState('')
   const [ttsProvider, setTtsProvider] = useState('piper')
+  const [piperUrl, setPiperUrl] = useState('')
+  const [piperModel, setPiperModel] = useState('')
   const [elevenlabsKey, setElevenlabsKey] = useState('')
   const [elevenlabsModel, setElevenlabsModel] = useState('eleven_turbo_v2_5')
   const [geminiKey, setGeminiKey] = useState('')
   const [geminiModel, setGeminiModel] = useState('gemini-2.5-flash-preview-tts')
+  const [enableNonSpeechSounds, setEnableNonSpeechSounds] = useState(false)
   // Duration slider values (1=Short/3min, 2=Medium/7min, 3=Long/25min)
   const [briefingDurationSlider, setBriefingDurationSlider] = useState(2)
   const [conversationComplexity, setConversationComplexity] = useState(3)
@@ -80,6 +84,10 @@ export default function Settings() {
   const [showModelDropdown, setShowModelDropdown] = useState(false)
   const modelButtonRef = useRef<HTMLButtonElement>(null)
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0 })
+  const [writerModelSearch, setWriterModelSearch] = useState('')
+  const [showWriterModelDropdown, setShowWriterModelDropdown] = useState(false)
+  const writerModelButtonRef = useRef<HTMLButtonElement>(null)
+  const [writerDropdownPosition, setWriterDropdownPosition] = useState({ top: 0, left: 0, width: 0 })
   
   // Fetch current settings
   const { data: settings, isLoading, error } = useQuery({
@@ -129,6 +137,10 @@ export default function Settings() {
     return models?.find(m => m.id === openrouterModel)
   }, [models, openrouterModel])
   
+  const selectedWriterModel = useMemo(() => {
+    return models?.find(m => m.id === openrouterWriterModel)
+  }, [models, openrouterWriterModel])
+  
   // Format context length for display
   const formatContextLength = (length?: number) => {
     if (!length) return ''
@@ -150,6 +162,18 @@ export default function Settings() {
     setShowModelDropdown(!showModelDropdown)
   }
   
+  const handleOpenWriterModelDropdown = () => {
+    if (writerModelButtonRef.current) {
+      const rect = writerModelButtonRef.current.getBoundingClientRect()
+      setWriterDropdownPosition({
+        top: rect.bottom + 8,
+        left: rect.left,
+        width: Math.min(rect.width, window.innerWidth - 32),
+      })
+    }
+    setShowWriterModelDropdown(!showWriterModelDropdown)
+  }
+  
   // Update settings mutation
   const updateMutation = useMutation({
     mutationFn: settingsApi.update,
@@ -164,9 +188,13 @@ export default function Settings() {
   useEffect(() => {
     if (settings) {
       setOpenrouterModel(settings.openrouter_model)
+      setOpenrouterWriterModel(settings.openrouter_writer_model || '')
       setTtsProvider(settings.tts_provider)
+      setPiperUrl(settings.piper_url || '')
+      setPiperModel(settings.piper_model || '')
       setElevenlabsModel(settings.elevenlabs_model || 'eleven_turbo_v2_5')
       setGeminiModel(settings.gemini_model || 'gemini-2.5-flash-preview-tts')
+      setEnableNonSpeechSounds(settings.enable_non_speech_sounds || false)
       setBriefingDurationSlider(durationToSlider(settings.briefing_duration_minutes))
       setConversationComplexity(settings.conversation_complexity || 3)
       setTimezone(settings.timezone || 'UTC')
@@ -191,7 +219,7 @@ export default function Settings() {
   }, [settings])
   
   const handleSave = () => {
-    const updates: Record<string, string> = {}
+    const updates: Record<string, string | number | boolean> = {}
     
     // Helper to check if a key is a new value (not the masked version)
     const isNewKey = (value: string, maskedValue?: string) => {
@@ -222,9 +250,15 @@ export default function Settings() {
     
     // Always send non-key settings if changed
     if (openrouterModel !== settings?.openrouter_model) updates.openrouter_model = openrouterModel
+    if (openrouterWriterModel !== (settings?.openrouter_writer_model || '')) {
+      updates.openrouter_writer_model = openrouterWriterModel || null
+    }
     if (ttsProvider !== settings?.tts_provider) updates.tts_provider = ttsProvider
+    if (piperUrl !== settings?.piper_url) updates.piper_url = piperUrl
+    if (piperModel !== settings?.piper_model) updates.piper_model = piperModel
     if (elevenlabsModel !== settings?.elevenlabs_model) updates.elevenlabs_model = elevenlabsModel
     if (geminiModel !== settings?.gemini_model) updates.gemini_model = geminiModel
+    if (enableNonSpeechSounds !== settings?.enable_non_speech_sounds) updates.enable_non_speech_sounds = enableNonSpeechSounds
     const briefingDuration = sliderToDuration(briefingDurationSlider)
     
     if (briefingDuration !== settings?.briefing_duration_minutes) updates.briefing_duration_minutes = briefingDuration
@@ -352,8 +386,183 @@ export default function Settings() {
               )} />
             </button>
           </div>
+          
+          <div>
+            <label className="label flex items-center gap-2">
+              Writer Model
+              <div className="group relative">
+                <Info className="w-4 h-4 text-augustus-500 hover:text-augustus-300 cursor-help" />
+                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-3 bg-augustus-800 border border-augustus-700 rounded-lg shadow-lg text-xs text-augustus-300 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10 pointer-events-none">
+                  <div className="font-semibold text-white mb-1">Writer Model</div>
+                  <div className="mb-2">Used specifically for briefing writing, which requires more detailed thinking and analysis. If not set, the standard model above will be used.</div>
+                  <div className="font-semibold text-white mb-1">Standard Model</div>
+                  <div>Used for all other operations (story analysis, facts gathering, etc.).</div>
+                </div>
+              </div>
+            </label>
+            <p className="text-xs sm:text-sm text-augustus-500 mb-2">
+              Optional. A separate model for briefing writing. If not set, uses the standard model above.
+            </p>
+            
+            {/* Selected writer model display / dropdown trigger */}
+            <button
+              ref={writerModelButtonRef}
+              type="button"
+              onClick={handleOpenWriterModelDropdown}
+              className="input w-full text-left flex items-center justify-between"
+            >
+              <div className="flex-1 min-w-0">
+                {selectedWriterModel ? (
+                  <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
+                    <span className="text-white text-sm sm:text-base truncate">{selectedWriterModel.name}</span>
+                    <span className="text-augustus-500 text-xs sm:text-sm hidden sm:inline">({selectedWriterModel.provider})</span>
+                  </div>
+                ) : (
+                  <span className="text-augustus-500 text-sm sm:text-base">Use standard model (leave empty)</span>
+                )}
+              </div>
+              <ChevronDown className={clsx(
+                'w-5 h-5 text-augustus-500 transition-transform flex-shrink-0',
+                showWriterModelDropdown && 'rotate-180'
+              )} />
+            </button>
+          </div>
         </div>
       </div>
+      
+      {/* Writer Model Dropdown */}
+      {showWriterModelDropdown && (
+        <div className="fixed inset-0 z-[9998] sm:z-[9998]" onClick={() => {
+          setShowWriterModelDropdown(false)
+          setWriterModelSearch('')
+        }}>
+          <div 
+            className={clsx(
+              "fixed z-[9999] bg-augustus-900 border border-augustus-700 shadow-2xl overflow-hidden",
+              "inset-x-0 bottom-0 rounded-t-2xl max-h-[70vh]",
+              "sm:inset-auto sm:rounded-lg sm:max-h-96"
+            )}
+            style={{
+              ...(window.innerWidth >= 640 && {
+                top: writerDropdownPosition.top,
+                left: writerDropdownPosition.left,
+                width: writerDropdownPosition.width,
+              }),
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Mobile handle */}
+            <div className="sm:hidden w-10 h-1 bg-augustus-600 rounded-full mx-auto mt-3 mb-2" />
+            
+            {/* Search input */}
+            <div className="p-2 sm:p-2 border-b border-augustus-700">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-augustus-500" />
+                <input
+                  type="text"
+                  value={writerModelSearch}
+                  onChange={(e) => setWriterModelSearch(e.target.value)}
+                  placeholder="Search models..."
+                  className="w-full pl-9 pr-4 py-2.5 sm:py-2 bg-augustus-800 border border-augustus-700 rounded-lg text-white text-sm placeholder-augustus-500 focus:outline-none focus:border-accent"
+                  autoFocus
+                />
+              </div>
+            </div>
+            
+            {/* Clear option */}
+            <button
+              type="button"
+              onClick={() => {
+                setOpenrouterWriterModel('')
+                setShowWriterModelDropdown(false)
+                setWriterModelSearch('')
+              }}
+              className="w-full px-3 py-2 text-left hover:bg-augustus-800 active:bg-augustus-700 transition-colors text-augustus-400 text-sm border-b border-augustus-700"
+            >
+              Use standard model (leave empty)
+            </button>
+            
+            {/* Models list */}
+            <div className="overflow-y-auto max-h-[50vh] sm:max-h-72">
+              {modelsLoading ? (
+                <div className="p-4 text-center">
+                  <Loader2 className="w-5 h-5 animate-spin text-accent mx-auto" />
+                  <p className="text-sm text-augustus-500 mt-2">Loading models...</p>
+                </div>
+              ) : (() => {
+                const filtered = writerModelSearch.trim() 
+                  ? filteredModels.filter(model => 
+                      model.name.toLowerCase().includes(writerModelSearch.toLowerCase()) ||
+                      model.provider.toLowerCase().includes(writerModelSearch.toLowerCase()) ||
+                      model.id.toLowerCase().includes(writerModelSearch.toLowerCase())
+                    )
+                  : filteredModels
+                const grouped: Record<string, ModelOption[]> = {}
+                for (const model of filtered) {
+                  if (!grouped[model.provider]) {
+                    grouped[model.provider] = []
+                  }
+                  grouped[model.provider].push(model)
+                }
+                return Object.keys(grouped).length === 0 ? (
+                  <div className="p-4 text-center text-augustus-500 text-sm">
+                    No models found
+                  </div>
+                ) : (
+                  Object.entries(grouped).map(([provider, providerModels]) => (
+                    <div key={provider}>
+                      <div className="px-3 py-2 bg-augustus-800/50 text-xs font-semibold text-augustus-400 uppercase tracking-wide sticky top-0">
+                        {provider}
+                      </div>
+                      {providerModels.map((model) => (
+                        <button
+                          key={model.id}
+                          type="button"
+                          onClick={() => {
+                            setOpenrouterWriterModel(model.id)
+                            setShowWriterModelDropdown(false)
+                            setWriterModelSearch('')
+                          }}
+                          className={clsx(
+                            'w-full px-3 py-3 sm:py-2 text-left hover:bg-augustus-800 active:bg-augustus-700 transition-colors flex items-center justify-between',
+                            model.id === openrouterWriterModel && 'bg-accent/10 border-l-2 border-accent'
+                          )}
+                        >
+                          <div className="flex-1 min-w-0">
+                            <div className="text-white text-sm truncate">{model.name}</div>
+                            <div className="text-augustus-500 text-xs truncate">{model.id}</div>
+                          </div>
+                          <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+                            {model.context_length && (
+                              <span className="px-1.5 py-0.5 bg-augustus-700 text-augustus-400 text-xs rounded">
+                                {formatContextLength(model.context_length)}
+                              </span>
+                            )}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  ))
+                )
+              })()}
+            </div>
+            
+            {/* Model count */}
+            <div className="p-2 border-t border-augustus-700 text-xs text-augustus-500 text-center pb-safe">
+              {(() => {
+                const filtered = writerModelSearch.trim() 
+                  ? filteredModels.filter(model => 
+                      model.name.toLowerCase().includes(writerModelSearch.toLowerCase()) ||
+                      model.provider.toLowerCase().includes(writerModelSearch.toLowerCase()) ||
+                      model.id.toLowerCase().includes(writerModelSearch.toLowerCase())
+                    )
+                  : filteredModels
+                return `${filtered.length} model${filtered.length !== 1 ? 's' : ''} available`
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
       
       {/* TTS Section */}
       <div className="card mb-4 sm:mb-6">
@@ -429,6 +638,40 @@ export default function Settings() {
               </button>
             </div>
           </div>
+          
+          {ttsProvider === 'piper' && (
+            <>
+              <div>
+                <label className="label">
+                  Piper TTS URL (optional)
+                </label>
+                <input
+                  type="text"
+                  value={piperUrl}
+                  onChange={(e) => setPiperUrl(e.target.value)}
+                  placeholder="http://localhost:5000"
+                  className="input"
+                />
+                <p className="text-xs text-augustus-500 mt-1">
+                  Leave empty to use local Piper CLI. Set URL to use remote Piper TTS API.
+                </p>
+              </div>
+              
+              <div>
+                <label className="label">Piper Model</label>
+                <input
+                  type="text"
+                  value={piperModel}
+                  onChange={(e) => setPiperModel(e.target.value)}
+                  placeholder="en_US-lessac-medium"
+                  className="input"
+                />
+                <p className="text-xs text-augustus-500 mt-1">
+                  Model name to use with remote Piper API (e.g., en_US-lessac-medium)
+                </p>
+              </div>
+            </>
+          )}
           
           {ttsProvider === 'elevenlabs' && (
             <>
@@ -511,6 +754,34 @@ export default function Settings() {
                 <p className="text-xs text-augustus-500 mt-1">
                   Default: gemini-2.5-flash-preview-tts
                 </p>
+              </div>
+
+              <div className="pt-3 border-t border-augustus-700/50">
+                <label className="flex items-start gap-3 cursor-pointer group">
+                  <div className="relative flex items-center justify-center mt-0.5">
+                    <input
+                      type="checkbox"
+                      checked={enableNonSpeechSounds}
+                      onChange={(e) => setEnableNonSpeechSounds(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-5 h-5 border-2 border-augustus-600 rounded bg-augustus-800 peer-checked:bg-accent peer-checked:border-accent transition-colors flex items-center justify-center">
+                      {enableNonSpeechSounds && (
+                        <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex-1">
+                    <span className="text-sm font-medium text-white group-hover:text-accent transition-colors">
+                      Enable Non-speech Sounds
+                    </span>
+                    <p className="text-xs text-augustus-400 mt-1">
+                      Add realistic human vocalizations like sighs, laughs, hesitations, and pauses to the podcast script. Uses Gemini's native TTS markup for natural delivery.
+                    </p>
+                  </div>
+                </label>
               </div>
             </>
           )}

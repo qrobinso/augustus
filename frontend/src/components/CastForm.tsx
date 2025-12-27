@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { X, Plus, Trash2, Loader2 } from 'lucide-react'
+import { X, Plus, Trash2, Loader2, Sparkles } from 'lucide-react'
 import clsx from 'clsx'
 import { castsApi, Cast, CastCreate, CastUpdate } from '../api/client'
 
@@ -14,6 +14,8 @@ interface CastFormProps {
 export default function CastForm({ cast, onClose, personalityOptions, isLoadingPersonalities = false }: CastFormProps) {
   const queryClient = useQueryClient()
   const [name, setName] = useState('')
+  const [description, setDescription] = useState('')
+  const [isGeneratingDescription, setIsGeneratingDescription] = useState(false)
   const [members, setMembers] = useState<Array<{
     name: string
     voice_id: string
@@ -42,6 +44,7 @@ export default function CastForm({ cast, onClose, personalityOptions, isLoadingP
   useEffect(() => {
     if (cast) {
       setName(cast.name)
+      setDescription(cast.description || '')
       setMembers(
         cast.members
           .sort((a, b) => a.order - b.order)
@@ -110,6 +113,7 @@ export default function CastForm({ cast, onClose, personalityOptions, isLoadingP
     
     const castData = {
       name: name.trim(),
+      description: description.trim() || undefined,
       members: members.map((m, idx) => ({
         name: m.name.trim(),
         voice_id: m.voice_id.trim(),
@@ -151,6 +155,39 @@ export default function CastForm({ cast, onClose, personalityOptions, isLoadingP
     setMembers(updated)
   }
   
+  const handleGenerateDescription = async () => {
+    if (!name.trim()) {
+      alert('Please enter a cast name first')
+      return
+    }
+    
+    // Validate members have required fields
+    const validMembers = members.filter(m => m.name.trim() && m.personality)
+    if (validMembers.length === 0) {
+      alert('Please add at least one member with a name and personality')
+      return
+    }
+    
+    setIsGeneratingDescription(true)
+    try {
+      const generatedDescription = await castsApi.generateDescription(
+        name.trim(),
+        validMembers.map((m, idx) => ({
+          name: m.name.trim(),
+          voice_id: m.voice_id.trim(),
+          personality: m.personality,
+          order: idx,
+        }))
+      )
+      setDescription(generatedDescription)
+    } catch (error) {
+      console.error('Failed to generate description:', error)
+      alert('Failed to generate description. Please check your LLM settings.')
+    } finally {
+      setIsGeneratingDescription(false)
+    }
+  }
+  
   const isLoading = createMutation.isPending || updateMutation.isPending
   
   return (
@@ -183,6 +220,58 @@ export default function CastForm({ cast, onClose, personalityOptions, isLoadingP
               required
               disabled={isLoading}
             />
+          </div>
+          
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-sm font-medium text-augustus-300">
+                Description <span className="text-augustus-500 text-xs">(optional)</span>
+              </label>
+              <button
+                type="button"
+                onClick={handleGenerateDescription}
+                disabled={isLoading || isGeneratingDescription || !name.trim()}
+                className="btn btn-sm btn-ghost flex items-center gap-2 text-augustus-400 hover:text-augustus-300"
+                title="Generate description using AI"
+              >
+                {isGeneratingDescription ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4" />
+                    Generate
+                  </>
+                )}
+              </button>
+            </div>
+            <textarea
+              value={description}
+              onChange={(e) => {
+                const value = e.target.value
+                if (value.length <= 500) {
+                  setDescription(value)
+                }
+              }}
+              className="input w-full min-h-[100px] resize-y"
+              placeholder="Describe how this cast works, their dynamic, or any special instructions for the briefing writer..."
+              disabled={isLoading || isGeneratingDescription}
+              rows={4}
+              maxLength={500}
+            />
+            <div className="flex items-center justify-between mt-1">
+              <p className="text-xs text-augustus-500">
+                This description will be included in the briefing writer prompt to help guide how the cast discusses topics.
+              </p>
+              <p className={clsx(
+                "text-xs",
+                description.length > 450 ? "text-yellow-400" : "text-augustus-500"
+              )}>
+                {description.length}/500
+              </p>
+            </div>
           </div>
           
           <div>

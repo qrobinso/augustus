@@ -1,6 +1,7 @@
 """Casts API router."""
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -11,8 +12,10 @@ from app.schemas.cast import (
     CastUpdate,
     CastResponse,
     CastListResponse,
+    CastMemberBase,
 )
 from app.services.cast import CastService
+from app.services.llm.openrouter import get_llm_provider
 
 # Import personalities registry with error handling
 try:
@@ -519,7 +522,90 @@ async def delete_personality_file(
         )
 
 
+class GenerateDescriptionRequest(BaseModel):
+    """Request schema for generating cast description."""
+    name: str
+    members: list[CastMemberBase]
 
+
+class GenerateDescriptionResponse(BaseModel):
+    """Response schema for generated description."""
+    description: str
+
+
+@router.post("/generate-description", response_model=GenerateDescriptionResponse)
+async def generate_cast_description(
+    request: GenerateDescriptionRequest,
+    user: User = Depends(get_current_user),
+):
+    """Generate a cast description using the LLM.
+    
+    This endpoint uses the general LLM (from settings) to generate a description
+    of how the cast works based on the cast name and members.
+    """
+    try:
+        # Get LLM provider (uses general model from settings)
+        llm = get_llm_provider()
+        
+        # Build prompt with cast information
+        members_info = []
+        for i, member in enumerate(request.members, 1):
+            members_info.append(
+                f"- {member.name}: {member.personality} personality"
+            )
+        
+        members_text = "\n".join(members_info)
+        
+        system_prompt = """You are a helpful assistant that creates descriptions for podcast casts. 
+Your descriptions should explain how the cast works, their dynamic, and any special characteristics 
+that would help guide the briefing writer in creating content for this cast. Keep descriptions 
+concise and focused on the cast's style and approach. Maximum 500 characters."""
+        
+        user_prompt = f"""Create a description for a podcast cast called "{request.name}".
+
+Cast members:
+{members_text}
+
+Write a brief, concise description (maximum 500 characters) explaining how this cast works, their dynamic, 
+and what makes them unique. This description will be used to guide the briefing writer 
+in creating podcast scripts for this cast. Focus on the overall style, tone, and approach 
+of the cast based on the personalities of the members. Be concise and direct."""
+        
+        # Generate description
+        response = await llm.generate(
+            prompt=user_prompt,
+            system_prompt=system_prompt,
+            max_tokens=200,  # Reduced tokens to encourage shorter output
+            temperature=0.7,
+        )
+        
+        description = response.content.strip()
+        
+        # Clean up the description (remove quotes if wrapped)
+        if description.startswith('"') and description.endswith('"'):
+            description = description[1:-1]
+        if description.startswith("'") and description.endswith("'"):
+            description = description[1:-1]
+        
+        # Enforce 500 character limit
+        if len(description) > 500:
+            description = description[:497] + "..."
+        
+        return GenerateDescriptionResponse(description=description)
+        
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"LLM configuration error: {str(e)}"
+        )
+    except Exception as e:
+        print(f"[Casts] Error generating description: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate description: {str(e)}"
+        )
 
 
 

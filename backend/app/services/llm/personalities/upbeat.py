@@ -35,3 +35,8 @@ class Upbeat(Personality):
             "Inject enthusiasm with phrases like 'This is fascinating!', 'How cool is that?'",
         ]
 
+
+
+
+
+

@@ -35,3 +35,8 @@ class Analytical(Personality):
             "Use phrases like 'What's interesting here is...', 'Let's dig deeper into...'",
         ]
 
+
+
+
+
+

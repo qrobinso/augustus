@@ -35,3 +35,8 @@ class Casual(Personality):
             "Don't be afraid to admit when something is complex",
         ]
 
+
+
+
+
+

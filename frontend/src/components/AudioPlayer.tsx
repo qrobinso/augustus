@@ -12,7 +12,9 @@ import {
   ChevronUp,
   ChevronDown,
   Minimize2,
-  Maximize2
+  Maximize2,
+  Heart,
+  Loader2
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useStore } from '../store/useStore'
@@ -68,6 +70,18 @@ export default function AudioPlayer() {
     mutationFn: (id: string) => briefingsApi.updateListened(id, true),
     onSuccess: () => {
       // Invalidate all briefings queries (with any filter/page combination)
+      queryClient.invalidateQueries({ queryKey: ['briefings'] })
+      if (currentAudio?.id) {
+        queryClient.invalidateQueries({ queryKey: ['briefing', currentAudio.id] })
+      }
+    },
+  })
+  
+  // Mutation for updating favorite status
+  const favoriteMutation = useMutation({
+    mutationFn: ({ id, favorite }: { id: string; favorite: boolean }) => 
+      briefingsApi.updateFavorite(id, favorite),
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['briefings'] })
       if (currentAudio?.id) {
         queryClient.invalidateQueries({ queryKey: ['briefing', currentAudio.id] })
@@ -325,63 +339,201 @@ export default function AudioPlayer() {
           preload="metadata"
         />
         
-        <div className="flex items-center gap-2 sm:gap-2.5 md:gap-3">
-          {/* Play/pause button */}
-          <button
-            onClick={handlePlayPause}
-            className="w-10 h-10 sm:w-11 sm:h-11 md:w-12 md:h-12 aspect-square rounded-full bg-accent hover:bg-accent-600 text-white flex items-center justify-center flex-shrink-0 active:scale-95 transition-transform p-0"
-            aria-label={isPlaying ? 'Pause' : 'Play'}
-          >
-            {isPlaying ? (
-              <Pause className="w-4 h-4 sm:w-5 sm:h-5 md:w-6 md:h-6" />
-            ) : (
-              <Play className="w-4 h-4 sm:w-5 sm:h-5 md:w-6 md:h-6 ml-0.5" />
-            )}
-          </button>
-          
-          {/* Track info */}
-          <div className="flex-1 min-w-0">
-            {currentAudio.type === 'briefing' && currentAudio.id ? (
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-2 sm:gap-2.5 md:gap-3">
+            {/* Play/pause button */}
+            <button
+              onClick={handlePlayPause}
+              className="w-10 h-10 sm:w-11 sm:h-11 md:w-12 md:h-12 aspect-square rounded-full bg-accent hover:bg-accent-600 text-white flex items-center justify-center flex-shrink-0 active:scale-95 transition-transform p-0"
+              aria-label={isPlaying ? 'Pause' : 'Play'}
+            >
+              {isPlaying ? (
+                <Pause className="w-4 h-4 sm:w-5 sm:h-5 md:w-6 md:h-6" />
+              ) : (
+                <Play className="w-4 h-4 sm:w-5 sm:h-5 md:w-6 md:h-6 ml-0.5" />
+              )}
+            </button>
+            
+            {/* Track info */}
+            <div className="flex-1 min-w-0">
+              {currentAudio.type === 'briefing' && currentAudio.id ? (
+                <button
+                  onClick={() => navigate(`/briefing/${currentAudio.id}`)}
+                  className="text-left w-full"
+                >
+                  <h4 className="font-medium text-white truncate text-sm sm:text-base hover:text-accent transition-colors cursor-pointer">
+                    {currentAudio.title}
+                  </h4>
+                  <p className="text-xs text-augustus-500 mt-0.5 truncate">
+                    {formatTime(currentTime)} / {formatTime(duration)}
+                  </p>
+                </button>
+              ) : (
+                <div>
+                  <h4 className="font-medium text-white truncate text-sm sm:text-base">{currentAudio.title}</h4>
+                  <p className="text-xs text-augustus-500 mt-0.5 truncate">
+                    {formatTime(currentTime)} / {formatTime(duration)}
+                  </p>
+                </div>
+              )}
+            </div>
+            
+            {/* Favorite button - only show for briefings */}
+            {currentAudio.type === 'briefing' && currentAudio.id && briefing && (
               <button
-                onClick={() => navigate(`/briefing/${currentAudio.id}`)}
-                className="text-left w-full"
+                onClick={() => favoriteMutation.mutate({ id: currentAudio.id, favorite: !briefing.favorite })}
+                disabled={favoriteMutation.isPending}
+                className={clsx(
+                  'btn-icon btn btn-ghost p-1.5 sm:p-2 min-h-[44px] min-w-[44px] sm:min-h-[36px] sm:min-w-[36px] touch-target transition-colors',
+                  briefing.favorite
+                    ? 'text-red-500 hover:text-red-400'
+                    : 'text-augustus-400 hover:text-white'
+                )}
+                title={briefing.favorite ? 'Remove from favorites' : 'Add to favorites'}
+                aria-label={briefing.favorite ? 'Remove from favorites' : 'Add to favorites'}
               >
-                <h4 className="font-medium text-white truncate text-sm sm:text-base hover:text-accent transition-colors cursor-pointer">
-                  {currentAudio.title}
-                </h4>
-                <p className="text-xs text-augustus-500 mt-0.5 truncate">
-                  {formatTime(currentTime)} / {formatTime(duration)}
-                </p>
+                {favoriteMutation.isPending ? (
+                  <Loader2 className="w-4 h-4 sm:w-5 sm:h-5 animate-spin" />
+                ) : (
+                  <Heart className={clsx('w-4 h-4 sm:w-5 sm:h-5', briefing.favorite && 'fill-current')} />
+                )}
               </button>
-            ) : (
-              <div>
-                <h4 className="font-medium text-white truncate text-sm sm:text-base">{currentAudio.title}</h4>
-                <p className="text-xs text-augustus-500 mt-0.5 truncate">
-                  {formatTime(currentTime)} / {formatTime(duration)}
-                </p>
-              </div>
             )}
+            
+            {/* Minimize/Expand button */}
+            <button
+              onClick={() => setIsMinimized(false)}
+              className="btn-icon btn btn-ghost p-1.5 sm:p-2 min-h-[44px] min-w-[44px] sm:min-h-[36px] sm:min-w-[36px] touch-target"
+              title="Expand player"
+              aria-label="Expand player"
+            >
+              <Maximize2 className="w-4 h-4 sm:w-5 sm:h-5" />
+            </button>
+            
+            {/* Close button */}
+            <button
+              onClick={handleClose}
+              className="btn-icon btn btn-ghost p-1.5 sm:p-2 min-h-[44px] min-w-[44px] sm:min-h-[36px] sm:min-w-[36px] touch-target"
+              title="Close player"
+              aria-label="Close player"
+            >
+              <X className="w-4 h-4 sm:w-5 sm:h-5" />
+            </button>
           </div>
           
-          {/* Minimize/Expand button */}
-          <button
-            onClick={() => setIsMinimized(false)}
-            className="btn-icon btn btn-ghost p-1.5 sm:p-2 min-h-[44px] min-w-[44px] sm:min-h-[36px] sm:min-w-[36px] touch-target"
-            title="Expand player"
-            aria-label="Expand player"
+          {/* Progress bar with timing - seekable */}
+          <div 
+            ref={progressRef}
+            className="relative h-6 sm:h-8 flex items-center cursor-pointer touch-none -mx-1 px-1"
+            onClick={handleProgressTouch}
+            onTouchStart={(e) => {
+              setIsDragging(true)
+              handleProgressTouch(e)
+            }}
+            onTouchMove={(e) => {
+              if (isDragging) handleProgressTouch(e)
+            }}
+            onTouchEnd={() => setIsDragging(false)}
           >
-            <Maximize2 className="w-4 h-4 sm:w-5 sm:h-5" />
-          </button>
-          
-          {/* Close button */}
-          <button
-            onClick={handleClose}
-            className="btn-icon btn btn-ghost p-1.5 sm:p-2 min-h-[44px] min-w-[44px] sm:min-h-[36px] sm:min-w-[36px] touch-target"
-            title="Close player"
-            aria-label="Close player"
-          >
-            <X className="w-4 h-4 sm:w-5 sm:h-5" />
-          </button>
+            {/* Background track */}
+            <div className="absolute inset-x-0 h-2 bg-augustus-800 rounded-full">
+              {/* Chapter segments - show different colors for each chapter */}
+              {currentAudio.chapters && currentAudio.chapters.length > 0 && duration && (
+                <>
+                  {currentAudio.chapters.map((chapter, index) => {
+                    const startPercent = (chapter.start_time / duration) * 100
+                    const endPercent = chapter.end_time 
+                      ? (chapter.end_time / duration) * 100 
+                      : 100
+                    const width = endPercent - startPercent
+                    const isActive = activeChapterIndex === index
+                    
+                    return (
+                      <div
+                        key={index}
+                        className={clsx(
+                          'absolute top-0 h-full rounded-full transition-all',
+                          isActive 
+                            ? 'bg-accent/60' 
+                            : 'bg-augustus-700/50'
+                        )}
+                        style={{
+                          left: `${startPercent}%`,
+                          width: `${width}%`,
+                        }}
+                      />
+                    )
+                  })}
+                </>
+              )}
+              
+              {/* Progress fill */}
+              <div 
+                className="h-full bg-accent rounded-full transition-all duration-100 relative z-10"
+                style={{ width: `${progress}%` }}
+              />
+              
+              {/* Chapter markers */}
+              {currentAudio.chapters && currentAudio.chapters.length > 0 && duration && (
+                <>
+                  {currentAudio.chapters.map((chapter, index) => {
+                    const position = (chapter.start_time / duration) * 100
+                    const isActive = activeChapterIndex === index
+                    const isHovered = hoveredChapterIndex === index
+                    
+                    return (
+                      <div
+                        key={index}
+                        className={clsx(
+                          'absolute top-1/2 -translate-y-1/2 -translate-x-1/2 z-20',
+                          'transition-all duration-200'
+                        )}
+                        style={{ left: `${position}%` }}
+                        onMouseEnter={() => setHoveredChapterIndex(index)}
+                        onMouseLeave={() => setHoveredChapterIndex(null)}
+                        onClick={(e) => handleChapterClick(index, e)}
+                      >
+                        {/* Chapter marker line */}
+                        <div
+                          className={clsx(
+                            'w-0.5 h-3 sm:h-4 transition-all',
+                            isActive 
+                              ? 'bg-accent shadow-lg shadow-accent/50' 
+                              : isHovered
+                              ? 'bg-augustus-300'
+                              : 'bg-augustus-600'
+                          )}
+                        />
+                        
+                        {/* Chapter tooltip on hover */}
+                        {isHovered && (
+                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-augustus-900 border border-augustus-700 rounded text-xs text-white whitespace-nowrap shadow-lg z-30">
+                            <div className="font-medium">{chapter.title}</div>
+                            <div className="text-augustus-400 text-[10px] mt-0.5">
+                              {formatTime(chapter.start_time)}
+                            </div>
+                            {/* Tooltip arrow */}
+                            <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-px">
+                              <div className="w-2 h-2 bg-augustus-900 border-r border-b border-augustus-700 rotate-45"></div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </>
+              )}
+              
+              {/* Thumb indicator */}
+              <div 
+                className={clsx(
+                  'absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-4 h-4 sm:w-3 sm:h-3 bg-white rounded-full shadow-lg transition-transform touch-none z-30',
+                  isDragging && 'scale-125'
+                )}
+                style={{ left: `${progress}%` }}
+              />
+            </div>
+          </div>
         </div>
       </div>
     )
@@ -513,6 +665,28 @@ export default function AudioPlayer() {
               <SkipForward className="w-4 h-4 sm:w-5 sm:h-5" />
             </button>
           </div>
+          
+          {/* Favorite button - only show for briefings */}
+          {currentAudio.type === 'briefing' && currentAudio.id && briefing && (
+            <button
+              onClick={() => favoriteMutation.mutate({ id: currentAudio.id, favorite: !briefing.favorite })}
+              disabled={favoriteMutation.isPending}
+              className={clsx(
+                'btn-icon btn btn-ghost p-1.5 sm:p-2 min-h-[44px] min-w-[44px] sm:min-h-[36px] sm:min-w-[36px] touch-target transition-colors',
+                briefing.favorite
+                  ? 'text-red-500 hover:text-red-400'
+                  : 'text-augustus-400 hover:text-white'
+              )}
+              title={briefing.favorite ? 'Remove from favorites' : 'Add to favorites'}
+              aria-label={briefing.favorite ? 'Remove from favorites' : 'Add to favorites'}
+            >
+              {favoriteMutation.isPending ? (
+                <Loader2 className="w-4 h-4 sm:w-5 sm:h-5 animate-spin" />
+              ) : (
+                <Heart className={clsx('w-4 h-4 sm:w-5 sm:h-5', briefing.favorite && 'fill-current')} />
+              )}
+            </button>
+          )}
           
           {/* Minimize button */}
           <button
