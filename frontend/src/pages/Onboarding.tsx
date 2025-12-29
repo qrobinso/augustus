@@ -80,12 +80,14 @@ function WelcomeStep({
   onUpdate,
   onNext,
   onSkip,
+  isLoading = false,
 }: {
   userName: string
   timezone: string
   onUpdate: (updates: { userName?: string; timezone?: string }) => void
   onNext: () => void
   onSkip: () => void
+  isLoading?: boolean
 }) {
   // Fetch available timezones
   const { data: timezones } = useQuery({
@@ -167,10 +169,19 @@ function WelcomeStep({
 
       <button
         onClick={onNext}
-        disabled={!userName.trim()}
+        disabled={!userName.trim() || isLoading}
         className="btn btn-primary w-full text-lg py-4"
       >
-        Get Started <ChevronRight className="w-5 h-5" />
+        {isLoading ? (
+          <>
+            <Loader2 className="w-5 h-5 animate-spin" />
+            Saving...
+          </>
+        ) : (
+          <>
+            Get Started <ChevronRight className="w-5 h-5" />
+          </>
+        )}
       </button>
     </div>
   )
@@ -640,10 +651,19 @@ function ApiKeyStep({
         </button>
         <button
           onClick={onNext}
-          disabled={!apiKey || keyValidation.valid !== true || !generalModel || !writerModel}
+          disabled={!apiKey || keyValidation.valid !== true || !generalModel || !writerModel || isLoading}
           className="btn btn-primary flex-1"
         >
-          Continue <ChevronRight className="w-5 h-5" />
+          {isLoading ? (
+            <>
+              <Loader2 className="w-5 h-5 animate-spin" />
+              Saving...
+            </>
+          ) : (
+            <>
+              Continue <ChevronRight className="w-5 h-5" />
+            </>
+          )}
         </button>
       </div>
     </div>
@@ -658,6 +678,7 @@ function TTSProviderStep({
   onUpdate,
   onNext,
   onBack,
+  isLoading = false,
 }: {
   provider: 'gemini' | 'elevenlabs' | 'piper'
   geminiKey: string
@@ -665,6 +686,7 @@ function TTSProviderStep({
   onUpdate: (updates: Partial<{ ttsProvider: 'gemini' | 'elevenlabs' | 'piper'; geminiApiKey: string; elevenlabsApiKey: string }>) => void
   onNext: () => void
   onBack: () => void
+  isLoading?: boolean
 }) {
   const [showGeminiKey, setShowGeminiKey] = useState(false)
   const [showElevenlabsKey, setShowElevenlabsKey] = useState(false)
@@ -962,10 +984,19 @@ function TTSProviderStep({
         </button>
         <button
           onClick={onNext}
-          disabled={!canContinue}
+          disabled={!canContinue || isLoading}
           className="btn btn-primary flex-1"
         >
-          Continue <ChevronRight className="w-5 h-5" />
+          {isLoading ? (
+            <>
+              <Loader2 className="w-5 h-5 animate-spin" />
+              Saving...
+            </>
+          ) : (
+            <>
+              Continue <ChevronRight className="w-5 h-5" />
+            </>
+          )}
         </button>
       </div>
     </div>
@@ -1409,6 +1440,7 @@ export default function Onboarding() {
   const queryClient = useQueryClient()
   const [currentStep, setCurrentStep] = useState(0)
   const [isGenerating, setIsGenerating] = useState(false)
+  const [isSavingStep, setIsSavingStep] = useState(false)
   // Detect browser timezone as default
   const browserTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone
 
@@ -1448,9 +1480,80 @@ export default function Onboarding() {
     }))
   }
 
-  const nextStep = () => {
-    if (currentStep < STEPS.length - 1) {
-      setCurrentStep(prev => prev + 1)
+  // Save settings incrementally after each step
+  const saveWelcomeSettings = useMutation({
+    mutationFn: async () => {
+      const updates: Record<string, string> = {}
+      if (data.userName) updates.user_name = data.userName
+      if (data.timezone) updates.timezone = data.timezone
+      if (Object.keys(updates).length > 0) {
+        return settingsApi.update(updates)
+      }
+    },
+  })
+
+  const saveApiKeySettings = useMutation({
+    mutationFn: async () => {
+      const updates: Record<string, string> = {}
+      if (data.openrouterApiKey) updates.openrouter_api_key = data.openrouterApiKey
+      if (data.generalModel) updates.openrouter_model = data.generalModel
+      if (data.writerModel) updates.openrouter_writer_model = data.writerModel
+      if (Object.keys(updates).length > 0) {
+        return settingsApi.update(updates)
+      }
+    },
+  })
+
+  const saveTTSSettings = useMutation({
+    mutationFn: async () => {
+      const updates: Record<string, string> = {}
+      if (data.ttsProvider) updates.tts_provider = data.ttsProvider
+      if (data.ttsProvider === 'gemini' && data.geminiApiKey) {
+        updates.gemini_api_key = data.geminiApiKey
+      } else if (data.ttsProvider === 'elevenlabs' && data.elevenlabsApiKey) {
+        updates.elevenlabs_api_key = data.elevenlabsApiKey
+      }
+      if (Object.keys(updates).length > 0) {
+        return settingsApi.update(updates)
+      }
+    },
+  })
+
+  const nextStep = async () => {
+    if (currentStep < STEPS.length - 1 && !isSavingStep) {
+      setIsSavingStep(true)
+      try {
+        // Save settings before moving to next step
+        const currentStepId = STEPS[currentStep].id
+        
+        if (currentStepId === 'welcome') {
+          // Save welcome settings (name and timezone)
+          if (data.userName || data.timezone) {
+            await saveWelcomeSettings.mutateAsync()
+          }
+        } else if (currentStepId === 'api-key') {
+          // Save API key settings (so they're available for topics step)
+          if (data.openrouterApiKey || data.generalModel || data.writerModel) {
+            await saveApiKeySettings.mutateAsync()
+            // Invalidate settings query to ensure fresh data
+            queryClient.invalidateQueries({ queryKey: ['settings'] })
+          }
+        } else if (currentStepId === 'tts') {
+          // Save TTS settings
+          if (data.ttsProvider) {
+            await saveTTSSettings.mutateAsync()
+            queryClient.invalidateQueries({ queryKey: ['settings'] })
+          }
+        }
+        
+        setCurrentStep(prev => prev + 1)
+      } catch (error) {
+        console.error('Failed to save settings:', error)
+        // Still allow progression even if save fails
+        setCurrentStep(prev => prev + 1)
+      } finally {
+        setIsSavingStep(false)
+      }
     }
   }
 
@@ -1604,6 +1707,7 @@ export default function Onboarding() {
             onUpdate={updateData}
             onNext={nextStep}
             onBack={prevStep}
+            isLoading={isSavingStep}
           />
         )
       case 'tts':
@@ -1615,6 +1719,7 @@ export default function Onboarding() {
             onUpdate={updateData}
             onNext={nextStep}
             onBack={prevStep}
+            isLoading={isSavingStep}
           />
         )
       case 'topics':
