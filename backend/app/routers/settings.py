@@ -55,6 +55,10 @@ class SettingsResponse(BaseModel):
     # Playback Settings
     auto_play_next: bool = True
     
+    # Onboarding State
+    onboarding_completed: bool = False
+    onboarding_skipped: bool = False
+    
     # Status
     openrouter_configured: bool = False
     elevenlabs_configured: bool = False
@@ -85,6 +89,8 @@ class SettingsUpdate(BaseModel):
     resend_from_email: Optional[str] = None
     user_name: Optional[str] = None
     auto_play_next: Optional[bool] = None
+    onboarding_completed: Optional[bool] = None
+    onboarding_skipped: Optional[bool] = None
 
 
 class ValidateApiKeyRequest(BaseModel):
@@ -211,6 +217,8 @@ def get_current_settings() -> dict:
         "resend_from_email": os.environ.get("RESEND_FROM_EMAIL") or env_vars.get("RESEND_FROM_EMAIL"),
         "user_name": os.environ.get("USER_NAME") or env_vars.get("USER_NAME"),
         "auto_play_next": (os.environ.get("AUTO_PLAY_NEXT") or env_vars.get("AUTO_PLAY_NEXT", "true")).lower() == "true",
+        "onboarding_completed": (os.environ.get("ONBOARDING_COMPLETED") or env_vars.get("ONBOARDING_COMPLETED", "false")).lower() == "true",
+        "onboarding_skipped": (os.environ.get("ONBOARDING_SKIPPED") or env_vars.get("ONBOARDING_SKIPPED", "false")).lower() == "true",
     }
     
     return settings
@@ -242,6 +250,8 @@ async def get_settings_endpoint():
         resend_from_email=settings["resend_from_email"],
         user_name=settings["user_name"],
         auto_play_next=settings["auto_play_next"],
+        onboarding_completed=settings["onboarding_completed"],
+        onboarding_skipped=settings["onboarding_skipped"],
         openrouter_configured=bool(settings["openrouter_api_key"]),
         elevenlabs_configured=bool(settings["elevenlabs_api_key"]),
         news_api_configured=bool(settings["news_api_key"]),
@@ -339,6 +349,14 @@ async def update_settings(updates: SettingsUpdate):
         if updates.auto_play_next is not None:
             env_updates["AUTO_PLAY_NEXT"] = str(updates.auto_play_next).lower()
             os.environ["AUTO_PLAY_NEXT"] = str(updates.auto_play_next).lower()
+        
+        if updates.onboarding_completed is not None:
+            env_updates["ONBOARDING_COMPLETED"] = str(updates.onboarding_completed).lower()
+            os.environ["ONBOARDING_COMPLETED"] = str(updates.onboarding_completed).lower()
+        
+        if updates.onboarding_skipped is not None:
+            env_updates["ONBOARDING_SKIPPED"] = str(updates.onboarding_skipped).lower()
+            os.environ["ONBOARDING_SKIPPED"] = str(updates.onboarding_skipped).lower()
         
         # Write to .env file
         if env_updates:

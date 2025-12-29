@@ -1566,15 +1566,23 @@ export default function Onboarding() {
     firstBriefingTopics: [],
   })
 
+  // Fetch settings to check onboarding state
+  const { data: settings } = useQuery({
+    queryKey: ['settings'],
+    queryFn: () => settingsApi.get(),
+  })
+
   // Check if already onboarded (but allow manual access to onboarding)
   useEffect(() => {
-    const hasOnboarded = localStorage.getItem('augustus_onboarded')
-    const wasSkipped = localStorage.getItem('augustus_onboarding_skipped')
-    // Only auto-redirect if completed, not if skipped
-    if (hasOnboarded === 'true' && !wasSkipped) {
-      navigate('/dashboard', { replace: true })
+    if (settings) {
+      const hasOnboarded = settings.onboarding_completed
+      const wasSkipped = settings.onboarding_skipped
+      // Only auto-redirect if completed, not if skipped
+      if (hasOnboarded && !wasSkipped) {
+        navigate('/dashboard', { replace: true })
+      }
     }
-  }, [navigate])
+  }, [navigate, settings])
 
   const updateData = (updates: Partial<OnboardingData>) => {
     setData(prev => ({ ...prev, ...updates }))
@@ -1718,25 +1726,37 @@ export default function Onboarding() {
   })
 
   // Handle skip onboarding
-  const handleSkip = () => {
-    // Mark onboarding as skipped
-    localStorage.setItem('augustus_onboarding_skipped', 'true')
+  const handleSkip = async () => {
+    // Mark onboarding as skipped in settings
+    try {
+      await settingsApi.update({
+        onboarding_skipped: true,
+        onboarding_completed: false,
+      })
+      queryClient.invalidateQueries({ queryKey: ['settings'] })
+    } catch (error) {
+      console.error('Failed to save onboarding skipped state:', error)
+    }
     // Navigate to dashboard
     navigate('/dashboard')
   }
 
   // Handle skip from generation step
   const handleSkipGeneration = async () => {
-    // Save resend API key if provided
-    if (data.resendApiKey) {
-      try {
-        await settingsApi.update({ resend_api_key: data.resendApiKey })
-      } catch (error) {
-        console.error('Failed to save Resend API key:', error)
-      }
+    // Save resend API key and mark onboarding as completed
+    const updates: Record<string, string | boolean> = {
+      onboarding_completed: true,
+      onboarding_skipped: false,
     }
-    // Mark onboarding as completed
-    localStorage.setItem('augustus_onboarded', 'true')
+    if (data.resendApiKey) {
+      updates.resend_api_key = data.resendApiKey
+    }
+    try {
+      await settingsApi.update(updates)
+      queryClient.invalidateQueries({ queryKey: ['settings'] })
+    } catch (error) {
+      console.error('Failed to save onboarding state:', error)
+    }
     // Navigate to dashboard
     navigate('/dashboard')
   }
@@ -1784,14 +1804,16 @@ export default function Onboarding() {
         await generateMutation.mutateAsync(topicIdsToUse)
       }
       
+      // Mark onboarding complete in settings
+      await settingsApi.update({
+        onboarding_completed: true,
+        onboarding_skipped: false,
+      })
+      
       // Invalidate queries to refresh data
       queryClient.invalidateQueries({ queryKey: ['settings'] })
       queryClient.invalidateQueries({ queryKey: ['topics'] })
       queryClient.invalidateQueries({ queryKey: ['briefings'] })
-      
-      // Mark onboarding complete and clear skip flag
-      localStorage.setItem('augustus_onboarded', 'true')
-      localStorage.removeItem('augustus_onboarding_skipped')
       
       // Wait a moment for effect
       await new Promise(resolve => setTimeout(resolve, 3000))
@@ -1805,8 +1827,15 @@ export default function Onboarding() {
     } catch (error) {
       console.error('Onboarding failed:', error)
       // Still mark as onboarded so they can fix in settings
-      localStorage.setItem('augustus_onboarded', 'true')
-      localStorage.removeItem('augustus_onboarding_skipped')
+      try {
+        await settingsApi.update({
+          onboarding_completed: true,
+          onboarding_skipped: false,
+        })
+        queryClient.invalidateQueries({ queryKey: ['settings'] })
+      } catch (updateError) {
+        console.error('Failed to save onboarding state:', updateError)
+      }
       navigate('/dashboard')
     }
   }
