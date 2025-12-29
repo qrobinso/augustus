@@ -21,7 +21,7 @@ import {
   Mail,
   Sparkles,
   MoreVertical,
-  RotateCcw
+  RotateCw
 } from 'lucide-react'
 import clsx from 'clsx'
 import { settingsApi, ModelOption } from '../api/client'
@@ -92,8 +92,7 @@ export default function Settings() {
   const [showWriterModelDropdown, setShowWriterModelDropdown] = useState(false)
   const writerModelButtonRef = useRef<HTMLButtonElement>(null)
   const [writerDropdownPosition, setWriterDropdownPosition] = useState({ top: 0, left: 0, width: 0 })
-  const [showMenu, setShowMenu] = useState(false)
-  const [isMobile, setIsMobile] = useState(false)
+  const [showMobileMenu, setShowMobileMenu] = useState(false)
   
   // Fetch current settings
   const { data: settings, isLoading, error } = useQuery({
@@ -190,28 +189,21 @@ export default function Settings() {
     },
   })
 
-  // Reset server mutation
-  const resetServerMutation = useMutation({
-    mutationFn: settingsApi.resetServer,
+  const restartMutation = useMutation({
+    mutationFn: () => settingsApi.restartServer(),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['settings'] })
-      setShowMenu(false)
-      alert('Server reset successfully! Caches have been cleared.')
+      setShowMobileMenu(false)
+      // Show a message that the server is restarting
+      alert('Server restart initiated. The page will refresh in a few seconds.')
+      // Reload the page after a short delay
+      setTimeout(() => {
+        window.location.reload()
+      }, 2000)
     },
     onError: (error: any) => {
-      alert(`Failed to reset server: ${error?.response?.data?.detail || error.message}`)
+      alert(`Failed to restart server: ${error?.response?.data?.detail || error.message}`)
     },
   })
-
-  // Detect mobile
-  useEffect(() => {
-    const checkMobile = () => {
-      setIsMobile(window.innerWidth < 640) // sm breakpoint
-    }
-    checkMobile()
-    window.addEventListener('resize', checkMobile)
-    return () => window.removeEventListener('resize', checkMobile)
-  }, [])
   
   // Initialize form with current settings
   useEffect(() => {
@@ -341,75 +333,87 @@ export default function Settings() {
             </p>
           </div>
           
-          {/* Reset Server Button - Desktop */}
-          {!isMobile && (
+          {/* Desktop: Reset Server Button */}
+          <div className="hidden sm:block">
             <button
               onClick={() => {
-                if (confirm('Are you sure you want to reset the server? This will clear all caches and reset internal state.')) {
-                  resetServerMutation.mutate()
+                if (confirm('Are you sure you want to restart the server? This will reload the configuration without deleting any data.')) {
+                  restartMutation.mutate()
                 }
               }}
-              disabled={resetServerMutation.isPending}
-              className="btn btn-ghost text-augustus-400 hover:text-white flex items-center gap-2 px-3 sm:px-4"
+              disabled={restartMutation.isPending}
+              className="btn btn-secondary flex items-center gap-2"
             >
-              {resetServerMutation.isPending ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <RotateCcw className="w-4 h-4" />
-              )}
-              <span className="hidden sm:inline">Reset Server</span>
-            </button>
-          )}
-          
-          {/* Mobile Menu Button */}
-          {isMobile && (
-            <div className={clsx('relative', showMenu && 'z-[102]')}>
-              <button
-                onClick={() => setShowMenu(!showMenu)}
-                className="btn btn-ghost p-2 text-augustus-400 hover:text-white"
-              >
-                <MoreVertical className="w-5 h-5" />
-              </button>
-              
-              {/* Dropdown menu */}
-              {showMenu && (
+              {restartMutation.isPending ? (
                 <>
-                  <div 
-                    className="fixed inset-0 z-[100]" 
-                    onClick={() => setShowMenu(false)}
-                  />
-                  <div className="absolute right-0 top-full mt-2 w-56 bg-augustus-900 border border-augustus-700 rounded-lg shadow-xl z-[101] overflow-hidden">
-                    <div className="py-1">
-                      <button
-                        onClick={() => {
-                          setShowMenu(false)
-                          if (confirm('Are you sure you want to reset the server? This will clear all caches and reset internal state.')) {
-                            resetServerMutation.mutate()
-                          }
-                        }}
-                        disabled={resetServerMutation.isPending}
-                        className="w-full px-4 py-3 text-left hover:bg-augustus-800 active:bg-augustus-700 transition-colors flex items-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {resetServerMutation.isPending ? (
-                          <Loader2 className="w-5 h-5 text-augustus-400 animate-spin" />
-                        ) : (
-                          <RotateCcw className="w-5 h-5 text-augustus-400" />
-                        )}
-                        <div>
-                          <span className="text-white font-medium block text-sm">
-                            Reset Server
-                          </span>
-                          <span className="text-augustus-500 text-xs">
-                            Clear caches and reset state
-                          </span>
-                        </div>
-                      </button>
-                    </div>
-                  </div>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Restarting...
+                </>
+              ) : (
+                <>
+                  <RotateCw className="w-4 h-4" />
+                  Reset Server
                 </>
               )}
-            </div>
-          )}
+            </button>
+          </div>
+          
+          {/* Mobile: Three Dots Menu */}
+          <div className="sm:hidden relative">
+            <button
+              onClick={() => setShowMobileMenu(!showMobileMenu)}
+              className="p-2 text-augustus-400 hover:text-white transition-colors"
+            >
+              <MoreVertical className="w-5 h-5" />
+            </button>
+            
+            {/* Mobile Menu Dropdown */}
+            {showMobileMenu && (
+              <>
+                <div 
+                  className="fixed inset-0 z-[100]" 
+                  onClick={() => setShowMobileMenu(false)}
+                />
+                <div className="absolute right-0 top-full mt-2 w-56 bg-augustus-900 border border-augustus-700 rounded-lg shadow-xl z-[101] overflow-hidden">
+                  <div className="py-1">
+                    <button
+                      onClick={() => {
+                        setShowMobileMenu(false)
+                        if (confirm('Are you sure you want to restart the server? This will reload the configuration without deleting any data.')) {
+                          restartMutation.mutate()
+                        }
+                      }}
+                      disabled={restartMutation.isPending}
+                      className="w-full px-4 py-3 text-left hover:bg-augustus-800 active:bg-augustus-700 transition-colors flex items-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {restartMutation.isPending ? (
+                        <>
+                          <Loader2 className="w-5 h-5 text-augustus-400 animate-spin" />
+                          <div>
+                            <span className="text-white font-medium block text-sm">
+                              Restarting...
+                            </span>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <RotateCw className="w-5 h-5 text-augustus-400" />
+                          <div>
+                            <span className="text-white font-medium block text-sm">
+                              Reset Server
+                            </span>
+                            <span className="text-augustus-500 text-xs">
+                              Soft restart (no data loss)
+                            </span>
+                          </div>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
       

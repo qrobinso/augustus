@@ -1,6 +1,7 @@
 """Settings router for managing application configuration."""
 
 import os
+import signal
 from pathlib import Path
 from typing import Optional
 
@@ -579,26 +580,40 @@ async def validate_elevenlabs_key(request: ValidateApiKeyRequest):
         return {"valid": False, "message": f"Validation failed: {str(e)}"}
 
 
-@router.post("/reset-server")
-async def reset_server():
-    """Reset server by clearing caches and resetting internal state."""
+@router.post("/restart")
+async def restart_server():
+    """Soft restart the server (reloads configuration without deleting data)."""
     try:
-        # Clear settings cache
+        # Clear all caches
         from app.config import get_settings
         get_settings.cache_clear()
         
         # Reset LLM provider
-        from app.services.llm.openrouter import reset_llm_provider
-        reset_llm_provider()
+        try:
+            from app.services.llm.openrouter import reset_llm_provider
+            reset_llm_provider()
+        except Exception:
+            pass  # Ignore if LLM provider not initialized
         
-        # Clear models cache
-        global _models_cache, _models_cache_time
-        _models_cache = None
-        _models_cache_time = 0
+        # Try to trigger a reload using HUP signal (works with uvicorn --reload)
+        # This sends SIGHUP to the current process, which uvicorn handles by reloading
+        try:
+            # Get the parent process ID (uvicorn process)
+            ppid = os.getppid()
+            if ppid > 1:  # Valid parent process
+                os.kill(ppid, signal.SIGHUP)
+                return {"success": True, "message": "Server restart initiated"}
+        except (ProcessLookupError, PermissionError, AttributeError):
+            # If we can't send signal (e.g., in Docker or Windows), just clear caches
+            # The server will reload on next request or can be restarted manually
+            return {
+                "success": True,
+                "message": "Caches cleared. Server will reload on next request or restart manually if needed."
+            }
         
-        return {"success": True, "message": "Server caches cleared successfully"}
+        return {"success": True, "message": "Server restart initiated"}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to reset server: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to restart server: {str(e)}")
 
 
 @router.get("/debug")

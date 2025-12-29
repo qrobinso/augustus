@@ -497,8 +497,8 @@ export const settingsApi = {
     return data
   },
   
-  resetServer: async () => {
-    const { data } = await api.post<{ success: boolean; message: string }>('/api/settings/reset-server')
+  restartServer: async () => {
+    const { data } = await api.post<{ success: boolean; message: string }>('/api/settings/restart')
     return data
   },
 }
