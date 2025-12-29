@@ -214,7 +214,7 @@ async def restore_default_cast(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Restore the default cast to its original values (Alex and Sam with Kore/Puck voices)."""
+    """Restore the default cast to its original values (Augustus Daily with Zephyr/Sadachbia voices)."""
     service = CastService(db)
     cast = await service.restore_default_cast(user.id)
     return CastResponse.model_validate(cast)

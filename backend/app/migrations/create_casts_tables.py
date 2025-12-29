@@ -140,8 +140,8 @@ async def migrate():
         user_ids = [row[0] for row in result.fetchall()]
         
         # Use Gemini voices as defaults
-        voice_host1 = "Kore"
-        voice_host2 = "Puck"
+        voice_host1 = "Zephyr"
+        voice_host2 = "Sadachbia"
         
         for user_id in user_ids:
             # Check if user already has a default cast
@@ -166,7 +166,7 @@ async def migrate():
                 """), {
                     "id": cast_id,
                     "user_id": user_id,
-                    "name": "Alex and Sam",
+                    "name": "Augustus Daily",
                     "is_default": 1,
                     "created_at": now,
                     "updated_at": now,
@@ -208,6 +208,7 @@ async def migrate():
 
 if __name__ == "__main__":
     asyncio.run(migrate())
+
 
 
 

@@ -131,11 +131,11 @@ class CastService:
             return default_cast
         
         # Create default cast with standard voices
-        # Gemini voices: Kore (female) and Puck (male) - these are good defaults
+        # Gemini voices: Zephyr and Sadachbia - these are good defaults
         cast = Cast(
             id=str(uuid.uuid4()),
             user_id=user_id,
-            name="Alex and Sam",
+            name="Augustus Daily",
             is_default=True,
         )
         self.db.add(cast)
@@ -146,7 +146,7 @@ class CastService:
             id=str(uuid.uuid4()),
             cast_id=cast.id,
             name="Alex",
-            voice_id="Kore",  # Gemini voice
+            voice_id="Zephyr",  # Gemini voice
             personality="Casual",
             order=0,
         )
@@ -154,7 +154,7 @@ class CastService:
             id=str(uuid.uuid4()),
             cast_id=cast.id,
             name="Sam",
-            voice_id="Puck",  # Gemini voice
+            voice_id="Sadachbia",  # Gemini voice
             personality="Analytical",
             order=1,
         )
@@ -311,7 +311,7 @@ class CastService:
             return await self.get_default_cast(user_id)
         
         # Update cast name
-        default_cast.name = "Alex and Sam"
+        default_cast.name = "Augustus Daily"
         
         # Delete existing members
         for member in default_cast.members:
@@ -322,7 +322,7 @@ class CastService:
             id=str(uuid.uuid4()),
             cast_id=default_cast.id,
             name="Alex",
-            voice_id="Kore",  # Gemini voice
+            voice_id="Zephyr",  # Gemini voice
             personality="Casual",
             order=0,
         )
@@ -330,7 +330,7 @@ class CastService:
             id=str(uuid.uuid4()),
             cast_id=default_cast.id,
             name="Sam",
-            voice_id="Puck",  # Gemini voice
+            voice_id="Sadachbia",  # Gemini voice
             personality="Analytical",
             order=1,
         )
