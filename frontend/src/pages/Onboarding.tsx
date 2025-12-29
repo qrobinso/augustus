@@ -1635,25 +1635,6 @@ export default function Onboarding() {
     }
   }
 
-  // Save settings mutation
-  const saveSettingsMutation = useMutation({
-    mutationFn: async () => {
-      const updates: Record<string, string | boolean> = {
-        user_name: data.userName,
-        timezone: data.timezone,
-        openrouter_api_key: data.openrouterApiKey,
-        openrouter_model: data.generalModel,
-        openrouter_writer_model: data.writerModel,
-        tts_provider: data.ttsProvider,
-      }
-      if (data.ttsProvider === 'gemini' && data.geminiApiKey) {
-        updates.gemini_api_key = data.geminiApiKey
-      } else if (data.ttsProvider === 'elevenlabs' && data.elevenlabsApiKey) {
-        updates.elevenlabs_api_key = data.elevenlabsApiKey
-      }
-      return settingsApi.update(updates)
-    },
-  })
 
   // Create topics mutation
   const createTopicsMutation = useMutation({
