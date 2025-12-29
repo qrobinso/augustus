@@ -50,6 +50,7 @@ export default function BriefingDetail() {
   const [hasAutoPlayed, setHasAutoPlayed] = useState(false)
   const [notesExpanded, setNotesExpanded] = useState(false)
   const [nerdStatsExpanded, setNerdStatsExpanded] = useState(false)
+  const [audioFileSize, setAudioFileSize] = useState<number | null>(null)
   
   const { data: briefing, isLoading, error } = useQuery({
     queryKey: ['briefing', id],
@@ -129,6 +130,33 @@ export default function BriefingDetail() {
       console.log('[BriefingDetail] Briefing extra_data:', briefing.extra_data)
     }
   }, [briefing, chapters])
+
+  // Fetch audio file size
+  useEffect(() => {
+    if (briefing?.audio_url) {
+      const fetchFileSize = async () => {
+        try {
+          const response = await fetch(briefing.audio_url!, { method: 'HEAD' })
+          const contentLength = response.headers.get('content-length')
+          if (contentLength) {
+            setAudioFileSize(parseInt(contentLength, 10))
+          }
+        } catch (error) {
+          console.error('Failed to fetch audio file size:', error)
+        }
+      }
+      fetchFileSize()
+    } else {
+      setAudioFileSize(null)
+    }
+  }, [briefing?.audio_url])
+
+  // Format file size helper
+  const formatFileSize = (bytes: number): string => {
+    if (bytes < 1024) return `${bytes} B`
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`
+  }
   
   // Get cast member names mapping from extra_data (HOST1 -> name, HOST2 -> name, etc.)
   const castMemberNamesFromExtraData = briefing?.extra_data?.cast_member_names as Record<string, string> | undefined
@@ -1011,6 +1039,14 @@ export default function BriefingDetail() {
                             <span className="text-augustus-400">Duration:</span>
                             <span className="text-white font-mono">
                               {formatDuration(briefing.duration_seconds)}
+                            </span>
+                          </div>
+                        )}
+                        {audioFileSize !== null && (
+                          <div className="flex justify-between">
+                            <span className="text-augustus-400">File Size:</span>
+                            <span className="text-white font-mono">
+                              {formatFileSize(audioFileSize)}
                             </span>
                           </div>
                         )}
