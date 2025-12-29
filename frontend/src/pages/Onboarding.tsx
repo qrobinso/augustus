@@ -24,6 +24,7 @@ import {
   ChevronDown,
   CheckCircle,
   XCircle,
+  Globe,
 } from 'lucide-react'
 import { settingsApi, topicsApi, briefingsApi, ModelOption } from '../api/client'
 
@@ -60,6 +61,7 @@ interface TopicSelection {
 
 interface OnboardingData {
   userName: string
+  timezone: string
   openrouterApiKey: string
   generalModel: string
   writerModel: string
@@ -74,15 +76,23 @@ interface OnboardingData {
 // ============ Welcome Step ============
 function WelcomeStep({
   userName,
+  timezone,
   onUpdate,
   onNext,
   onSkip,
 }: {
   userName: string
-  onUpdate: (name: string) => void
+  timezone: string
+  onUpdate: (updates: { userName?: string; timezone?: string }) => void
   onNext: () => void
   onSkip: () => void
 }) {
+  // Fetch available timezones
+  const { data: timezones } = useQuery({
+    queryKey: ['timezones'],
+    queryFn: () => settingsApi.getTimezones(),
+  })
+
   return (
     <div className="w-full max-w-lg space-y-8 text-center">
       {/* Skip link at top */}
@@ -108,19 +118,51 @@ function WelcomeStep({
       </div>
 
       <div className="space-y-4 text-left">
-        <label className="label text-base">What should we call you?</label>
-        <input
-          type="text"
-          value={userName}
-          onChange={(e) => onUpdate(e.target.value)}
-          placeholder="Enter your name"
-          className="input text-lg"
-          autoFocus
-          onKeyDown={(e) => e.key === 'Enter' && userName.trim() && onNext()}
-        />
-        <p className="text-sm text-augustus-500">
-          Your hosts will greet you by name in each podcast
-        </p>
+        <div>
+          <label className="label text-base">What should we call you?</label>
+          <input
+            type="text"
+            value={userName}
+            onChange={(e) => onUpdate({ userName: e.target.value })}
+            placeholder="Enter your name"
+            className="input text-lg"
+            autoFocus
+            onKeyDown={(e) => e.key === 'Enter' && userName.trim() && onNext()}
+          />
+          <p className="text-sm text-augustus-500">
+            Your hosts will greet you by name in each podcast
+          </p>
+        </div>
+
+        <div>
+          <label className="label text-base flex items-center gap-2">
+            <Globe className="w-4 h-4 text-augustus-400" />
+            Your Timezone
+          </label>
+          <select
+            value={timezone}
+            onChange={(e) => onUpdate({ timezone: e.target.value })}
+            className="input text-lg"
+          >
+            {timezones && Object.entries(timezones).map(([region, tzList]) => (
+              <optgroup key={region} label={region}>
+                {tzList.map((tz) => (
+                  <option key={tz.id} value={tz.id}>
+                    {tz.name} ({tz.offset})
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+            {!timezones && (
+              <option value={timezone || 'UTC'}>
+                {timezone || 'UTC (Coordinated Universal Time)'}
+              </option>
+            )}
+          </select>
+          <p className="text-sm text-augustus-500">
+            Used for scheduling and displaying times in your local timezone
+          </p>
+        </div>
       </div>
 
       <button
@@ -1367,8 +1409,12 @@ export default function Onboarding() {
   const queryClient = useQueryClient()
   const [currentStep, setCurrentStep] = useState(0)
   const [isGenerating, setIsGenerating] = useState(false)
+  // Detect browser timezone as default
+  const browserTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone
+
   const [data, setData] = useState<OnboardingData>({
     userName: '',
+    timezone: browserTimezone,
     openrouterApiKey: '',
     generalModel: '',
     writerModel: '',
@@ -1394,6 +1440,14 @@ export default function Onboarding() {
     setData(prev => ({ ...prev, ...updates }))
   }
 
+  const updateWelcomeData = (updates: { userName?: string; timezone?: string }) => {
+    setData(prev => ({
+      ...prev,
+      ...(updates.userName !== undefined && { userName: updates.userName }),
+      ...(updates.timezone !== undefined && { timezone: updates.timezone }),
+    }))
+  }
+
   const nextStep = () => {
     if (currentStep < STEPS.length - 1) {
       setCurrentStep(prev => prev + 1)
@@ -1411,6 +1465,7 @@ export default function Onboarding() {
     mutationFn: async () => {
       const updates: Record<string, string | boolean> = {
         user_name: data.userName,
+        timezone: data.timezone,
         openrouter_api_key: data.openrouterApiKey,
         openrouter_model: data.generalModel,
         openrouter_writer_model: data.writerModel,
@@ -1534,7 +1589,8 @@ export default function Onboarding() {
         return (
           <WelcomeStep
             userName={data.userName}
-            onUpdate={(name) => updateData({ userName: name })}
+            timezone={data.timezone}
+            onUpdate={updateWelcomeData}
             onNext={nextStep}
             onSkip={handleSkip}
           />
