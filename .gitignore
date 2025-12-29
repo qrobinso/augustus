@@ -33,6 +33,7 @@ build/
 data/
 audio/
 models/
+!backend/app/models/
 uploads/
 media/
 cache/
