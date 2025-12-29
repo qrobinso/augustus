@@ -16,6 +16,7 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
+  Mail,
   Info,
   Play,
   Zap,
@@ -68,6 +69,7 @@ interface OnboardingData {
   ttsProvider: 'gemini' | 'elevenlabs' | 'piper'
   geminiApiKey: string
   elevenlabsApiKey: string
+  resendApiKey: string
   selectedTopics: TopicSelection[]
   customTopicPrompt: string
   firstBriefingTopics: string[]
@@ -1387,8 +1389,18 @@ function ConfirmationStep({
 }
 
 // ============ Generation Step ============
-function GenerationStep() {
+function GenerationStep({
+  resendApiKey,
+  onUpdate,
+  onSkip,
+}: {
+  resendApiKey: string
+  onUpdate: (resendApiKey: string) => void
+  onSkip: () => void
+}) {
   const [dots, setDots] = useState('')
+  const [showResendFields, setShowResendFields] = useState(false)
+  const [showKey, setShowKey] = useState(false)
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -1432,6 +1444,63 @@ function GenerationStep() {
           This usually takes 1-2 minutes. You'll be redirected to your dashboard shortly.
         </p>
       </div>
+
+      {/* Optional Resend Email API Key Section */}
+      <div className="space-y-4 text-left">
+        <div className="flex items-center justify-between">
+          <button
+            onClick={() => setShowResendFields(!showResendFields)}
+            className="text-sm text-augustus-400 hover:text-augustus-300 transition-colors flex items-center gap-2"
+          >
+            <Mail className="w-4 h-4" />
+            {showResendFields ? 'Hide' : 'Add'} Email Notifications (Optional)
+          </button>
+        </div>
+
+        {showResendFields && (
+          <div className="p-4 rounded-lg bg-augustus-900/50 border border-augustus-700 space-y-3">
+            <div>
+              <label className="label text-sm">Resend API Key</label>
+              <div className="relative">
+                <Key className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-augustus-500" />
+                <input
+                  type={showKey ? 'text' : 'password'}
+                  value={resendApiKey}
+                  onChange={(e) => onUpdate(e.target.value)}
+                  placeholder="re_..."
+                  className="input pl-10 pr-10 text-sm"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowKey(!showKey)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-augustus-500 hover:text-augustus-300 p-1"
+                >
+                  {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+              <p className="text-xs text-augustus-500 mt-1">
+                Optional: Add your Resend API key to enable email notifications for scheduled briefings.{' '}
+                <a 
+                  href="https://resend.com/api-keys" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="text-accent hover:underline inline-flex items-center gap-1"
+                >
+                  Get an API key <ExternalLink className="w-3 h-3" />
+                </a>
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Skip Button */}
+      <button
+        onClick={onSkip}
+        className="btn btn-ghost w-full text-augustus-400 hover:text-white"
+      >
+        Skip and go to Dashboard
+      </button>
     </div>
   )
 }
@@ -1455,6 +1524,7 @@ export default function Onboarding() {
     ttsProvider: 'gemini',
     geminiApiKey: '',
     elevenlabsApiKey: '',
+    resendApiKey: '',
     selectedTopics: [],
     customTopicPrompt: '',
     firstBriefingTopics: [],
@@ -1638,14 +1708,46 @@ export default function Onboarding() {
     navigate('/dashboard')
   }
 
+  // Handle skip from generation step
+  const handleSkipGeneration = async () => {
+    // Save resend API key if provided
+    if (data.resendApiKey) {
+      try {
+        await settingsApi.update({ resend_api_key: data.resendApiKey })
+      } catch (error) {
+        console.error('Failed to save Resend API key:', error)
+      }
+    }
+    // Mark onboarding as completed
+    localStorage.setItem('augustus_onboarded', 'true')
+    // Navigate to dashboard
+    navigate('/dashboard')
+  }
+
   // Handle final submission
   const handleComplete = async () => {
     setIsGenerating(true)
     setCurrentStep(STEPS.length - 1) // Go to generation step
 
     try {
-      // Save settings first
-      await saveSettingsMutation.mutateAsync()
+      // Save settings first (including resend API key if provided)
+      const updates: Record<string, string | boolean> = {
+        user_name: data.userName,
+        timezone: data.timezone,
+        openrouter_api_key: data.openrouterApiKey,
+        openrouter_model: data.generalModel,
+        openrouter_writer_model: data.writerModel,
+        tts_provider: data.ttsProvider,
+      }
+      if (data.ttsProvider === 'gemini' && data.geminiApiKey) {
+        updates.gemini_api_key = data.geminiApiKey
+      } else if (data.ttsProvider === 'elevenlabs' && data.elevenlabsApiKey) {
+        updates.elevenlabs_api_key = data.elevenlabsApiKey
+      }
+      if (data.resendApiKey) {
+        updates.resend_api_key = data.resendApiKey
+      }
+      await settingsApi.update(updates)
       
       // Create topics
       const createdTopics = await createTopicsMutation.mutateAsync()
@@ -1746,7 +1848,13 @@ export default function Onboarding() {
           />
         )
       case 'generate':
-        return <GenerationStep />
+        return (
+          <GenerationStep
+            resendApiKey={data.resendApiKey}
+            onUpdate={(key) => updateData({ resendApiKey: key })}
+            onSkip={handleSkipGeneration}
+          />
+        )
       default:
         return null
     }
