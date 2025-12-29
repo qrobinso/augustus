@@ -32,6 +32,43 @@ export interface Chapter {
   end_time?: number
 }
 
+export interface BriefingCostItem {
+  cost?: number
+  total_tokens?: number
+  characters?: number
+  duration_seconds?: number
+}
+
+export interface BriefingCosts {
+  story_analysis?: BriefingCostItem
+  facts_gathering?: BriefingCostItem
+  script_writing?: BriefingCostItem
+  tts_generation?: BriefingCostItem
+  total?: number
+}
+
+export interface BriefingUsage {
+  prompt_tokens?: number
+  completion_tokens?: number
+  total_tokens?: number
+}
+
+export interface BriefingExtraData {
+  segment_timings?: SegmentTiming[]
+  progress?: BriefingProgress | null
+  cast_member_names?: Record<string, string>
+  story_analysis_raw?: string
+  facts_analysis_raw?: string
+  model?: string
+  usage?: BriefingUsage
+  costs?: BriefingCosts
+  tts_voice?: string
+  stories_analyzed?: number
+  stories_selected?: number
+  topic_ids?: string[]
+  cast_name?: string
+}
+
 export interface Briefing {
   id: string
   user_id: string
@@ -41,11 +78,7 @@ export interface Briefing {
   audio_filename?: string
   duration_seconds?: number
   cast_id?: string
-  extra_data: Record<string, unknown> & {
-    segment_timings?: SegmentTiming[]
-    progress?: BriefingProgress | null
-    cast_member_names?: Record<string, string>
-  }
+  extra_data: BriefingExtraData
   sources: Array<{
     title: string
     url: string

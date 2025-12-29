@@ -15,12 +15,6 @@ import {
 import clsx from 'clsx'
 import { castsApi } from '../api/client'
 
-interface PersonalityFile {
-  filename: string
-  name: string
-  path: string
-}
-
 export default function ManagePersonalities() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()

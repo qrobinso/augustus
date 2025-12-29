@@ -17,13 +17,12 @@ import {
   Info,
   Search,
   ChevronDown,
-  Clock,
   Globe,
   Mail,
   Sparkles
 } from 'lucide-react'
 import clsx from 'clsx'
-import { settingsApi, AppSettings, ModelOption, TimezoneGroups } from '../api/client'
+import { settingsApi, ModelOption } from '../api/client'
 
 export default function Settings() {
   const navigate = useNavigate()
@@ -257,11 +256,11 @@ export default function Settings() {
     
     // Always send non-key settings if changed
     if (resendFromEmail !== (settings?.resend_from_email || '')) {
-      updates.resend_from_email = resendFromEmail || null
+      updates.resend_from_email = resendFromEmail || ''
     }
     if (openrouterModel !== settings?.openrouter_model) updates.openrouter_model = openrouterModel
     if (openrouterWriterModel !== (settings?.openrouter_writer_model || '')) {
-      updates.openrouter_writer_model = openrouterWriterModel || null
+      updates.openrouter_writer_model = openrouterWriterModel || ''
     }
     if (ttsProvider !== settings?.tts_provider) updates.tts_provider = ttsProvider
     if (piperUrl !== settings?.piper_url) updates.piper_url = piperUrl

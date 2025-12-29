@@ -5,7 +5,6 @@ import {
   Users,
   Loader2, 
   Plus,
-  X,
   Trash2,
   ArrowLeft
 } from 'lucide-react'

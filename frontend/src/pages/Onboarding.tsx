@@ -25,7 +25,7 @@ import {
   CheckCircle,
   XCircle,
 } from 'lucide-react'
-import { settingsApi, topicsApi, briefingsApi, ModelOption, TrendingTopic } from '../api/client'
+import { settingsApi, topicsApi, briefingsApi, ModelOption } from '../api/client'
 
 // Step definitions
 const STEPS = [
@@ -157,7 +157,7 @@ function ApiKeyStep({
   const [writerSearch, setWriterSearch] = useState('')
   const [keyValidation, setKeyValidation] = useState<{ valid: boolean | null; message: string }>({ valid: null, message: '' })
   const [isValidating, setIsValidating] = useState(false)
-  const validationTimeoutRef = useRef<NodeJS.Timeout>()
+  const validationTimeoutRef = useRef<ReturnType<typeof setTimeout>>()
 
   // Validate API key when it changes (debounced)
   useEffect(() => {
@@ -630,8 +630,8 @@ function TTSProviderStep({
   const [elevenlabsValidation, setElevenlabsValidation] = useState<{ valid: boolean | null; message: string }>({ valid: null, message: '' })
   const [isValidatingGemini, setIsValidatingGemini] = useState(false)
   const [isValidatingElevenlabs, setIsValidatingElevenlabs] = useState(false)
-  const geminiTimeoutRef = useRef<NodeJS.Timeout>()
-  const elevenlabsTimeoutRef = useRef<NodeJS.Timeout>()
+  const geminiTimeoutRef = useRef<ReturnType<typeof setTimeout>>()
+  const elevenlabsTimeoutRef = useRef<ReturnType<typeof setTimeout>>()
 
   // Validate Gemini key when it changes (debounced)
   useEffect(() => {
@@ -1312,7 +1312,7 @@ function ConfirmationStep({
 }
 
 // ============ Generation Step ============
-function GenerationStep({ userName }: { userName: string }) {
+function GenerationStep() {
   const [dots, setDots] = useState('')
 
   useEffect(() => {
@@ -1583,7 +1583,7 @@ export default function Onboarding() {
           />
         )
       case 'generate':
-        return <GenerationStep userName={data.userName} />
+        return <GenerationStep />
       default:
         return null
     }

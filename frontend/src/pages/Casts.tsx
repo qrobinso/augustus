@@ -185,7 +185,7 @@ export default function Casts() {
               </div>
               
               <div className="space-y-2">
-                {cast.members.map((member, idx) => (
+                {cast.members.map((member) => (
                   <div
                     key={member.id}
                     className="bg-augustus-900/50 rounded p-3 text-sm"
