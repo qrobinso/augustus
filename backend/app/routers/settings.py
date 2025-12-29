@@ -579,6 +579,28 @@ async def validate_elevenlabs_key(request: ValidateApiKeyRequest):
         return {"valid": False, "message": f"Validation failed: {str(e)}"}
 
 
+@router.post("/reset-server")
+async def reset_server():
+    """Reset server by clearing caches and resetting internal state."""
+    try:
+        # Clear settings cache
+        from app.config import get_settings
+        get_settings.cache_clear()
+        
+        # Reset LLM provider
+        from app.services.llm.openrouter import reset_llm_provider
+        reset_llm_provider()
+        
+        # Clear models cache
+        global _models_cache, _models_cache_time
+        _models_cache = None
+        _models_cache_time = 0
+        
+        return {"success": True, "message": "Server caches cleared successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to reset server: {str(e)}")
+
+
 @router.get("/debug")
 async def debug_settings():
     """Debug endpoint to see where .env file is and what's in it."""

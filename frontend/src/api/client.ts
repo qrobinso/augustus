@@ -496,6 +496,11 @@ export const settingsApi = {
     const { data } = await api.post<{ valid: boolean; message: string }>('/api/settings/validate/elevenlabs', { api_key: apiKey })
     return data
   },
+  
+  resetServer: async () => {
+    const { data } = await api.post<{ success: boolean; message: string }>('/api/settings/reset-server')
+    return data
+  },
 }
 
 export const scheduledBriefingsApi = {

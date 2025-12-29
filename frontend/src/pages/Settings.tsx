@@ -19,7 +19,9 @@ import {
   ChevronDown,
   Globe,
   Mail,
-  Sparkles
+  Sparkles,
+  MoreVertical,
+  RotateCcw
 } from 'lucide-react'
 import clsx from 'clsx'
 import { settingsApi, ModelOption } from '../api/client'
@@ -90,6 +92,8 @@ export default function Settings() {
   const [showWriterModelDropdown, setShowWriterModelDropdown] = useState(false)
   const writerModelButtonRef = useRef<HTMLButtonElement>(null)
   const [writerDropdownPosition, setWriterDropdownPosition] = useState({ top: 0, left: 0, width: 0 })
+  const [showMenu, setShowMenu] = useState(false)
+  const [isMobile, setIsMobile] = useState(false)
   
   // Fetch current settings
   const { data: settings, isLoading, error } = useQuery({
@@ -185,6 +189,29 @@ export default function Settings() {
       setTimeout(() => setSaved(false), 3000)
     },
   })
+
+  // Reset server mutation
+  const resetServerMutation = useMutation({
+    mutationFn: settingsApi.resetServer,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings'] })
+      setShowMenu(false)
+      alert('Server reset successfully! Caches have been cleared.')
+    },
+    onError: (error: any) => {
+      alert(`Failed to reset server: ${error?.response?.data?.detail || error.message}`)
+    },
+  })
+
+  // Detect mobile
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 640) // sm breakpoint
+    }
+    checkMobile()
+    window.addEventListener('resize', checkMobile)
+    return () => window.removeEventListener('resize', checkMobile)
+  }, [])
   
   // Initialize form with current settings
   useEffect(() => {
@@ -304,12 +331,86 @@ export default function Settings() {
     <div className="page-container">
       {/* Header */}
       <div className="mb-6 sm:mb-8">
-        <h1 className="text-2xl sm:text-3xl font-display font-semibold text-white mb-1 sm:mb-2">
-          Settings
-        </h1>
-        <p className="text-sm sm:text-base text-augustus-400">
-          Configure API keys and integrations for Augustus
-        </p>
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex-1">
+            <h1 className="text-2xl sm:text-3xl font-display font-semibold text-white mb-1 sm:mb-2">
+              Settings
+            </h1>
+            <p className="text-sm sm:text-base text-augustus-400">
+              Configure API keys and integrations for Augustus
+            </p>
+          </div>
+          
+          {/* Reset Server Button - Desktop */}
+          {!isMobile && (
+            <button
+              onClick={() => {
+                if (confirm('Are you sure you want to reset the server? This will clear all caches and reset internal state.')) {
+                  resetServerMutation.mutate()
+                }
+              }}
+              disabled={resetServerMutation.isPending}
+              className="btn btn-ghost text-augustus-400 hover:text-white flex items-center gap-2 px-3 sm:px-4"
+            >
+              {resetServerMutation.isPending ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <RotateCcw className="w-4 h-4" />
+              )}
+              <span className="hidden sm:inline">Reset Server</span>
+            </button>
+          )}
+          
+          {/* Mobile Menu Button */}
+          {isMobile && (
+            <div className={clsx('relative', showMenu && 'z-[102]')}>
+              <button
+                onClick={() => setShowMenu(!showMenu)}
+                className="btn btn-ghost p-2 text-augustus-400 hover:text-white"
+              >
+                <MoreVertical className="w-5 h-5" />
+              </button>
+              
+              {/* Dropdown menu */}
+              {showMenu && (
+                <>
+                  <div 
+                    className="fixed inset-0 z-[100]" 
+                    onClick={() => setShowMenu(false)}
+                  />
+                  <div className="absolute right-0 top-full mt-2 w-56 bg-augustus-900 border border-augustus-700 rounded-lg shadow-xl z-[101] overflow-hidden">
+                    <div className="py-1">
+                      <button
+                        onClick={() => {
+                          setShowMenu(false)
+                          if (confirm('Are you sure you want to reset the server? This will clear all caches and reset internal state.')) {
+                            resetServerMutation.mutate()
+                          }
+                        }}
+                        disabled={resetServerMutation.isPending}
+                        className="w-full px-4 py-3 text-left hover:bg-augustus-800 active:bg-augustus-700 transition-colors flex items-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {resetServerMutation.isPending ? (
+                          <Loader2 className="w-5 h-5 text-augustus-400 animate-spin" />
+                        ) : (
+                          <RotateCcw className="w-5 h-5 text-augustus-400" />
+                        )}
+                        <div>
+                          <span className="text-white font-medium block text-sm">
+                            Reset Server
+                          </span>
+                          <span className="text-augustus-500 text-xs">
+                            Clear caches and reset state
+                          </span>
+                        </div>
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
       </div>
       
       {/* Success message */}
