@@ -195,6 +195,7 @@ function ApiKeyStep({
   onUpdate,
   onNext,
   onBack,
+  isLoading = false,
 }: {
   apiKey: string
   generalModel: string
@@ -202,6 +203,7 @@ function ApiKeyStep({
   onUpdate: (updates: Partial<{ openrouterApiKey: string; generalModel: string; writerModel: string }>) => void
   onNext: () => void
   onBack: () => void
+  isLoading?: boolean
 }) {
   const [showKey, setShowKey] = useState(false)
   const [showGeneralDropdown, setShowGeneralDropdown] = useState(false)
