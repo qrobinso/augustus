@@ -52,7 +52,7 @@ class SettingsResponse(BaseModel):
     user_name: Optional[str] = None
     
     # Playback Settings
-    auto_play_next: bool = False
+    auto_play_next: bool = True
     
     # Status
     openrouter_configured: bool = False
@@ -209,7 +209,7 @@ def get_current_settings() -> dict:
         "resend_api_key": os.environ.get("RESEND_API_KEY") or env_vars.get("RESEND_API_KEY"),
         "resend_from_email": os.environ.get("RESEND_FROM_EMAIL") or env_vars.get("RESEND_FROM_EMAIL"),
         "user_name": os.environ.get("USER_NAME") or env_vars.get("USER_NAME"),
-        "auto_play_next": (os.environ.get("AUTO_PLAY_NEXT") or env_vars.get("AUTO_PLAY_NEXT", "false")).lower() == "true",
+        "auto_play_next": (os.environ.get("AUTO_PLAY_NEXT") or env_vars.get("AUTO_PLAY_NEXT", "true")).lower() == "true",
     }
     
     return settings
