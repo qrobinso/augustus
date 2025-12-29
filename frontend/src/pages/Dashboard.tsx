@@ -74,7 +74,7 @@ export default function Dashboard() {
   // Filters accordion state - persisted to localStorage
   const [filtersExpanded, setFiltersExpanded] = useState(() => {
     const saved = localStorage.getItem('filtersExpanded')
-    return saved !== null ? JSON.parse(saved) : true
+    return saved !== null ? JSON.parse(saved) : false
   })
   
   // Save accordion states to localStorage
