@@ -1393,14 +1393,24 @@ function GenerationStep({
   resendApiKey,
   onUpdate,
   onSkip,
+  onEmailInteraction,
 }: {
   resendApiKey: string
   onUpdate: (resendApiKey: string) => void
   onSkip: () => void
+  onEmailInteraction: () => void
 }) {
   const [dots, setDots] = useState('')
   const [showResendFields, setShowResendFields] = useState(false)
   const [showKey, setShowKey] = useState(false)
+  const [progressStep, setProgressStep] = useState(0)
+  const progressSteps = [
+    'Gathering the latest news',
+    'Analyzing articles',
+    'Writing your briefing',
+    'Generating audio',
+    'Finalizing your podcast',
+  ]
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -1408,6 +1418,14 @@ function GenerationStep({
     }, 500)
     return () => clearInterval(interval)
   }, [])
+
+  // Cycle through progress steps
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setProgressStep(prev => (prev + 1) % progressSteps.length)
+    }, 3000) // Change step every 3 seconds
+    return () => clearInterval(interval)
+  }, [progressSteps.length])
 
   return (
     <div className="w-full max-w-lg space-y-8 text-center">
@@ -1425,23 +1443,37 @@ function GenerationStep({
           <h2 className="text-2xl font-display font-bold text-white mb-2">
             Creating your podcast{dots}
           </h2>
-          <p className="text-augustus-400">
-            Gathering the latest news and generating your personalized briefing
+          <p className="text-augustus-400 text-lg transition-all duration-500">
+            {progressSteps[progressStep]}
           </p>
         </div>
 
-        <div className="flex justify-center gap-2">
-          {[0, 1, 2, 3, 4].map((i) => (
-            <div
-              key={i}
-              className="w-3 h-3 bg-accent rounded-full animate-bounce"
-              style={{ animationDelay: `${i * 100}ms` }}
+        {/* Progress indicators */}
+        <div className="space-y-4">
+          <div className="flex justify-center gap-2">
+            {[0, 1, 2, 3, 4].map((i) => (
+              <div
+                key={i}
+                className="w-3 h-3 bg-accent rounded-full animate-bounce"
+                style={{ animationDelay: `${i * 100}ms` }}
+              />
+            ))}
+          </div>
+          
+          {/* Progress bar */}
+          <div className="w-full h-2 bg-augustus-800 rounded-full overflow-hidden">
+            <div 
+              className="h-full bg-gradient-to-r from-accent to-accent-600 rounded-full animate-pulse"
+              style={{ 
+                width: `${((progressStep + 1) / progressSteps.length) * 100}%`,
+                transition: 'width 0.5s ease-in-out'
+              }}
             />
-          ))}
+          </div>
         </div>
 
         <p className="text-sm text-augustus-500">
-          This usually takes 1-2 minutes. You'll be redirected to your dashboard shortly.
+          This usually takes 1-2 minutes. You'll be redirected to your dashboard when complete.
         </p>
       </div>
 
@@ -1449,7 +1481,10 @@ function GenerationStep({
       <div className="space-y-4 text-left">
         <div className="flex items-center justify-between">
           <button
-            onClick={() => setShowResendFields(!showResendFields)}
+            onClick={() => {
+              setShowResendFields(!showResendFields)
+              onEmailInteraction()
+            }}
             className="text-sm text-augustus-400 hover:text-augustus-300 transition-colors flex items-center gap-2"
           >
             <Mail className="w-4 h-4" />
@@ -1512,6 +1547,7 @@ export default function Onboarding() {
   const [currentStep, setCurrentStep] = useState(0)
   const [isGenerating, setIsGenerating] = useState(false)
   const [isSavingStep, setIsSavingStep] = useState(false)
+  const [hasInteractedWithEmail, setHasInteractedWithEmail] = useState(false)
   // Detect browser timezone as default
   const browserTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone
 
@@ -1758,10 +1794,14 @@ export default function Onboarding() {
       localStorage.removeItem('augustus_onboarding_skipped')
       
       // Wait a moment for effect
-      await new Promise(resolve => setTimeout(resolve, 2000))
+      await new Promise(resolve => setTimeout(resolve, 3000))
       
-      // Navigate to dashboard
-      navigate('/dashboard')
+      // Only auto-navigate if user hasn't interacted with email fields
+      if (!hasInteractedWithEmail) {
+        // Navigate to dashboard
+        navigate('/dashboard')
+      }
+      // If user has interacted, they can manually skip or wait for briefing completion
     } catch (error) {
       console.error('Onboarding failed:', error)
       // Still mark as onboarded so they can fix in settings
@@ -1832,8 +1872,12 @@ export default function Onboarding() {
         return (
           <GenerationStep
             resendApiKey={data.resendApiKey}
-            onUpdate={(key) => updateData({ resendApiKey: key })}
+            onUpdate={(key) => {
+              updateData({ resendApiKey: key })
+              setHasInteractedWithEmail(true)
+            }}
             onSkip={handleSkipGeneration}
+            onEmailInteraction={() => setHasInteractedWithEmail(true)}
           />
         )
       default:
