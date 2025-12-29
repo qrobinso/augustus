@@ -156,13 +156,15 @@ Augustus transforms your personalized contentâ€”news feeds, topics, and queriesâ
 
 3. **Start with Docker Compose**
    ```bash
-   docker-compose up -d
+   docker compose up -d
    ```
 
 4. **Access the app**
-   - Frontend: http://localhost:3000
+   - Frontend: http://localhost:3000 (or http://YOUR_SERVER_IP:3000)
    - API: http://localhost:8000
    - API Docs: http://localhost:8000/docs
+   
+   > **Note:** Replace `YOUR_SERVER_IP` with your server's IP address to access from other devices on your network.
 
 5. **Configure in the UI**
    - Go to Settings
@@ -206,7 +208,7 @@ npm run dev
 
 ```bash
 # Start backend only (frontend runs locally for hot reload)
-docker-compose -f docker-compose.dev.yml up
+docker compose -f docker-compose.dev.yml up
 ```
 
 ## Production Deployment
@@ -237,7 +239,7 @@ The `docker-compose.yml` file is configured for production deployment. Here's wh
    - `./models` - TTS voice models (for Piper)
 
 5. **Ports**: 
-   - Frontend: `3000` (mapped to nginx port 80)
+   - Frontend: `3000` (mapped to nginx port 80) - Access at `http://YOUR_SERVER_IP:3000`
    - Backend API: `8000`
    - Consider using a reverse proxy (nginx, Traefik, etc.) for production
 
@@ -245,7 +247,7 @@ The `docker-compose.yml` file is configured for production deployment. Here's wh
 
 7. **Start Services**:
    ```bash
-   docker-compose up -d
+   docker compose up -d
    ```
 
 ### Production Considerations
