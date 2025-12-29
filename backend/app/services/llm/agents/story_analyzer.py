@@ -151,7 +151,7 @@ CRITICAL FILTERING REQUIREMENTS:
         articles: list[dict],
         topics: list[str],
         max_stories: int = 5,
-    ) -> tuple[list[dict], Optional[str], str]:
+    ) -> tuple[list[dict], Optional[str], str, dict]:
         """Analyze and rank news stories by importance and topic relevance.
         
         Args:
@@ -160,10 +160,11 @@ CRITICAL FILTERING REQUIREMENTS:
             max_stories: Maximum number of stories to select
             
         Returns:
-            Tuple of (ranked_stories, analysis_summary, raw_response)
+            Tuple of (ranked_stories, analysis_summary, raw_response, usage)
             ranked_stories: List of story dicts with article_num, priority, reason
             analysis_summary: Optional summary string
             raw_response: Raw LLM response content
+            usage: LLM usage data including cost information
         """
         system_prompt = self._build_system_prompt(topics)
         user_prompt = self._build_user_prompt(articles, topics, max_stories)
@@ -193,7 +194,10 @@ CRITICAL FILTERING REQUIREMENTS:
             ranked_stories = analysis.get("ranked_stories", [])
             summary = analysis.get("summary", None)
             
-            return ranked_stories, summary, raw_response
+            # Return usage data from response
+            usage = response.usage if hasattr(response, 'usage') else {}
+            
+            return ranked_stories, summary, raw_response, usage
         except json.JSONDecodeError as e:
             raise ValueError(f"Failed to parse story analysis JSON: {e}")
 

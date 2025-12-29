@@ -162,7 +162,9 @@ export interface AppSettings {
   news_api_key?: string
   rss_feeds: string
   resend_api_key?: string
+  resend_from_email?: string
   user_name?: string
+  auto_play_next: boolean
   openrouter_configured: boolean
   elevenlabs_configured: boolean
   news_api_configured: boolean
@@ -326,6 +328,24 @@ export const customSitesApi = {
   },
 }
 
+export interface GeneratedTopicFromPrompt {
+  name: string
+  description: string
+  use_newsapi: boolean
+  reasoning: string
+  sites: Array<{
+    name: string
+    url: string
+  }>
+}
+
+export interface TrendingTopic {
+  name: string
+  description: string
+  color: string
+  reasoning: string
+}
+
 export const topicsApi = {
   list: async (includeInactive = false) => {
     const params = new URLSearchParams()
@@ -373,6 +393,18 @@ export const topicsApi = {
     const { data } = await api.post<{sites: Array<{name: string, url: string}>, total: number}>(`/api/topics/${topicId}/generate-sites${params}`)
     return data
   },
+  
+  generateFromPrompt: async (prompt: string) => {
+    const { data } = await api.post<GeneratedTopicFromPrompt>('/api/topics/generate-from-prompt', { prompt })
+    return data
+  },
+  
+  generateTrending: async (count = 5) => {
+    const { data } = await api.get<{ topics: TrendingTopic[] }>(
+      `/api/topics/generate-trending?count=${count}`
+    )
+    return data.topics
+  },
 }
 
 export const settingsApi = {
@@ -384,6 +416,7 @@ export const settingsApi = {
   update: async (settings: Partial<{
     openrouter_api_key: string
     openrouter_model: string
+    openrouter_writer_model: string
     tts_provider: string
     piper_url: string
     piper_model: string
@@ -398,7 +431,9 @@ export const settingsApi = {
     news_api_key: string
     rss_feeds: string
     resend_api_key: string
+    resend_from_email: string
     user_name: string
+    auto_play_next: boolean
   }>) => {
     const { data } = await api.put<AppSettings>('/api/settings', settings)
     return data
@@ -412,6 +447,21 @@ export const settingsApi = {
   getTimezones: async () => {
     const { data } = await api.get<{ timezones: TimezoneGroups }>('/api/settings/timezones')
     return data.timezones
+  },
+  
+  validateOpenRouterKey: async (apiKey: string) => {
+    const { data } = await api.post<{ valid: boolean; message: string }>('/api/settings/validate/openrouter', { api_key: apiKey })
+    return data
+  },
+  
+  validateGeminiKey: async (apiKey: string) => {
+    const { data } = await api.post<{ valid: boolean; message: string }>('/api/settings/validate/gemini', { api_key: apiKey })
+    return data
+  },
+  
+  validateElevenLabsKey: async (apiKey: string) => {
+    const { data } = await api.post<{ valid: boolean; message: string }>('/api/settings/validate/elevenlabs', { api_key: apiKey })
+    return data
   },
 }
 
@@ -466,6 +516,11 @@ export const scheduledBriefingsApi = {
   
   toggle: async (id: string) => {
     const { data } = await api.patch<ScheduledBriefing>(`/api/scheduled-briefings/${id}/toggle`)
+    return data
+  },
+  
+  trigger: async (id: string) => {
+    const { data } = await api.post<Briefing>(`/api/scheduled-briefings/${id}/trigger`)
     return data
   },
 }

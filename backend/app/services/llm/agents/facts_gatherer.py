@@ -246,16 +246,17 @@ Return ONLY the JSON output, no other text."""
     async def gather_facts(
         self,
         stories: list[dict],
-    ) -> tuple[dict[int, list[str]], str]:
+    ) -> tuple[dict[int, list[str]], str, dict]:
         """Gather additional facts for each story by generating questions and detailed answers.
         
         Args:
             stories: List of story dictionaries with title, summary, source, category, url, and full_content
             
         Returns:
-            Tuple of (facts_dict, raw_response)
+            Tuple of (facts_dict, raw_response, usage)
             facts_dict: Dictionary mapping article index (0-based) to lists of formatted question-answer strings
             raw_response: Raw LLM response content
+            usage: LLM usage data including cost information
         """
         # Fetch additional content from article pages or alternative sources
         print("[Facts Gatherer] Fetching additional content from article pages...")
@@ -349,7 +350,10 @@ Return ONLY the JSON output, no other text."""
                 if formatted_facts:
                     facts_dict[idx] = formatted_facts
         
-        return facts_dict, raw_response
+        # Return usage data from response
+        usage = response.usage if hasattr(response, 'usage') else {}
+        
+        return facts_dict, raw_response, usage
     
     def _fix_json_issues(self, content: str) -> str:
         """Attempt to fix common JSON issues like unterminated strings.

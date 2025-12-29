@@ -396,7 +396,7 @@ class BriefingService:
                 # 2. Rank articles by importance and topic relevance
                 # 3. Narrow down to 3-5 top stories (or fewer if not enough relevant articles)
                 print(f"[Briefing] Analyzing {len(news_items)} stories with senior news editor to filter by topic relevance and narrow down to 3-5 top stories...")
-                ranked_items, analysis_summary, raw_analysis = await self._analyze_and_rank_stories(
+                ranked_items, analysis_summary, raw_analysis, story_analysis_usage = await self._analyze_and_rank_stories(
                     briefing_id=briefing_id,
                     news_items=news_items,
                     topics=topic_names if topic_names else ["technology", "business", "science"],
@@ -413,12 +413,14 @@ class BriefingService:
                 ranked_items = news_items
                 analysis_summary = None
                 raw_analysis = ""
+                story_analysis_usage = {}
                 print(f"[Briefing] Using single story: {news_items[0].title[:60]}...")
             else:
                 # No articles found
                 ranked_items = []
                 analysis_summary = None
                 raw_analysis = ""
+                story_analysis_usage = {}
                 print(f"[Briefing] Warning: No news items found to analyze")
             
             # Format the prioritized stories for the podcast prompt
@@ -450,7 +452,7 @@ class BriefingService:
             await update_progress(5, "Gathering additional facts", 60)
             await self._check_cancelled(briefing_id)
             print("[Briefing] Generating additional facts for articles...")
-            additional_facts, raw_facts_response = await self._generate_additional_facts(
+            additional_facts, raw_facts_response, facts_usage = await self._generate_additional_facts(
                 briefing_id=briefing_id,
                 ranked_items=ranked_items,
                 topics=topic_names if topic_names else ["technology", "business", "science"],
@@ -644,6 +646,28 @@ class BriefingService:
             briefing.status = "completed"
             briefing.generated_at = utc_now()
             
+            # Calculate TTS cost
+            tts_cost = self._calculate_tts_cost(
+                tts_provider=settings.tts_provider,
+                script=segments,
+                duration_seconds=tts_result.duration_seconds,
+            )
+            
+            # Calculate total costs
+            costs = {
+                "story_analysis": self._extract_cost(story_analysis_usage),
+                "facts_gathering": self._extract_cost(facts_usage),
+                "script_writing": self._extract_cost(response.usage),
+                "tts_generation": tts_cost,
+            }
+            
+            # Calculate total cost
+            total_cost = sum(
+                cost.get("cost", 0) if isinstance(cost, dict) else 0
+                for cost in costs.values()
+            )
+            costs["total"] = total_cost
+            
             # Reassign extra_data to ensure SQLAlchemy detects the change
             # (in-place mutations like .update() aren't detected on JSON fields)
             new_extra_data = dict(briefing.extra_data) if briefing.extra_data else {}
@@ -658,11 +682,14 @@ class BriefingService:
                 "chapters": chapters,  # Store chapters with timestamps
                 "story_analysis": analysis_summary,
                 "story_analysis_raw": raw_analysis,
+                "story_analysis_usage": story_analysis_usage,
                 "facts_analysis_raw": raw_facts_response,
+                "facts_usage": facts_usage,
                 "stories_analyzed": len(news_items),
                 "stories_selected": len(ranked_items),
                 "cast_member_names": host_to_name,  # Map HOST1/HOST2 to actual names
                 "topic_ids": new_extra_data.get("topic_ids", topic_ids or []),  # Explicitly preserve topic_ids
+                "costs": costs,  # Store all costs breakdown
             })
             briefing.extra_data = new_extra_data
             
@@ -1459,7 +1486,7 @@ class BriefingService:
         news_items: list,
         topics: list[str],
         max_stories: int,
-    ) -> tuple[list, str | None, str]:
+    ) -> tuple[list, str | None, str, dict]:
         """Use LLM to analyze and rank news stories by importance.
         
         Args:
@@ -1468,7 +1495,7 @@ class BriefingService:
             max_stories: Maximum number of top stories to select
             
         Returns:
-            Tuple of (ranked_items, analysis_summary, raw_response)
+            Tuple of (ranked_items, analysis_summary, raw_response, usage)
         """
         import json
         
@@ -1488,7 +1515,7 @@ class BriefingService:
             await self._check_cancelled(briefing_id)
             
             # Use orchestrator to analyze and rank stories
-            ranked_stories, summary, raw_response = await self.orchestrator.analyze_and_rank_stories(
+            ranked_stories, summary, raw_response, usage = await self.orchestrator.analyze_and_rank_stories(
                 articles=articles_for_analysis,
                 topics=topics,
                 max_stories=max_stories,
@@ -1518,19 +1545,19 @@ class BriefingService:
                     if i not in used_indices and len(ranked_items) < max_stories:
                         ranked_items.append(item)
             
-            return ranked_items[:max_stories], summary, raw_response
+            return ranked_items[:max_stories], summary, raw_response, usage
             
         except (json.JSONDecodeError, ValueError) as e:
             print(f"[Briefing] Warning: Failed to parse story analysis: {e}")
             print(f"[Briefing] Falling back to original order")
-            return news_items[:max_stories], None, ""
+            return news_items[:max_stories], None, "", {}
     
     async def _generate_additional_facts(
         self,
         briefing_id: str,
         ranked_items: list,
         topics: list[str],
-    ) -> tuple[dict[int, list[str]], str]:
+    ) -> tuple[dict[int, list[str]], str, dict]:
         """Use LLM to generate additional quantifiable facts for each article.
         
         This method fetches the full article content from URLs to provide
@@ -1541,9 +1568,10 @@ class BriefingService:
             topics: List of topic names (kept for compatibility, not used)
             
         Returns:
-            Tuple of (facts_dict, raw_response)
+            Tuple of (facts_dict, raw_response, usage)
             facts_dict: Dictionary mapping article index (0-based) to lists of facts
             raw_response: Raw LLM response content
+            usage: LLM usage data including cost information
         """
         import json
         
@@ -1596,7 +1624,7 @@ class BriefingService:
             await self._check_cancelled(briefing_id)
             
             # Use orchestrator to gather facts
-            facts_dict, raw_facts_response = await self.orchestrator.gather_additional_facts(
+            facts_dict, raw_facts_response, facts_usage = await self.orchestrator.gather_additional_facts(
                 stories=stories_for_analysis,
             )
             
@@ -1608,7 +1636,7 @@ class BriefingService:
                 if 0 <= idx < len(ranked_items):
                     print(f"[Briefing] Generated {len(facts)} facts for article {idx + 1}: {ranked_items[idx].title[:60]}...")
             
-            return facts_dict, raw_facts_response
+            return facts_dict, raw_facts_response, facts_usage
             
         except (json.JSONDecodeError, ValueError) as e:
             print(f"[Briefing] Warning: Failed to parse facts agent JSON: {e}")
@@ -1738,5 +1766,91 @@ class BriefingService:
                 break
         
         return recent_articles
+    
+    def _extract_cost(self, usage: dict) -> dict:
+        """Extract cost information from OpenRouter usage data.
+        
+        Args:
+            usage: OpenRouter usage dict with cost information
+            
+        Returns:
+            Dict with cost breakdown including cost, tokens, etc.
+        """
+        if not usage or not isinstance(usage, dict):
+            return {"cost": 0.0, "tokens": 0, "details": {}}
+        
+        cost = usage.get("cost", 0.0)
+        prompt_tokens = usage.get("prompt_tokens", 0)
+        completion_tokens = usage.get("completion_tokens", 0)
+        total_tokens = usage.get("total_tokens", 0)
+        cost_details = usage.get("cost_details", {})
+        
+        return {
+            "cost": float(cost) if cost else 0.0,
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens,
+            "cost_details": cost_details,
+            "usage": usage,  # Store full usage for reference
+        }
+    
+    def _calculate_tts_cost(
+        self,
+        tts_provider: str,
+        script: list[dict],
+        duration_seconds: float,
+    ) -> dict:
+        """Calculate TTS generation cost based on provider and usage.
+        
+        Args:
+            tts_provider: TTS provider name ('piper', 'elevenlabs', 'gemini')
+            script: List of script segments with 'text' keys
+            duration_seconds: Audio duration in seconds
+            
+        Returns:
+            Dict with cost information
+        """
+        total_chars = sum(len(seg.get("text", "")) for seg in script)
+        
+        if tts_provider == "piper":
+            # Piper is free (local/self-hosted)
+            return {
+                "cost": 0.0,
+                "provider": "piper",
+                "characters": total_chars,
+                "duration_seconds": duration_seconds,
+            }
+        elif tts_provider == "elevenlabs":
+            # ElevenLabs pricing: varies by model
+            # For eleven_turbo_v2_5: $0.18 per 1000 characters
+            # For eleven_multilingual_v2: $0.30 per 1000 characters
+            # For eleven_v3 (dialogue): $0.30 per 1000 characters
+            # Using average/standard pricing - can be refined based on actual model used
+            cost_per_1k_chars = 0.18  # Default for turbo model
+            cost = (total_chars / 1000.0) * cost_per_1k_chars
+            
+            return {
+                "cost": round(cost, 6),
+                "provider": "elevenlabs",
+                "characters": total_chars,
+                "duration_seconds": duration_seconds,
+                "cost_per_1k_chars": cost_per_1k_chars,
+            }
+        elif tts_provider == "gemini":
+            # Gemini TTS pricing: typically free or very low cost
+            # For now, assume free (can be updated with actual pricing if needed)
+            return {
+                "cost": 0.0,
+                "provider": "gemini",
+                "characters": total_chars,
+                "duration_seconds": duration_seconds,
+            }
+        else:
+            return {
+                "cost": 0.0,
+                "provider": tts_provider or "unknown",
+                "characters": total_chars,
+                "duration_seconds": duration_seconds,
+            }
 
 

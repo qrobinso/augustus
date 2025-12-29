@@ -18,7 +18,7 @@ import {
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useStore } from '../store/useStore'
-import { briefingsApi, castsApi } from '../api/client'
+import { briefingsApi, castsApi, settingsApi, Briefing } from '../api/client'
 
 export default function AudioPlayer() {
   const navigate = useNavigate()
@@ -45,6 +45,7 @@ export default function AudioPlayer() {
     isPlaying, 
     currentTime, 
     duration,
+    setCurrentAudio,
     setIsPlaying,
     setCurrentTime,
     setDuration,
@@ -63,6 +64,12 @@ export default function AudioPlayer() {
     queryKey: ['cast', briefing?.cast_id],
     queryFn: () => castsApi.get(briefing!.cast_id!),
     enabled: !!briefing?.cast_id,
+  })
+  
+  // Fetch settings to check auto-play preference
+  const { data: settings } = useQuery({
+    queryKey: ['settings'],
+    queryFn: () => settingsApi.get(),
   })
   
   // Mutation for marking as listened
@@ -94,6 +101,56 @@ export default function AudioPlayer() {
     mutationFn: ({ id, position }: { id: string; position: number }) => 
       briefingsApi.updatePlaybackPosition(id, position),
   })
+  
+  // Function to play the next unlistened briefing
+  const playNextUnlistenedBriefing = useCallback(async () => {
+    if (!settings?.auto_play_next) return
+    
+    try {
+      // Fetch the most recent unlistened briefings
+      const { briefings } = await briefingsApi.list(10, 0, false)
+      
+      // Sort by created_at descending to ensure newest first
+      const sortedBriefings = [...briefings].sort((a, b) => 
+        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      )
+      
+      // Find the most recently created fresh briefing (not started yet)
+      // Prioritize briefings that haven't been started (no playback position)
+      // to avoid jarring jumps into the middle of a briefing
+      const nextBriefing = sortedBriefings.find(
+        (b: Briefing) => 
+          b.id !== currentAudio?.id && 
+          b.status === 'completed' && 
+          b.audio_url &&
+          (!b.playback_position || b.playback_position === 0)  // Only fresh, unstarted briefings
+      )
+      
+      if (nextBriefing && nextBriefing.audio_url) {
+        console.log('[AudioPlayer] Auto-playing next unlistened briefing:', nextBriefing.title)
+        
+        // Set the new audio and start playing from the beginning
+        setCurrentAudio({
+          id: nextBriefing.id,
+          type: 'briefing',
+          title: nextBriefing.title,
+          audioUrl: nextBriefing.audio_url,
+          transcript: nextBriefing.transcript,
+          chapters: nextBriefing.chapters,
+          initialPosition: 0,  // Always start from beginning for auto-play
+        })
+        
+        // Small delay to allow audio to load before playing
+        setTimeout(() => {
+          setIsPlaying(true)
+        }, 100)
+      } else {
+        console.log('[AudioPlayer] No fresh unlistened briefings to auto-play')
+      }
+    } catch (error) {
+      console.error('[AudioPlayer] Error fetching next briefing:', error)
+    }
+  }, [settings?.auto_play_next, currentAudio?.id, setCurrentAudio, setIsPlaying])
   
   // Save playback position (debounced to avoid too many API calls)
   const savePlaybackPosition = useCallback((position: number) => {
@@ -143,6 +200,9 @@ export default function AudioPlayer() {
       if (currentAudio?.type === 'briefing' && currentAudio.id) {
         savePositionMutation.mutate({ id: currentAudio.id, position: 0 })
         lastSavedPositionRef.current = 0
+        
+        // Auto-play next unlistened briefing if enabled
+        playNextUnlistenedBriefing()
       }
     }
     
@@ -155,7 +215,7 @@ export default function AudioPlayer() {
       audio.removeEventListener('durationchange', handleDurationChange)
       audio.removeEventListener('ended', handleEnded)
     }
-  }, [setCurrentTime, setDuration, setIsPlaying, currentAudio, hasMarkedListened, markListenedMutation, savePlaybackPosition, savePositionMutation])
+  }, [setCurrentTime, setDuration, setIsPlaying, currentAudio, hasMarkedListened, markListenedMutation, savePlaybackPosition, savePositionMutation, playNextUnlistenedBriefing])
   
   // Reset state when audio changes
   useEffect(() => {
@@ -297,6 +357,66 @@ export default function AudioPlayer() {
   const skip = (seconds: number) => {
     if (audioRef.current) {
       audioRef.current.currentTime = Math.max(0, Math.min(duration, currentTime + seconds))
+    }
+  }
+  
+  // Navigate to previous chapter
+  const skipToPreviousChapter = () => {
+    if (!currentAudio?.chapters || currentAudio.chapters.length === 0 || !audioRef.current) {
+      // Fallback to 15 seconds back if no chapters
+      skip(-15)
+      return
+    }
+    
+    const currentIndex = activeChapterIndex
+    if (currentIndex === null) {
+      // Not in any chapter, go to the last chapter
+      const lastChapter = currentAudio.chapters[currentAudio.chapters.length - 1]
+      audioRef.current.currentTime = lastChapter.start_time
+      setCurrentTime(lastChapter.start_time)
+      return
+    }
+    
+    if (currentIndex > 0) {
+      // Go to previous chapter
+      const prevChapter = currentAudio.chapters[currentIndex - 1]
+      audioRef.current.currentTime = prevChapter.start_time
+      setCurrentTime(prevChapter.start_time)
+    } else {
+      // Already at first chapter, go to beginning
+      audioRef.current.currentTime = 0
+      setCurrentTime(0)
+    }
+  }
+  
+  // Navigate to next chapter
+  const skipToNextChapter = () => {
+    if (!currentAudio?.chapters || currentAudio.chapters.length === 0 || !audioRef.current) {
+      // Fallback to 30 seconds forward if no chapters
+      skip(30)
+      return
+    }
+    
+    const currentIndex = activeChapterIndex
+    if (currentIndex === null) {
+      // Not in any chapter, go to the first chapter
+      const firstChapter = currentAudio.chapters[0]
+      audioRef.current.currentTime = firstChapter.start_time
+      setCurrentTime(firstChapter.start_time)
+      return
+    }
+    
+    if (currentIndex < currentAudio.chapters.length - 1) {
+      // Go to next chapter
+      const nextChapter = currentAudio.chapters[currentIndex + 1]
+      audioRef.current.currentTime = nextChapter.start_time
+      setCurrentTime(nextChapter.start_time)
+    } else {
+      // Already at last chapter, go to end
+      if (duration) {
+        audioRef.current.currentTime = duration
+        setCurrentTime(duration)
+      }
     }
   }
   
@@ -649,18 +769,18 @@ export default function AudioPlayer() {
           {/* Skip controls - compact on mobile */}
           <div className="flex items-center gap-0.5 sm:gap-1">
             <button
-              onClick={() => skip(-15)}
+              onClick={skipToPreviousChapter}
               className="btn-icon btn btn-ghost p-1.5 sm:p-2 min-h-[44px] min-w-[44px] sm:min-h-[36px] sm:min-w-[36px] touch-target"
-              title="Back 15s"
-              aria-label="Back 15 seconds"
+              title={currentAudio?.chapters && currentAudio.chapters.length > 0 ? "Previous chapter" : "Back 15s"}
+              aria-label={currentAudio?.chapters && currentAudio.chapters.length > 0 ? "Previous chapter" : "Back 15 seconds"}
             >
               <SkipBack className="w-4 h-4 sm:w-5 sm:h-5" />
             </button>
             <button
-              onClick={() => skip(30)}
+              onClick={skipToNextChapter}
               className="btn-icon btn btn-ghost p-1.5 sm:p-2 min-h-[44px] min-w-[44px] sm:min-h-[36px] sm:min-w-[36px] touch-target"
-              title="Forward 30s"
-              aria-label="Forward 30 seconds"
+              title={currentAudio?.chapters && currentAudio.chapters.length > 0 ? "Next chapter" : "Forward 30s"}
+              aria-label={currentAudio?.chapters && currentAudio.chapters.length > 0 ? "Next chapter" : "Forward 30 seconds"}
             >
               <SkipForward className="w-4 h-4 sm:w-5 sm:h-5" />
             </button>

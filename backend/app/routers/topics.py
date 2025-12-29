@@ -3,8 +3,10 @@
 import json
 import uuid
 from datetime import datetime
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
@@ -20,7 +22,46 @@ from app.schemas.topic import (
     TopicListResponse,
 )
 from app.services.llm.agents.site_generator import SiteGeneratorAgent
+from app.services.llm.agents.topic_generator import TopicGeneratorAgent
 from app.services.llm.openrouter import get_llm_provider
+
+
+class GenerateTopicFromPromptRequest(BaseModel):
+    """Request schema for generating a topic from a natural language prompt."""
+    prompt: str = Field(
+        ...,
+        min_length=3,
+        max_length=1000,
+        description="Natural language description of the topic the user wants to follow",
+    )
+
+
+class GeneratedTopicSite(BaseModel):
+    """A site suggested for the generated topic."""
+    name: str
+    url: str
+
+
+class GenerateTopicFromPromptResponse(BaseModel):
+    """Response schema for generated topic from prompt."""
+    name: str
+    description: str
+    use_newsapi: bool
+    reasoning: str
+    sites: list[GeneratedTopicSite]
+
+
+class TrendingTopicSuggestion(BaseModel):
+    """A trending topic suggestion."""
+    name: str
+    description: str
+    color: str
+    reasoning: str
+
+
+class GenerateTrendingTopicsResponse(BaseModel):
+    """Response for trending topics generation."""
+    topics: list[TrendingTopicSuggestion]
 
 router = APIRouter()
 
@@ -137,6 +178,95 @@ async def create_topic(
     await db.refresh(topic)
     
     return _topic_to_response(topic, 0)
+
+
+@router.get("/generate-trending", response_model=GenerateTrendingTopicsResponse)
+async def generate_trending_topics(
+    count: int = Query(default=5, ge=1, le=10),
+    user: User = Depends(get_current_user),
+):
+    """Generate trending topic suggestions based on current events.
+    
+    This endpoint asks the LLM to suggest timely, relevant topics
+    that a user might want to follow based on what's happening now.
+    """
+    try:
+        llm = get_llm_provider()
+        
+        system_prompt = """You are an expert news analyst who understands what topics are trending and relevant right now.
+
+Your task is to suggest newsworthy topics that are currently relevant based on:
+- Major ongoing world events
+- Trending technology and business stories
+- Significant cultural or social movements
+- Important scientific developments
+- Seasonal or timely subjects
+
+Return topics that are:
+- Currently relevant and newsworthy
+- Broad enough to have multiple news sources
+- Interesting to a general audience
+- Different from standard categories like "US News" or "Sports"
+
+Use varied, visually distinct hex colors from this palette: #A855F7, #FBBF24, #2DD4BF, #F43F5E, #22D3EE, #FB923C, #A3E635, #E879F9"""
+
+        prompt = f"""Suggest {count} trending and timely news topics that someone might want to follow right now.
+
+These should be SPECIFIC and CURRENT topics (not generic categories like "Technology" or "Politics").
+
+Examples of good trending topics:
+- "AI Regulation" (specific policy topic)
+- "2024 Elections" (timely event)
+- "Renewable Energy Transition" (ongoing trend)
+- "Space Tourism" (emerging industry)
+
+Return as JSON only, no other text:
+{{
+  "topics": [
+    {{
+      "name": "Topic Name",
+      "description": "Brief 1-sentence description of why this is relevant now",
+      "color": "#hexcolor",
+      "reasoning": "Why this topic is trending/relevant right now"
+    }}
+  ]
+}}"""
+
+        response = await llm.generate(
+            prompt=prompt,
+            system_prompt=system_prompt,
+            max_tokens=1500,
+            temperature=0.8,
+        )
+        
+        content = response.content.strip()
+        
+        # Parse JSON from response
+        if "```json" in content:
+            content = content.split("```json")[1].split("```")[0].strip()
+        elif "```" in content:
+            content = content.split("```")[1].split("```")[0].strip()
+        
+        data = json.loads(content)
+        topics = data.get("topics", [])
+        
+        return GenerateTrendingTopicsResponse(
+            topics=[
+                TrendingTopicSuggestion(
+                    name=t.get("name", ""),
+                    description=t.get("description", ""),
+                    color=t.get("color", "#8B5CF6"),
+                    reasoning=t.get("reasoning", ""),
+                )
+                for t in topics if t.get("name")
+            ]
+        )
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate trending topics: {str(e)}",
+        )
 
 
 @router.get("/{topic_id}", response_model=TopicResponse)
@@ -267,6 +397,78 @@ async def delete_topic(
     await db.commit()
 
 
+@router.post("/generate-from-prompt", response_model=GenerateTopicFromPromptResponse)
+async def generate_topic_from_prompt(
+    request: GenerateTopicFromPromptRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Generate a topic suggestion from a natural language prompt.
+    
+    This endpoint uses AI to:
+    - Convert the user's description into a well-defined topic name
+    - Generate a description
+    - Recommend whether to enable NewsAPI
+    - Suggest relevant websites/sources
+    """
+    try:
+        # Get LLM provider and create topic generator agent
+        llm = get_llm_provider()
+        topic_generator = TopicGeneratorAgent(llm)
+        
+        # Generate topic from prompt
+        content = await topic_generator.generate_topic(request.prompt)
+        
+        # Extract JSON from the response (handle markdown code blocks)
+        if "```json" in content:
+            content = content.split("```json")[1].split("```")[0].strip()
+        elif "```" in content:
+            content = content.split("```")[1].split("```")[0].strip()
+        
+        try:
+            data = json.loads(content)
+        except json.JSONDecodeError:
+            # Try to extract JSON object from text
+            import re
+            json_match = re.search(r'\{[^{}]*"name"[^{}]*\}', content, re.DOTALL)
+            if json_match:
+                data = json.loads(json_match.group())
+            else:
+                raise ValueError("Could not parse JSON from LLM response")
+        
+        # Validate and extract fields
+        name = data.get("name", "").strip()
+        description = data.get("description", "").strip()
+        use_newsapi = data.get("use_newsapi", True)
+        reasoning = data.get("reasoning", "").strip()
+        sites = data.get("sites", [])
+        
+        if not name:
+            raise ValueError("Generated topic has no name")
+        
+        # Clean up sites
+        cleaned_sites = []
+        for site in sites:
+            site_name = site.get("name", "").strip()
+            site_url = site.get("url", "").strip()
+            if site_name and site_url and site_url.startswith(("http://", "https://")):
+                cleaned_sites.append(GeneratedTopicSite(name=site_name, url=site_url))
+        
+        return GenerateTopicFromPromptResponse(
+            name=name,
+            description=description,
+            use_newsapi=use_newsapi if isinstance(use_newsapi, bool) else True,
+            reasoning=reasoning,
+            sites=cleaned_sites,
+        )
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate topic from prompt: {str(e)}",
+        )
+
+
 @router.post("/{topic_id}/generate-sites")
 async def generate_sites(
     topic_id: str,
@@ -367,6 +569,4 @@ async def generate_sites(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to generate site suggestions: {str(e)}",
         )
-
-
 

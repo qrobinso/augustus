@@ -341,6 +341,30 @@ class ScheduledBriefingService:
         import asyncio
         await asyncio.sleep(90)
         
+        # Check if there are items in the queue and wait for them to complete
+        from app.services.briefing_queue import briefing_queue
+        
+        # Wait for queue to be empty and not processing
+        # Check every 5 seconds, with a maximum wait time of 10 minutes
+        max_wait_seconds = 600  # 10 minutes
+        check_interval = 5  # Check every 5 seconds
+        waited_seconds = 0
+        
+        while waited_seconds < max_wait_seconds:
+            queue_size = await briefing_queue.size()
+            is_processing = await briefing_queue.is_processing()
+            
+            if queue_size == 0 and not is_processing:
+                print(f"[ScheduledBriefing] Queue is empty, proceeding with email batching")
+                break
+            
+            print(f"[ScheduledBriefing] Waiting for queue to complete (size: {queue_size}, processing: {is_processing})")
+            await asyncio.sleep(check_interval)
+            waited_seconds += check_interval
+        
+        if waited_seconds >= max_wait_seconds:
+            print(f"[ScheduledBriefing] Timeout waiting for queue to complete, proceeding anyway")
+        
         engine = create_async_engine(db_url)
         async_session = async_sessionmaker(engine, expire_on_commit=False)
         
@@ -358,6 +382,7 @@ class ScheduledBriefingService:
                     return
                 
                 # Find all briefings that should be batched together
+                # This will now include any briefings that were just completed from the queue
                 batched_items = await find_briefings_for_batching(
                     db=new_db,
                     user_id=user_id,

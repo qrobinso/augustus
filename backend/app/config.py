@@ -97,6 +97,7 @@ class Settings(BaseSettings):
     
     # Resend Email
     resend_api_key: Optional[str] = None
+    resend_from_email: Optional[str] = None  # From email address (defaults to onboarding@resend.dev if not set)
     
     # Frontend URL (for email links)
     frontend_url: str = "http://localhost:3000"

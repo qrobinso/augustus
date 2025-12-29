@@ -46,9 +46,13 @@ class SettingsResponse(BaseModel):
     
     # Resend Email
     resend_api_key: Optional[str] = None
+    resend_from_email: Optional[str] = None
     
     # User Personalization
     user_name: Optional[str] = None
+    
+    # Playback Settings
+    auto_play_next: bool = False
     
     # Status
     openrouter_configured: bool = False
@@ -77,7 +81,14 @@ class SettingsUpdate(BaseModel):
     news_api_key: Optional[str] = None
     rss_feeds: Optional[str] = None
     resend_api_key: Optional[str] = None
+    resend_from_email: Optional[str] = None
     user_name: Optional[str] = None
+    auto_play_next: Optional[bool] = None
+
+
+class ValidateApiKeyRequest(BaseModel):
+    """Request to validate an API key."""
+    api_key: str
 
 
 def mask_api_key(key: Optional[str]) -> Optional[str]:
@@ -196,7 +207,9 @@ def get_current_settings() -> dict:
         "news_api_key": os.environ.get("NEWS_API_KEY") or env_vars.get("NEWS_API_KEY"),
         "rss_feeds": os.environ.get("RSS_FEEDS") or env_vars.get("RSS_FEEDS", ""),
         "resend_api_key": os.environ.get("RESEND_API_KEY") or env_vars.get("RESEND_API_KEY"),
+        "resend_from_email": os.environ.get("RESEND_FROM_EMAIL") or env_vars.get("RESEND_FROM_EMAIL"),
         "user_name": os.environ.get("USER_NAME") or env_vars.get("USER_NAME"),
+        "auto_play_next": (os.environ.get("AUTO_PLAY_NEXT") or env_vars.get("AUTO_PLAY_NEXT", "false")).lower() == "true",
     }
     
     return settings
@@ -225,7 +238,9 @@ async def get_settings_endpoint():
         news_api_key=mask_api_key(settings["news_api_key"]),
         rss_feeds=settings["rss_feeds"],
         resend_api_key=mask_api_key(settings["resend_api_key"]),
+        resend_from_email=settings["resend_from_email"],
         user_name=settings["user_name"],
+        auto_play_next=settings["auto_play_next"],
         openrouter_configured=bool(settings["openrouter_api_key"]),
         elevenlabs_configured=bool(settings["elevenlabs_api_key"]),
         news_api_configured=bool(settings["news_api_key"]),
@@ -312,9 +327,17 @@ async def update_settings(updates: SettingsUpdate):
             env_updates["RESEND_API_KEY"] = updates.resend_api_key
             os.environ["RESEND_API_KEY"] = updates.resend_api_key
         
+        if updates.resend_from_email is not None:
+            env_updates["RESEND_FROM_EMAIL"] = updates.resend_from_email
+            os.environ["RESEND_FROM_EMAIL"] = updates.resend_from_email
+        
         if updates.user_name is not None:
             env_updates["USER_NAME"] = updates.user_name
             os.environ["USER_NAME"] = updates.user_name
+        
+        if updates.auto_play_next is not None:
+            env_updates["AUTO_PLAY_NEXT"] = str(updates.auto_play_next).lower()
+            os.environ["AUTO_PLAY_NEXT"] = str(updates.auto_play_next).lower()
         
         # Write to .env file
         if env_updates:
@@ -477,6 +500,83 @@ async def get_available_timezones():
     }
     
     return {"timezones": timezones}
+
+
+@router.post("/validate/openrouter")
+async def validate_openrouter_key(request: ValidateApiKeyRequest):
+    """Validate OpenRouter API key by making a test API call."""
+    api_key = request.api_key
+    
+    try:
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        
+        # Make a simple test call to list models (lightweight)
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                "https://openrouter.ai/api/v1/models",
+                headers=headers,
+            )
+            response.raise_for_status()
+        
+        return {"valid": True, "message": "API key is valid"}
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 401:
+            return {"valid": False, "message": "Invalid API key"}
+        return {"valid": False, "message": f"API error: {e.response.status_code}"}
+    except Exception as e:
+        return {"valid": False, "message": f"Validation failed: {str(e)}"}
+
+
+@router.post("/validate/gemini")
+async def validate_gemini_key(request: ValidateApiKeyRequest):
+    """Validate Gemini API key by making a test API call."""
+    api_key = request.api_key
+    
+    try:
+        # Test by trying to list models (lightweight operation)
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}",
+            )
+            response.raise_for_status()
+        
+        return {"valid": True, "message": "API key is valid"}
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 400:
+            return {"valid": False, "message": "Invalid API key"}
+        return {"valid": False, "message": f"API error: {e.response.status_code}"}
+    except Exception as e:
+        return {"valid": False, "message": f"Validation failed: {str(e)}"}
+
+
+@router.post("/validate/elevenlabs")
+async def validate_elevenlabs_key(request: ValidateApiKeyRequest):
+    """Validate ElevenLabs API key by making a test API call."""
+    api_key = request.api_key
+    
+    try:
+        headers = {
+            "xi-api-key": api_key,
+        }
+        
+        # Test by getting user info (lightweight operation)
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                "https://api.elevenlabs.io/v1/user",
+                headers=headers,
+            )
+            response.raise_for_status()
+        
+        return {"valid": True, "message": "API key is valid"}
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 401:
+            return {"valid": False, "message": "Invalid API key"}
+        return {"valid": False, "message": f"API error: {e.response.status_code}"}
+    except Exception as e:
+        return {"valid": False, "message": f"Validation failed: {str(e)}"}
 
 
 @router.get("/debug")

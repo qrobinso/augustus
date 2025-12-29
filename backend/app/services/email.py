@@ -210,22 +210,35 @@ Manage Briefings: {frontend_url}/dashboard
 
 © {datetime.now().year} Augustus. All rights reserved.
 This is an automated briefing notification.
+To manage your scheduled briefings, visit your dashboard.
     """
     
     # Resend API endpoint
     url = "https://api.resend.com/emails"
     
-    # Use onboarding@resend.dev as the from email (for testing without verified sender domain)
-    # See: https://docs.novu.co/platform/integrations/email/resend#getting-started
-    from_email = "onboarding@resend.dev"
+    # Get from email from settings, defaulting to onboarding@resend.dev if not configured
+    settings = get_settings()
+    from_email = settings.resend_from_email or "onboarding@resend.dev"
     
-    # Build email payload for Resend API
+    # Sanitize subject line to avoid spam triggers
+    # Remove any potentially problematic characters and ensure it's not too long
+    safe_title = briefing_title[:50] + "..." if len(briefing_title) > 50 else briefing_title
+    subject = f"Augustus Today: {safe_title}"
+    
+    # Build email payload for Resend API with deliverability best practices
     payload = {
         "from": f"Augustus Briefings <{from_email}>",
         "to": recipients,
-        "subject": f"Augustus Today: {briefing_title}",
+        "subject": subject,
         "html": html_content,
         "text": text_content,
+        "reply_to": from_email,  # Set reply-to for better deliverability
+        "headers": {
+            "List-Unsubscribe": f"<{frontend_url}/dashboard>",  # RFC 2369 compliance
+            "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",  # One-click unsubscribe support
+            "X-Mailer": "Augustus Briefing System",  # Identify the sending system
+            "Precedence": "bulk",  # Indicate this is automated/bulk email
+        },
     }
     
     headers = {
@@ -433,16 +446,17 @@ Manage Briefings: {frontend_url}/dashboard
 
 © {datetime.now().year} Augustus. All rights reserved.
 This is an automated briefing notification.
+To manage your scheduled briefings, visit your dashboard.
     """
     
     # Resend API endpoint
     url = "https://api.resend.com/emails"
     
-    # Use onboarding@resend.dev as the from email (for testing without verified sender domain)
-    # See: https://docs.novu.co/platform/integrations/email/resend#getting-started
-    from_email = "onboarding@resend.dev"
+    # Get from email from settings, defaulting to onboarding@resend.dev if not configured
+    settings = get_settings()
+    from_email = settings.resend_from_email or "onboarding@resend.dev"
     
-    # Build email payload for Resend API
+    # Build email payload for Resend API with deliverability best practices
     subject = f"Augustus Today ({len(briefings)} briefing{'' if len(briefings) == 1 else 's'})"
     
     payload = {
@@ -451,6 +465,13 @@ This is an automated briefing notification.
         "subject": subject,
         "html": html_content,
         "text": text_content,
+        "reply_to": from_email,  # Set reply-to for better deliverability
+        "headers": {
+            "List-Unsubscribe": f"<{frontend_url}/dashboard>",  # RFC 2369 compliance
+            "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",  # One-click unsubscribe support
+            "X-Mailer": "Augustus Briefing System",  # Identify the sending system
+            "Precedence": "bulk",  # Indicate this is automated/bulk email
+        },
     }
     
     headers = {

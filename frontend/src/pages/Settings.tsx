@@ -19,7 +19,8 @@ import {
   ChevronDown,
   Clock,
   Globe,
-  Mail
+  Mail,
+  Sparkles
 } from 'lucide-react'
 import clsx from 'clsx'
 import { settingsApi, AppSettings, ModelOption, TimezoneGroups } from '../api/client'
@@ -71,7 +72,9 @@ export default function Settings() {
   const [timezone, setTimezone] = useState('UTC')
   const [newsApiKey, setNewsApiKey] = useState('')
   const [resendApiKey, setResendApiKey] = useState('')
+  const [resendFromEmail, setResendFromEmail] = useState('')
   const [userName, setUserName] = useState('')
+  const [autoPlayNext, setAutoPlayNext] = useState(false)
   
   // UI state
   const [showOpenrouterKey, setShowOpenrouterKey] = useState(false)
@@ -199,6 +202,7 @@ export default function Settings() {
       setConversationComplexity(settings.conversation_complexity || 3)
       setTimezone(settings.timezone || 'UTC')
       setUserName(settings.user_name || '')
+      setAutoPlayNext(settings.auto_play_next || false)
       // Show masked keys if user hasn't typed anything yet
       if (!openrouterKey && settings.openrouter_api_key) {
         setOpenrouterKey(settings.openrouter_api_key)
@@ -214,6 +218,9 @@ export default function Settings() {
       }
       if (!resendApiKey && settings.resend_api_key) {
         setResendApiKey(settings.resend_api_key)
+      }
+      if (settings.resend_from_email !== undefined) {
+        setResendFromEmail(settings.resend_from_email || '')
       }
     }
   }, [settings])
@@ -249,6 +256,9 @@ export default function Settings() {
     }
     
     // Always send non-key settings if changed
+    if (resendFromEmail !== (settings?.resend_from_email || '')) {
+      updates.resend_from_email = resendFromEmail || null
+    }
     if (openrouterModel !== settings?.openrouter_model) updates.openrouter_model = openrouterModel
     if (openrouterWriterModel !== (settings?.openrouter_writer_model || '')) {
       updates.openrouter_writer_model = openrouterWriterModel || null
@@ -265,6 +275,7 @@ export default function Settings() {
     if (conversationComplexity !== settings?.conversation_complexity) updates.conversation_complexity = conversationComplexity
     if (timezone !== settings?.timezone) updates.timezone = timezone
     if (userName !== settings?.user_name) updates.user_name = userName
+    if (autoPlayNext !== settings?.auto_play_next) updates.auto_play_next = autoPlayNext
     
     if (Object.keys(updates).length > 0) {
       updateMutation.mutate(updates)
@@ -885,18 +896,48 @@ export default function Settings() {
           Personalization
         </h2>
         
-        <div>
-          <label className="label">Your Name</label>
-          <input
-            type="text"
-            value={userName}
-            onChange={(e) => setUserName(e.target.value)}
-            placeholder="Enter your name (e.g., David)"
-            className="input"
-          />
-          <p className="text-xs text-augustus-500 mt-2">
-            Hosts will address you by name in podcasts
-          </p>
+        <div className="space-y-4">
+          <div>
+            <label className="label">Your Name</label>
+            <input
+              type="text"
+              value={userName}
+              onChange={(e) => setUserName(e.target.value)}
+              placeholder="Enter your name (e.g., David)"
+              className="input"
+            />
+            <p className="text-xs text-augustus-500 mt-2">
+              Hosts will address you by name in podcasts
+            </p>
+          </div>
+          
+          <div className="pt-3 border-t border-augustus-700/50">
+            <label className="flex items-start gap-3 cursor-pointer group">
+              <div className="relative flex items-center justify-center mt-0.5">
+                <input
+                  type="checkbox"
+                  checked={autoPlayNext}
+                  onChange={(e) => setAutoPlayNext(e.target.checked)}
+                  className="sr-only peer"
+                />
+                <div className="w-5 h-5 border-2 border-augustus-600 rounded bg-augustus-800 peer-checked:bg-accent peer-checked:border-accent transition-colors flex items-center justify-center">
+                  {autoPlayNext && (
+                    <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                  )}
+                </div>
+              </div>
+              <div className="flex-1">
+                <span className="text-sm font-medium text-white group-hover:text-accent transition-colors">
+                  Auto-play Next Briefing
+                </span>
+                <p className="text-xs text-augustus-400 mt-1">
+                  When a briefing finishes, automatically play the most recent unlistened briefing.
+                </p>
+              </div>
+            </label>
+          </div>
         </div>
       </div>
       
@@ -975,24 +1016,43 @@ export default function Settings() {
           )}
         </h2>
         
-        <div>
-          <label className="label">Resend API Key</label>
-          <div className="relative">
-            <Key className="absolute left-3 sm:left-4 top-1/2 -translate-y-1/2 w-4 sm:w-5 h-4 sm:h-5 text-augustus-500" />
-            <input
-              type={showResendApiKey ? 'text' : 'password'}
-              value={resendApiKey}
-              onChange={(e) => setResendApiKey(e.target.value)}
-              placeholder={settings?.resend_api_key || 're_xxxxxxxxxxxxxxxxxxxxx'}
-              className="input pl-10 sm:pl-12 pr-10 sm:pr-12"
-            />
-            <button
-              type="button"
-              onClick={() => setShowResendApiKey(!showResendApiKey)}
-              className="absolute right-3 sm:right-4 top-1/2 -translate-y-1/2 text-augustus-500 hover:text-augustus-300 p-1"
-            >
-              {showResendApiKey ? <EyeOff className="w-4 sm:w-5 h-4 sm:h-5" /> : <Eye className="w-4 sm:w-5 h-4 sm:h-5" />}
-            </button>
+        <div className="space-y-4">
+          <div>
+            <label className="label">Resend API Key</label>
+            <div className="relative">
+              <Key className="absolute left-3 sm:left-4 top-1/2 -translate-y-1/2 w-4 sm:w-5 h-4 sm:h-5 text-augustus-500" />
+              <input
+                type={showResendApiKey ? 'text' : 'password'}
+                value={resendApiKey}
+                onChange={(e) => setResendApiKey(e.target.value)}
+                placeholder={settings?.resend_api_key || 're_xxxxxxxxxxxxxxxxxxxxx'}
+                className="input pl-10 sm:pl-12 pr-10 sm:pr-12"
+              />
+              <button
+                type="button"
+                onClick={() => setShowResendApiKey(!showResendApiKey)}
+                className="absolute right-3 sm:right-4 top-1/2 -translate-y-1/2 text-augustus-500 hover:text-augustus-300 p-1"
+              >
+                {showResendApiKey ? <EyeOff className="w-4 sm:w-5 h-4 sm:h-5" /> : <Eye className="w-4 sm:w-5 h-4 sm:h-5" />}
+              </button>
+            </div>
+          </div>
+          
+          <div>
+            <label className="label">From Email Address</label>
+            <div className="relative">
+              <Mail className="absolute left-3 sm:left-4 top-1/2 -translate-y-1/2 w-4 sm:w-5 h-4 sm:h-5 text-augustus-500" />
+              <input
+                type="email"
+                value={resendFromEmail}
+                onChange={(e) => setResendFromEmail(e.target.value)}
+                placeholder={settings?.resend_from_email || 'onboarding@resend.dev'}
+                className="input pl-10 sm:pl-12"
+              />
+            </div>
+            <p className="text-xs text-augustus-500 mt-1">
+              Email address to send from. Leave blank to use the default (onboarding@resend.dev).
+            </p>
           </div>
         </div>
       </div>
@@ -1021,7 +1081,7 @@ export default function Settings() {
       </div>
       
       {/* About Button */}
-      <div className="mt-6 sm:mt-8">
+      <div className="mt-6 sm:mt-8 space-y-4">
         <button
           onClick={() => navigate('/about')}
           className="w-full card hover:border-augustus-600 transition-colors cursor-pointer group active:scale-[0.99] flex items-center justify-between"
@@ -1034,6 +1094,30 @@ export default function Settings() {
               </h3>
               <p className="text-xs sm:text-sm text-augustus-400 mt-0.5">
                 Learn more about the app, server, and creator
+              </p>
+            </div>
+          </div>
+          <ExternalLink className="w-5 h-5 text-augustus-600 group-hover:text-augustus-400 transition-colors flex-shrink-0" />
+        </button>
+        
+        {/* Start Onboarding Button */}
+        <button
+          onClick={() => {
+            // Clear onboarding flags to restart
+            localStorage.removeItem('augustus_onboarded')
+            localStorage.removeItem('augustus_onboarding_skipped')
+            navigate('/onboarding')
+          }}
+          className="w-full card hover:border-augustus-600 transition-colors cursor-pointer group active:scale-[0.99] flex items-center justify-between"
+        >
+          <div className="flex items-center gap-3">
+            <Sparkles className="w-5 h-5 text-accent flex-shrink-0" />
+            <div className="text-left">
+              <h3 className="text-base sm:text-lg font-semibold text-white group-hover:text-accent transition-colors">
+                Start Onboarding
+              </h3>
+              <p className="text-xs sm:text-sm text-augustus-400 mt-0.5">
+                Complete the setup wizard to configure your AI providers, topics, and generate your first podcast
               </p>
             </div>
           </div>

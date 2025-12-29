@@ -46,7 +46,7 @@ class BriefingOrchestrator:
         articles: list[dict],
         topics: list[str],
         max_stories: int = 5,
-    ) -> tuple[list[dict], Optional[str], str]:
+    ) -> tuple[list[dict], Optional[str], str, dict]:
         """Analyze and rank news stories.
         
         Args:
@@ -55,7 +55,7 @@ class BriefingOrchestrator:
             max_stories: Maximum number of stories to select
             
         Returns:
-            Tuple of (ranked_stories, analysis_summary, raw_response)
+            Tuple of (ranked_stories, analysis_summary, raw_response, usage)
         """
         return await self.story_analyzer.analyze_and_rank(
             articles=articles,
@@ -66,16 +66,17 @@ class BriefingOrchestrator:
     async def gather_additional_facts(
         self,
         stories: list[dict],
-    ) -> tuple[dict[int, list[str]], str]:
+    ) -> tuple[dict[int, list[str]], str, dict]:
         """Gather additional facts for stories.
         
         Args:
             stories: List of story dictionaries with full content
             
         Returns:
-            Tuple of (facts_dict, raw_response)
+            Tuple of (facts_dict, raw_response, usage)
             facts_dict: Dictionary mapping article index to lists of facts
             raw_response: Raw LLM response content
+            usage: LLM usage data including cost information
         """
         return await self.facts_gatherer.gather_facts(stories=stories)
     

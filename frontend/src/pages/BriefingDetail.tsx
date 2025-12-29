@@ -23,7 +23,8 @@ import {
   FileAudio,
   Zap,
   BarChart3,
-  Heart
+  Heart,
+  Trash2
 } from 'lucide-react'
 import clsx from 'clsx'
 import { briefingsApi, settingsApi, castsApi, SegmentTiming } from '../api/client'
@@ -99,6 +100,16 @@ export default function BriefingDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['briefing', id] })
       queryClient.invalidateQueries({ queryKey: ['briefings'] })
+    },
+  })
+  
+  // Mutation for deleting briefing
+  const deleteMutation = useMutation({
+    mutationFn: () => briefingsApi.delete(id!),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['briefings'] })
+      setShowMenu(false)
+      navigate('/dashboard')
     },
   })
   
@@ -747,7 +758,7 @@ export default function BriefingDetail() {
               </button>
               
               {/* Menu button */}
-              <div className="relative">
+              <div className={clsx('relative', showMenu && 'z-[102]')}>
                 <button
                   onClick={() => setShowMenu(!showMenu)}
                   className="btn btn-ghost p-2 text-augustus-400 hover:text-white"
@@ -791,6 +802,22 @@ export default function BriefingDetail() {
                         <div>
                           <span className="text-white font-medium block text-sm">
                             {briefing.listened ? 'Mark as Not Listened' : 'Mark as listened'}
+                          </span>
+                        </div>
+                      </button>
+                      <button
+                        onClick={() => deleteMutation.mutate()}
+                        disabled={deleteMutation.isPending}
+                        className="w-full px-4 py-3 text-left hover:bg-red-500/10 active:bg-red-500/20 transition-colors flex items-center gap-3 text-red-400 hover:text-red-300"
+                      >
+                        {deleteMutation.isPending ? (
+                          <Loader2 className="w-5 h-5 animate-spin" />
+                        ) : (
+                          <Trash2 className="w-5 h-5" />
+                        )}
+                        <div>
+                          <span className="font-medium block text-sm">
+                            Delete briefing
                           </span>
                         </div>
                       </button>
@@ -1137,6 +1164,91 @@ export default function BriefingDetail() {
                             <span className="text-white font-mono text-xs break-all text-right ml-2">
                               {settings.gemini_model}
                             </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Costs Breakdown */}
+                  {briefing.extra_data?.costs && (
+                    <div className="p-3 sm:p-4 rounded-lg bg-augustus-900/50">
+                      <h4 className="text-xs sm:text-sm font-semibold text-augustus-200 mb-3 flex items-center gap-2">
+                        <BarChart3 className="w-4 h-4 text-accent" />
+                        Costs
+                      </h4>
+                      <div className="space-y-3 text-xs sm:text-sm">
+                        {briefing.extra_data.costs.story_analysis && (
+                          <div className="space-y-1">
+                            <div className="flex justify-between items-center">
+                              <span className="text-augustus-400">Story Analysis:</span>
+                              <span className="text-white font-mono">
+                                ${(briefing.extra_data.costs.story_analysis.cost || 0).toFixed(6)}
+                              </span>
+                            </div>
+                            {briefing.extra_data.costs.story_analysis.total_tokens && (
+                              <div className="flex justify-between text-augustus-500 text-xs ml-4">
+                                <span>{briefing.extra_data.costs.story_analysis.total_tokens.toLocaleString()} tokens</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {briefing.extra_data.costs.facts_gathering && (
+                          <div className="space-y-1">
+                            <div className="flex justify-between items-center">
+                              <span className="text-augustus-400">Facts Gathering:</span>
+                              <span className="text-white font-mono">
+                                ${(briefing.extra_data.costs.facts_gathering.cost || 0).toFixed(6)}
+                              </span>
+                            </div>
+                            {briefing.extra_data.costs.facts_gathering.total_tokens && (
+                              <div className="flex justify-between text-augustus-500 text-xs ml-4">
+                                <span>{briefing.extra_data.costs.facts_gathering.total_tokens.toLocaleString()} tokens</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {briefing.extra_data.costs.script_writing && (
+                          <div className="space-y-1">
+                            <div className="flex justify-between items-center">
+                              <span className="text-augustus-400">Script Writing:</span>
+                              <span className="text-white font-mono">
+                                ${(briefing.extra_data.costs.script_writing.cost || 0).toFixed(6)}
+                              </span>
+                            </div>
+                            {briefing.extra_data.costs.script_writing.total_tokens && (
+                              <div className="flex justify-between text-augustus-500 text-xs ml-4">
+                                <span>{briefing.extra_data.costs.script_writing.total_tokens.toLocaleString()} tokens</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {briefing.extra_data.costs.tts_generation && (
+                          <div className="space-y-1">
+                            <div className="flex justify-between items-center">
+                              <span className="text-augustus-400">TTS Generation:</span>
+                              <span className="text-white font-mono">
+                                ${(briefing.extra_data.costs.tts_generation.cost || 0).toFixed(6)}
+                              </span>
+                            </div>
+                            {briefing.extra_data.costs.tts_generation.characters && (
+                              <div className="flex justify-between text-augustus-500 text-xs ml-4">
+                                <span>{briefing.extra_data.costs.tts_generation.characters.toLocaleString()} chars</span>
+                                {briefing.extra_data.costs.tts_generation.duration_seconds && (
+                                  <span>{Math.round(briefing.extra_data.costs.tts_generation.duration_seconds)}s</span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {briefing.extra_data.costs.total !== undefined && (
+                          <div className="pt-2 mt-2 border-t border-augustus-700">
+                            <div className="flex justify-between items-center">
+                              <span className="text-augustus-200 font-semibold">Total:</span>
+                              <span className="text-white font-mono font-semibold">
+                                ${(briefing.extra_data.costs.total || 0).toFixed(6)}
+                              </span>
+                            </div>
                           </div>
                         )}
                       </div>

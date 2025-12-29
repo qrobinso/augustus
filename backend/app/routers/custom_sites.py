@@ -78,6 +78,11 @@ async def list_custom_sites(
     )
 
 
+def normalize_url(url: str) -> str:
+    """Normalize URL for duplicate checking (remove trailing slash, lowercase)."""
+    return url.strip().lower().rstrip('/')
+
+
 @router.post("", response_model=CustomSiteResponse, status_code=status.HTTP_201_CREATED)
 async def create_custom_site(
     request: CustomSiteCreate,
@@ -103,18 +108,19 @@ async def create_custom_site(
             detail="Access denied to this topic",
         )
     
-    # Check for duplicate URL for this user
-    existing = await db.execute(
-        select(CustomSite).where(
-            CustomSite.user_id == user.id,
-            CustomSite.url == request.url,
-        )
+    # Normalize URL for duplicate checking
+    normalized_url = normalize_url(request.url)
+    
+    # Check for duplicate URL for this user (check normalized URLs)
+    existing_sites = await db.execute(
+        select(CustomSite).where(CustomSite.user_id == user.id)
     )
-    if existing.scalar_one_or_none():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="A site with this URL already exists",
-        )
+    for existing_site in existing_sites.scalars():
+        if normalize_url(existing_site.url) == normalized_url:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="A site with this URL already exists",
+            )
     
     site = CustomSite(
         id=str(uuid.uuid4()),

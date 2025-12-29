@@ -269,6 +269,14 @@ export default function Dashboard() {
     },
   })
   
+  const triggerScheduleMutation = useMutation({
+    mutationFn: (id: string) => scheduledBriefingsApi.trigger(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['briefings'] })
+      queryClient.invalidateQueries({ queryKey: ['scheduled-briefings'] })
+    },
+  })
+  
   const handlePlayPause = (briefing: Briefing, e: React.MouseEvent) => {
     e.stopPropagation() // Prevent navigation when clicking play
     
@@ -560,7 +568,7 @@ export default function Dashboard() {
                 : 'text-augustus-300 hover:text-white'
             )}
           >
-            Audio Briefs
+            Briefs
           </button>
           <button
             onClick={() => setActiveTab('generate')}
@@ -571,7 +579,7 @@ export default function Dashboard() {
                 : 'text-augustus-300 hover:text-white'
             )}
           >
-            Generate
+            Generate & Schedule
           </button>
         </div>
       </div>
@@ -920,6 +928,30 @@ export default function Dashboard() {
                       </button>
                     </div>
                   </div>
+                  
+                  {/* Manual Trigger Button */}
+                  <div className="mt-3 pt-3 border-t border-augustus-800/50">
+                    <button
+                      onClick={() => triggerScheduleMutation.mutate(schedule.id)}
+                      disabled={triggerScheduleMutation.isPending || !schedule.is_active}
+                      className={clsx(
+                        'btn btn-primary flex items-center justify-center gap-2 w-full sm:w-auto',
+                        !schedule.is_active && 'opacity-50 cursor-not-allowed'
+                      )}
+                    >
+                      {triggerScheduleMutation.isPending ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Generating...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-4 h-4" />
+                          Generate Now
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
               )
             })}
@@ -1263,6 +1295,26 @@ export default function Dashboard() {
                           </span>
                         ))}
                       </div>
+                      
+                      {/* Progress bar for generating briefings */}
+                      {(briefing.status === 'generating' || briefing.status === 'pending') && briefing.extra_data?.progress && (
+                        <div className="mt-4 space-y-2">
+                          <div className="flex justify-between text-xs sm:text-sm">
+                            <span className="text-augustus-300 truncate mr-2">
+                              Step {briefing.extra_data.progress.step}/{briefing.extra_data.progress.total_steps}: {briefing.extra_data.progress.step_name}
+                            </span>
+                            <span className="text-augustus-400 flex-shrink-0">
+                              {briefing.extra_data.progress.percent}%
+                            </span>
+                          </div>
+                          <div className="h-2 bg-augustus-800/50 rounded-full overflow-hidden">
+                            <div 
+                              className="h-full bg-yellow-500 rounded-full transition-all duration-500"
+                              style={{ width: `${briefing.extra_data.progress.percent}%` }}
+                            />
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     {/* Bottom: Play Button & Stats */}
@@ -1413,6 +1465,25 @@ export default function Dashboard() {
                     )}
                     {briefing.error_message && (
                       <p className={clsx('text-red-400', isLatest ? 'text-sm sm:text-base mt-2' : 'text-xs sm:text-sm mt-1')}>{briefing.error_message}</p>
+                    )}
+                    {/* Progress bar for generating briefings */}
+                    {(briefing.status === 'generating' || briefing.status === 'pending') && briefing.extra_data?.progress && (
+                      <div className={clsx('space-y-1 sm:space-y-2', isLatest ? 'mt-3 sm:mt-4' : 'mt-2')}>
+                        <div className="flex justify-between text-xs">
+                          <span className="text-augustus-400 truncate mr-2">
+                            Step {briefing.extra_data.progress.step}/{briefing.extra_data.progress.total_steps}: {briefing.extra_data.progress.step_name}
+                          </span>
+                          <span className="text-augustus-500 flex-shrink-0">
+                            {briefing.extra_data.progress.percent}%
+                          </span>
+                        </div>
+                        <div className="h-2 bg-augustus-800 rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-yellow-500 rounded-full transition-all duration-500"
+                            style={{ width: `${briefing.extra_data.progress.percent}%` }}
+                          />
+                        </div>
+                      </div>
                     )}
                   </div>
                   

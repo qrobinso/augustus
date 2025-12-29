@@ -162,13 +162,20 @@ class ElevenLabsProvider(TTSProvider):
         # All attempts failed
         raise RuntimeError(f"ElevenLabs TTS failed: {last_error}")
     
+    # Maximum characters per Text to Dialogue API call
+    MAX_DIALOGUE_CHARS = 4500  # Leave some buffer under the 5000 limit
+    
     async def synthesize_conversation(
         self,
         script: list[dict],
         output_path: Path,
         voice_map: Optional[dict[str, str]] = None,
     ) -> TTSResult:
-        """Synthesize a multi-speaker conversation."""
+        """Synthesize a multi-speaker conversation using ElevenLabs Text to Dialogue API.
+        
+        This uses batched API calls for the conversation, chunking into groups
+        that fit within the 5000 character limit.
+        """
         if voice_map is None:
             # Use default voices (should always be passed from cast, but fallback just in case)
             voice_map = {
@@ -177,14 +184,196 @@ class ElevenLabsProvider(TTSProvider):
             }
             print(f"[ElevenLabs] WARNING: No voice_map provided, using defaults")
         
-        # Generate audio for each segment and track durations
-        segment_paths = []
-        segment_durations = []
-        segment_data = []  # Store segment info for timing
+        # Build dialogue inputs for the Text to Dialogue API
+        dialogue_inputs = []
+        segment_data = []
+        
+        segment_index = 0
+        for segment in script:
+            speaker = segment.get("speaker", "HOST1")
+            text = segment.get("text", "").strip()
+            
+            if not text:
+                continue
+            
+            # Resolve voice ID from the voice map
+            voice_id = voice_map.get(speaker, "host1")
+            actual_voice_id = self._resolve_voice_id(voice_id)
+            
+            dialogue_inputs.append({
+                "text": text,
+                "voice_id": actual_voice_id,
+            })
+            
+            segment_data.append({
+                "index": segment_index,
+                "speaker": speaker,
+                "text": text,
+            })
+            segment_index += 1
+        
+        if not dialogue_inputs:
+            raise RuntimeError("No valid conversation segments provided")
+        
+        # Log conversation details
+        unique_speakers = set(seg["speaker"] for seg in segment_data)
+        total_chars = sum(len(inp["text"]) for inp in dialogue_inputs)
+        print(f"[ElevenLabs] Generating multi-speaker dialogue with {len(unique_speakers)} speakers, {len(dialogue_inputs)} segments, {total_chars} chars...")
+        speaker_info = ', '.join(f'{s}={self._resolve_voice_id(voice_map.get(s, "host1"))}' for s in unique_speakers)
+        print(f"[ElevenLabs] Speakers: {speaker_info}")
+        
+        # Chunk dialogue inputs to stay under character limit
+        batches = self._chunk_dialogue_inputs(dialogue_inputs)
+        print(f"[ElevenLabs] Split into {len(batches)} batch(es) to stay under {self.MAX_DIALOGUE_CHARS} char limit")
+        
+        # Generate audio for each batch
+        batch_paths = []
+        batch_durations = []
         temp_files = []
         
         try:
-            print(f"[ElevenLabs] Generating {len(script)} segments...")
+            for batch_idx, batch in enumerate(batches):
+                batch_chars = sum(len(inp["text"]) for inp in batch)
+                print(f"[ElevenLabs] Processing batch {batch_idx + 1}/{len(batches)} ({len(batch)} segments, {batch_chars} chars)...")
+                
+                # Call the Text to Dialogue API
+                payload = {
+                    "inputs": batch,
+                    "model_id": "eleven_v3",
+                }
+                
+                response = await self.client.post(
+                    "/text-to-dialogue",
+                    json=payload,
+                    timeout=300.0,
+                )
+                
+                if response.status_code != 200:
+                    error_detail = response.text
+                    print(f"[ElevenLabs] Text to Dialogue API error: {response.status_code}")
+                    print(f"[ElevenLabs] Error detail: {error_detail}")
+                    
+                    # Fall back to segment-by-segment generation if dialogue API fails
+                    print(f"[ElevenLabs] Falling back to segment-by-segment generation...")
+                    return await self._synthesize_conversation_fallback(script, output_path, voice_map)
+                
+                # Save batch audio to temp file
+                batch_path = output_path.parent / f"_dialogue_batch_{batch_idx}.mp3"
+                temp_files.append(batch_path)
+                
+                with open(batch_path, "wb") as f:
+                    f.write(response.content)
+                
+                batch_duration = await self._get_audio_duration(batch_path)
+                batch_paths.append(batch_path)
+                batch_durations.append(batch_duration)
+                print(f"[ElevenLabs] Batch {batch_idx + 1} complete: {batch_duration:.1f}s")
+            
+            # Concatenate batches if multiple
+            if len(batch_paths) == 1:
+                # Single batch - just move the file
+                import shutil
+                shutil.move(str(batch_paths[0]), str(output_path))
+                temp_files.remove(batch_paths[0])
+            else:
+                # Multiple batches - concatenate
+                print(f"[ElevenLabs] Concatenating {len(batch_paths)} batches...")
+                await self._concatenate_audio(batch_paths, output_path)
+            
+            print(f"[ElevenLabs] Audio saved to: {output_path}")
+            
+            # Get actual duration
+            duration = await self._get_audio_duration(output_path)
+            print(f"[ElevenLabs] Total duration: {duration:.1f} seconds")
+            
+            # Estimate segment timings based on text length
+            total_chars = sum(len(seg["text"]) for seg in segment_data)
+            segment_timings = []
+            current_time = 0.0
+            
+            for seg in segment_data:
+                seg_proportion = len(seg["text"]) / total_chars if total_chars > 0 else 0
+                seg_duration = duration * seg_proportion
+                
+                timing = SegmentTiming(
+                    index=seg["index"],
+                    speaker=seg["speaker"],
+                    text=seg["text"],
+                    start_seconds=current_time,
+                    end_seconds=current_time + seg_duration,
+                    duration_seconds=seg_duration,
+                )
+                segment_timings.append(timing)
+                current_time += seg_duration
+            
+            print(f"[ElevenLabs] Multi-speaker dialogue complete: {duration:.1f}s total, {len(segment_timings)} segments")
+            
+            return TTSResult(
+                audio_path=output_path,
+                duration_seconds=duration,
+                voice_id="conversation",
+                format="mp3",
+                segment_timings=segment_timings,
+            )
+            
+        finally:
+            # Cleanup temp files
+            for temp_file in temp_files:
+                try:
+                    if temp_file.exists():
+                        temp_file.unlink()
+                except Exception:
+                    pass
+    
+    def _chunk_dialogue_inputs(self, inputs: list[dict]) -> list[list[dict]]:
+        """Chunk dialogue inputs into batches that fit within character limit."""
+        batches = []
+        current_batch = []
+        current_chars = 0
+        
+        for inp in inputs:
+            text_len = len(inp["text"])
+            
+            # If single segment exceeds limit, it will be in its own batch
+            # (the API will truncate or error, but we can't split a single segment)
+            if current_chars + text_len > self.MAX_DIALOGUE_CHARS and current_batch:
+                batches.append(current_batch)
+                current_batch = []
+                current_chars = 0
+            
+            current_batch.append(inp)
+            current_chars += text_len
+        
+        # Don't forget the last batch
+        if current_batch:
+            batches.append(current_batch)
+        
+        return batches
+    
+    async def _synthesize_conversation_fallback(
+        self,
+        script: list[dict],
+        output_path: Path,
+        voice_map: Optional[dict[str, str]] = None,
+    ) -> TTSResult:
+        """Fallback: Synthesize conversation segment-by-segment and concatenate.
+        
+        Used when the Text to Dialogue API is unavailable or fails.
+        """
+        if voice_map is None:
+            voice_map = {
+                "HOST1": "21m00Tcm4TlvDq8ikWAM",
+                "HOST2": "AZnzlk1XvdvUeBnXmlld",
+            }
+        
+        # Generate audio for each segment and track durations
+        segment_paths = []
+        segment_durations = []
+        segment_data = []
+        temp_files = []
+        
+        try:
+            print(f"[ElevenLabs] Generating {len(script)} segments (fallback mode)...")
             
             segment_index = 0
             for i, segment in enumerate(script):

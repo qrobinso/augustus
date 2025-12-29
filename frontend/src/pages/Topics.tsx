@@ -20,10 +20,11 @@ import {
   CheckCircle,
   XCircle,
   Sparkles,
-  ArrowUpDown
+  ArrowUpDown,
+  Wand2
 } from 'lucide-react'
 import clsx from 'clsx'
-import { topicsApi, customSitesApi, Topic, CustomSite } from '../api/client'
+import { topicsApi, customSitesApi, Topic, CustomSite, GeneratedTopicFromPrompt } from '../api/client'
 
 const PRESET_COLORS = [
   '#3B82F6', // Blue
@@ -81,6 +82,15 @@ export default function Topics() {
     const saved = localStorage.getItem('topicsSortBy')
     return saved !== null ? JSON.parse(saved) : { field: 'created_at', direction: 'desc' }
   })
+  
+  // Prompt-based topic generation state
+  const [topicPrompt, setTopicPrompt] = useState('')
+  const [isGeneratingFromPrompt, setIsGeneratingFromPrompt] = useState(false)
+  const [generatedTopic, setGeneratedTopic] = useState<GeneratedTopicFromPrompt | null>(null)
+  const [generatedTopicColor, setGeneratedTopicColor] = useState(PRESET_COLORS[0])
+  const [selectedGeneratedSites, setSelectedGeneratedSites] = useState<Set<number>>(new Set())
+  const [isCreatingGeneratedTopic, setIsCreatingGeneratedTopic] = useState(false)
+  const [promptError, setPromptError] = useState<string | null>(null)
   
   // Save sort preference to localStorage
   useEffect(() => {
@@ -330,6 +340,136 @@ export default function Topics() {
     })
   }
   
+  // Handle generating topic from prompt
+  const handleGenerateFromPrompt = async () => {
+    if (!topicPrompt.trim()) return
+    
+    setIsGeneratingFromPrompt(true)
+    setPromptError(null)
+    setGeneratedTopic(null)
+    
+    try {
+      const result = await topicsApi.generateFromPrompt(topicPrompt.trim())
+      setGeneratedTopic(result)
+      // Select all sites by default
+      setSelectedGeneratedSites(new Set(result.sites.map((_, i) => i)))
+      // Reset color
+      setGeneratedTopicColor(PRESET_COLORS[Math.floor(Math.random() * PRESET_COLORS.length)])
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to generate topic'
+      setPromptError(errorMessage)
+    } finally {
+      setIsGeneratingFromPrompt(false)
+    }
+  }
+  
+  // Normalize URL for duplicate checking (remove trailing slash, lowercase)
+  const normalizeUrl = (url: string): string => {
+    return url.trim().toLowerCase().replace(/\/$/, '')
+  }
+  
+  // Handle creating the generated topic
+  const handleCreateGeneratedTopic = async () => {
+    if (!generatedTopic) return
+    
+    setIsCreatingGeneratedTopic(true)
+    setPromptError(null)
+    
+    try {
+      // Create the topic
+      const newTopic = await topicsApi.create({
+        name: generatedTopic.name,
+        description: generatedTopic.description,
+        color: generatedTopicColor,
+        use_newsapi: generatedTopic.use_newsapi,
+      })
+      
+      // Get all existing sites to check for duplicates
+      const existingSitesData = await customSitesApi.list()
+      const existingUrls = new Set(
+        existingSitesData.sites.map(site => normalizeUrl(site.url))
+      )
+      
+      // Add selected sites, filtering out duplicates
+      const selectedSitesList = Array.from(selectedGeneratedSites).map(i => generatedTopic.sites[i])
+      const seenUrls = new Set<string>()
+      const sitesToCreate: Array<{ name: string; url: string }> = []
+      
+      for (const site of selectedSitesList) {
+        const normalizedUrl = normalizeUrl(site.url)
+        
+        // Skip if already seen in this batch or exists in database
+        if (seenUrls.has(normalizedUrl) || existingUrls.has(normalizedUrl)) {
+          continue
+        }
+        
+        seenUrls.add(normalizedUrl)
+        sitesToCreate.push(site)
+      }
+      
+      // Create sites, continuing even if some fail
+      const errors: string[] = []
+      let successCount = 0
+      
+      for (const site of sitesToCreate) {
+        try {
+          await customSitesApi.create({
+            name: site.name,
+            url: site.url,
+            topic_id: newTopic.id,
+          })
+          successCount++
+        } catch (err: unknown) {
+          const errorMsg = err instanceof Error ? err.message : 'Unknown error'
+          errors.push(`${site.name}: ${errorMsg}`)
+        }
+      }
+      
+      // Show errors if any, but don't fail the whole operation
+      if (errors.length > 0) {
+        setPromptError(
+          `Created ${successCount} site(s), but ${errors.length} failed: ${errors.join('; ')}`
+        )
+      }
+      
+      // Refresh data and reset state
+      queryClient.invalidateQueries({ queryKey: ['topics'] })
+      queryClient.invalidateQueries({ queryKey: ['custom-sites'] })
+      
+      // Only clear the form if all sites were created successfully
+      if (errors.length === 0) {
+        setGeneratedTopic(null)
+        setTopicPrompt('')
+        setSelectedGeneratedSites(new Set())
+      }
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to create topic'
+      setPromptError(errorMessage)
+    } finally {
+      setIsCreatingGeneratedTopic(false)
+    }
+  }
+  
+  // Toggle site selection for generated topic
+  const toggleGeneratedSiteSelection = (index: number) => {
+    setSelectedGeneratedSites(prev => {
+      const next = new Set(prev)
+      if (next.has(index)) {
+        next.delete(index)
+      } else {
+        next.add(index)
+      }
+      return next
+    })
+  }
+  
+  // Cancel/dismiss generated topic
+  const dismissGeneratedTopic = () => {
+    setGeneratedTopic(null)
+    setSelectedGeneratedSites(new Set())
+    setPromptError(null)
+  }
+  
   // Sort topics based on selected sort option
   const sortedTopics = useMemo(() => {
     if (!data?.topics) return []
@@ -374,22 +514,231 @@ export default function Topics() {
   return (
     <div className="page-container">
       {/* Header */}
-      <div className="mb-6 sm:mb-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-display font-semibold text-white mb-1 sm:mb-2">
-            Topics & Sites
-          </h1>
-          <p className="text-sm sm:text-base text-augustus-400">
-            Manage your news topics and their associated websites
-          </p>
+      <div className="mb-6 sm:mb-8">
+        <h1 className="text-2xl sm:text-3xl font-display font-semibold text-white mb-1 sm:mb-2">
+          Topics & Sites
+        </h1>
+        <p className="text-sm sm:text-base text-augustus-400">
+          Manage your news topics and their associated websites
+        </p>
+      </div>
+      
+      {/* AI Topic Generator */}
+      <div className="card mb-6 sm:mb-8 bg-gradient-to-br from-augustus-800/50 to-augustus-900/50 border-augustus-700/50">
+        <div className="flex items-start gap-3 mb-4">
+          <div className="w-10 h-10 rounded-lg bg-accent/10 flex items-center justify-center flex-shrink-0">
+            <Wand2 className="w-5 h-5 text-accent" />
+          </div>
+          <div>
+            <h2 className="font-semibold text-white text-base sm:text-lg">Create Topic with AI</h2>
+            <p className="text-sm text-augustus-400 mt-0.5">
+              Describe what you want to follow in plain text, and AI will create a topic with recommended sources
+            </p>
+          </div>
         </div>
-        <button
-          onClick={() => navigate('/topics/create', { state: { from: '/topics' } })}
-          className="btn btn-primary flex items-center gap-2 w-full sm:w-auto"
-        >
-          <Plus className="w-5 h-5" />
-          Create Topic
-        </button>
+        
+        <div className="space-y-4">
+          <div className="relative">
+            <textarea
+              value={topicPrompt}
+              onChange={(e) => setTopicPrompt(e.target.value)}
+              placeholder="e.g. I want to follow the latest developments in electric vehicles and sustainable transportation..."
+              className="input min-h-[80px] sm:min-h-[100px] resize-none pr-4"
+              disabled={isGeneratingFromPrompt}
+            />
+          </div>
+          
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+              <button
+                onClick={handleGenerateFromPrompt}
+                disabled={!topicPrompt.trim() || isGeneratingFromPrompt}
+                className="btn btn-primary flex items-center justify-center gap-2"
+              >
+                {isGeneratingFromPrompt ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4" />
+                    Generate Topic
+                  </>
+                )}
+              </button>
+              
+              {promptError && (
+                <div className="flex items-center gap-2 text-red-400 text-sm">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                  <span>{promptError}</span>
+                </div>
+              )}
+            </div>
+            
+            <button
+              onClick={() => navigate('/topics/create', { state: { from: '/topics' } })}
+              className="text-sm text-augustus-400 hover:text-accent transition-colors text-center self-center"
+            >
+              Manually Add Topic
+            </button>
+          </div>
+        </div>
+        
+        {/* Generated Topic Preview */}
+        {generatedTopic && (
+          <div className="mt-6 pt-6 border-t border-augustus-700/50">
+            <div className="flex items-start justify-between gap-3 mb-4">
+              <div className="flex items-center gap-2">
+                <CheckCircle className="w-5 h-5 text-green-400 flex-shrink-0" />
+                <h3 className="font-semibold text-white">Generated Topic</h3>
+              </div>
+              <button
+                onClick={dismissGeneratedTopic}
+                className="btn btn-ghost p-1.5 text-augustus-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            
+            <div className="space-y-4">
+              {/* Topic Name & Description */}
+              <div className="card bg-augustus-800/50">
+                <div className="flex items-start gap-3">
+                  <div
+                    className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
+                    style={{ backgroundColor: `${generatedTopicColor}20` }}
+                  >
+                    <Tag className="w-5 h-5" style={{ color: generatedTopicColor }} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h4 className="font-semibold text-white text-base">{generatedTopic.name}</h4>
+                    <p className="text-sm text-augustus-400 mt-1">{generatedTopic.description}</p>
+                  </div>
+                </div>
+                
+                {/* Color picker */}
+                <div className="mt-4 flex items-center gap-2 flex-wrap">
+                  <span className="text-xs text-augustus-500">Color:</span>
+                  {PRESET_COLORS.map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => setGeneratedTopicColor(c)}
+                      className={clsx(
+                        'w-6 h-6 rounded-full transition-all',
+                        generatedTopicColor === c ? 'ring-2 ring-white ring-offset-2 ring-offset-augustus-800' : 'hover:scale-110'
+                      )}
+                      style={{ backgroundColor: c }}
+                    />
+                  ))}
+                </div>
+              </div>
+              
+              {/* NewsAPI Recommendation */}
+              <div className={clsx(
+                'card flex items-start gap-3',
+                generatedTopic.use_newsapi ? 'bg-green-500/10 border-green-500/20' : 'bg-augustus-800/50'
+              )}>
+                <div className={clsx(
+                  'w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0',
+                  generatedTopic.use_newsapi ? 'bg-green-500/20' : 'bg-augustus-700'
+                )}>
+                  {generatedTopic.use_newsapi ? (
+                    <CheckCircle className="w-4 h-4 text-green-400" />
+                  ) : (
+                    <XCircle className="w-4 h-4 text-augustus-400" />
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className={clsx(
+                      'text-sm font-medium',
+                      generatedTopic.use_newsapi ? 'text-green-400' : 'text-augustus-300'
+                    )}>
+                      NewsAPI: {generatedTopic.use_newsapi ? 'Recommended' : 'Not Recommended'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-augustus-400 mt-1">{generatedTopic.reasoning}</p>
+                </div>
+              </div>
+              
+              {/* Suggested Sites */}
+              {generatedTopic.sites.length > 0 && (
+                <div className="card bg-augustus-800/50">
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="text-sm font-semibold text-white flex items-center gap-2">
+                      <Globe className="w-4 h-4 text-augustus-400" />
+                      Recommended Sites ({generatedTopic.sites.length})
+                    </h4>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setSelectedGeneratedSites(new Set(generatedTopic.sites.map((_, i) => i)))}
+                        className="text-xs text-accent hover:underline"
+                      >
+                        Select All
+                      </button>
+                      <span className="text-augustus-600">|</span>
+                      <button
+                        onClick={() => setSelectedGeneratedSites(new Set())}
+                        className="text-xs text-augustus-400 hover:text-white"
+                      >
+                        Deselect All
+                      </button>
+                    </div>
+                  </div>
+                  <div className="space-y-2 max-h-64 overflow-y-auto">
+                    {generatedTopic.sites.map((site, index) => (
+                      <label
+                        key={index}
+                        className="flex items-start gap-2 p-2 rounded hover:bg-augustus-700/50 cursor-pointer"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedGeneratedSites.has(index)}
+                          onChange={() => toggleGeneratedSiteSelection(index)}
+                          className="mt-1 w-4 h-4 rounded border-augustus-700 bg-augustus-900 text-accent focus:ring-accent focus:ring-2"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium text-white">{site.name}</div>
+                          <div className="text-xs text-augustus-400 truncate">{site.url}</div>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
+              {/* Create Button */}
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={handleCreateGeneratedTopic}
+                  disabled={isCreatingGeneratedTopic}
+                  className="btn btn-primary flex items-center gap-2"
+                >
+                  {isCreatingGeneratedTopic ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Creating...
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="w-4 h-4" />
+                      Create Topic
+                      {selectedGeneratedSites.size > 0 && ` with ${selectedGeneratedSites.size} Sites`}
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={dismissGeneratedTopic}
+                  className="btn btn-ghost"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
       
       {/* Sort dropdown - above topics list */}

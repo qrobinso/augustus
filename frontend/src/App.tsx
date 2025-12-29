@@ -1,4 +1,5 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { useEffect } from 'react'
+import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
 import Layout from './components/Layout'
 import Dashboard from './pages/Dashboard'
 import BriefingDetail from './pages/BriefingDetail'
@@ -9,23 +10,47 @@ import CreateCast from './pages/CreateCast'
 import ManagePersonalities from './pages/ManagePersonalities'
 import Settings from './pages/Settings'
 import About from './pages/About'
+import Onboarding from './pages/Onboarding'
+
+// Component that checks if user needs onboarding
+function OnboardingCheck({ children }: { children: React.ReactNode }) {
+  const navigate = useNavigate()
+  const location = useLocation()
+
+  useEffect(() => {
+    const hasOnboarded = localStorage.getItem('augustus_onboarded')
+    const wasSkipped = localStorage.getItem('augustus_onboarding_skipped')
+    // Redirect to onboarding if not completed, not skipped, and not already on onboarding page
+    if (!hasOnboarded && !wasSkipped && location.pathname !== '/onboarding') {
+      navigate('/onboarding', { replace: true })
+    }
+  }, [navigate, location.pathname])
+
+  return <>{children}</>
+}
 
 function App() {
   return (
-    <Routes>
-      <Route path="/" element={<Layout />}>
-        <Route index element={<Navigate to="/dashboard" replace />} />
-        <Route path="dashboard" element={<Dashboard />} />
-        <Route path="briefing/:id" element={<BriefingDetail />} />
-        <Route path="topics" element={<Topics />} />
-        <Route path="topics/create" element={<CreateTopic />} />
-        <Route path="casts" element={<Casts />} />
-        <Route path="casts/create" element={<CreateCast />} />
-        <Route path="casts/personalities" element={<ManagePersonalities />} />
-        <Route path="settings" element={<Settings />} />
-        <Route path="about" element={<About />} />
-      </Route>
-    </Routes>
+    <OnboardingCheck>
+      <Routes>
+        {/* Onboarding route - outside main layout */}
+        <Route path="/onboarding" element={<Onboarding />} />
+        
+        {/* Main app with layout */}
+        <Route path="/" element={<Layout />}>
+          <Route index element={<Navigate to="/dashboard" replace />} />
+          <Route path="dashboard" element={<Dashboard />} />
+          <Route path="briefing/:id" element={<BriefingDetail />} />
+          <Route path="topics" element={<Topics />} />
+          <Route path="topics/create" element={<CreateTopic />} />
+          <Route path="casts" element={<Casts />} />
+          <Route path="casts/create" element={<CreateCast />} />
+          <Route path="casts/personalities" element={<ManagePersonalities />} />
+          <Route path="settings" element={<Settings />} />
+          <Route path="about" element={<About />} />
+        </Route>
+      </Routes>
+    </OnboardingCheck>
   )
 }
 

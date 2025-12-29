@@ -3,6 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.database import get_db
 from app.models.user import User
 from app.routers.auth import get_current_user
@@ -185,3 +186,49 @@ async def toggle_scheduled_briefing(
         )
     
     return ScheduledBriefingResponse.model_validate(toggled)
+
+
+@router.post("/{schedule_id}/trigger")
+async def trigger_scheduled_briefing(
+    schedule_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Manually trigger a scheduled briefing generation and notifications.
+    
+    This will:
+    - Generate a briefing using the schedule's configuration
+    - Send email/webhook notifications if configured
+    - Update the schedule's last_generated_at timestamp
+    """
+    settings = get_settings()
+    service = ScheduledBriefingService(db)
+    scheduled_briefing = await service.get_scheduled_briefing(schedule_id)
+    
+    if not scheduled_briefing:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Scheduled briefing not found",
+        )
+    
+    if scheduled_briefing.user_id != user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied",
+        )
+    
+    # Trigger the briefing generation
+    briefing = await service.trigger_scheduled_briefing(
+        schedule_id=schedule_id,
+        db_url=settings.database_url,
+    )
+    
+    if not briefing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Failed to trigger briefing. A briefing may already be in progress.",
+        )
+    
+    # Return the briefing ID so the frontend can track it
+    from app.schemas.briefing import BriefingResponse
+    return BriefingResponse.model_validate(briefing)
