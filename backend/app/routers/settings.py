@@ -30,7 +30,7 @@ class SettingsResponse(BaseModel):
     elevenlabs_model: str = "eleven_turbo_v2_5"
     gemini_api_key: Optional[str] = None
     gemini_model: str = "gemini-2.5-flash-preview-tts"
-    enable_non_speech_sounds: bool = False
+    enable_non_speech_sounds: bool = True
     # Content Durations (minutes)
     briefing_duration_minutes: int = 5
     
@@ -200,7 +200,7 @@ def get_current_settings() -> dict:
         "elevenlabs_model": os.environ.get("ELEVENLABS_MODEL") or env_vars.get("ELEVENLABS_MODEL", "eleven_turbo_v2_5"),
         "gemini_api_key": os.environ.get("GEMINI_API_KEY") or env_vars.get("GEMINI_API_KEY"),
         "gemini_model": os.environ.get("GEMINI_MODEL") or env_vars.get("GEMINI_MODEL", "gemini-2.5-flash-preview-tts"),
-        "enable_non_speech_sounds": (os.environ.get("ENABLE_NON_SPEECH_SOUNDS") or env_vars.get("ENABLE_NON_SPEECH_SOUNDS", "false")).lower() == "true",
+        "enable_non_speech_sounds": (os.environ.get("ENABLE_NON_SPEECH_SOUNDS") or env_vars.get("ENABLE_NON_SPEECH_SOUNDS", "true")).lower() == "true",
         "briefing_duration_minutes": get_int("BRIEFING_DURATION_MINUTES", 5),
         "conversation_complexity": get_int("CONVERSATION_COMPLEXITY", 3),
         "timezone": os.environ.get("TIMEZONE") or env_vars.get("TIMEZONE", "UTC"),

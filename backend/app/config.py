@@ -72,7 +72,7 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-2.5-flash-preview-tts"
     
     # Non-speech sounds (for Gemini TTS - adds sighs, laughs, pauses, etc.)
-    enable_non_speech_sounds: bool = False
+    enable_non_speech_sounds: bool = True
     
     # Content Duration Settings (in minutes)
     briefing_duration_minutes: int = 5  # Daily briefing duration
