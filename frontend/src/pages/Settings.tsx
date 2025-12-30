@@ -1206,10 +1206,17 @@ export default function Settings() {
         
         {/* Start Onboarding Button */}
         <button
-          onClick={() => {
+          onClick={async () => {
             // Clear onboarding flags to restart
-            localStorage.removeItem('augustus_onboarded')
-            localStorage.removeItem('augustus_onboarding_skipped')
+            try {
+              await settingsApi.update({
+                onboarding_completed: false,
+                onboarding_skipped: false,
+              })
+              queryClient.invalidateQueries({ queryKey: ['settings'] })
+            } catch (error) {
+              console.error('Failed to reset onboarding state:', error)
+            }
             navigate('/onboarding')
           }}
           className="w-full card hover:border-augustus-600 transition-colors cursor-pointer group active:scale-[0.99] flex items-center justify-between"

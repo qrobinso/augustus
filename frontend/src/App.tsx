@@ -1,5 +1,7 @@
 import { useEffect } from 'react'
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
+import { settingsApi } from './api/client'
 import Layout from './components/Layout'
 import Dashboard from './pages/Dashboard'
 import BriefingDetail from './pages/BriefingDetail'
@@ -17,14 +19,22 @@ function OnboardingCheck({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate()
   const location = useLocation()
 
+  // Fetch settings to check onboarding state
+  const { data: settings } = useQuery({
+    queryKey: ['settings'],
+    queryFn: () => settingsApi.get(),
+  })
+
   useEffect(() => {
-    const hasOnboarded = localStorage.getItem('augustus_onboarded')
-    const wasSkipped = localStorage.getItem('augustus_onboarding_skipped')
-    // Redirect to onboarding if not completed, not skipped, and not already on onboarding page
-    if (!hasOnboarded && !wasSkipped && location.pathname !== '/onboarding') {
-      navigate('/onboarding', { replace: true })
+    if (settings) {
+      const hasOnboarded = settings.onboarding_completed
+      const wasSkipped = settings.onboarding_skipped
+      // Redirect to onboarding if not completed, not skipped, and not already on onboarding page
+      if (!hasOnboarded && !wasSkipped && location.pathname !== '/onboarding') {
+        navigate('/onboarding', { replace: true })
+      }
     }
-  }, [navigate, location.pathname])
+  }, [navigate, location.pathname, settings])
 
   return <>{children}</>
 }

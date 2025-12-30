@@ -109,6 +109,10 @@ class Settings(BaseSettings):
     # Briefing Generation Timeout
     briefing_timeout_minutes: int = 15  # Timeout in minutes for briefing generation
     
+    # Onboarding State
+    onboarding_completed: bool = False  # Whether onboarding has been completed
+    onboarding_skipped: bool = False  # Whether onboarding was skipped
+    
     @property
     def rss_feed_list(self) -> list[str]:
         """Parse RSS feeds from comma-separated string."""

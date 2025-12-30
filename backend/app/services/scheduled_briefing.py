@@ -431,6 +431,7 @@ class ScheduledBriefingService:
                         briefings=briefings,
                         recipients=list(recipients),
                         api_key=first_schedule.resend_api_key,
+                        db=new_db,
                     )
                     
                     if success:

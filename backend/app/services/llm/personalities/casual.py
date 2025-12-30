@@ -42,3 +42,4 @@ class Casual(Personality):
 
 
 
+

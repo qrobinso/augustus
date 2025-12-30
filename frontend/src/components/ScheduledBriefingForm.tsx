@@ -40,7 +40,6 @@ export default function ScheduledBriefingForm({
   const [webhookUrl, setWebhookUrl] = useState('')
   const [maxDurationMinutes, setMaxDurationMinutes] = useState(5)
   const [isActive, setIsActive] = useState(true)
-  const [timezone, setTimezone] = useState('UTC')
   const [selectedCastId, setSelectedCastId] = useState<string | undefined>(undefined)
   
   // Fetch topics and settings
@@ -61,6 +60,9 @@ export default function ScheduledBriefingForm({
   
   const topics = topicsData?.topics || []
   
+  // Get timezone from settings, fallback to browser timezone, then UTC
+  const timezone = settings?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+  
   // Stabilize initialTopicIds array to prevent reference changes
   // Convert to string for stable comparison
   const initialTopicIdsStr = useMemo(() => {
@@ -78,12 +80,6 @@ export default function ScheduledBriefingForm({
   const prevInitialCastIdRef = useRef<string | undefined>(undefined)
   const prevSettingsDurationRef = useRef<number | undefined>(undefined)
   const wasOpenRef = useRef(false)
-  
-  useEffect(() => {
-    if (settings?.timezone) {
-      setTimezone(settings.timezone)
-    }
-  }, [settings?.timezone])
   
   useEffect(() => {
     // Reset refs when modal closes
@@ -365,6 +361,9 @@ export default function ScheduledBriefingForm({
                 className="input"
                 required
               />
+              <p className="text-xs text-augustus-500 mt-1">
+                Time is in your configured timezone ({timezone}), not UTC
+              </p>
             </div>
             
             {/* Days of Week */}

@@ -198,6 +198,8 @@ export interface AppSettings {
   resend_from_email?: string
   user_name?: string
   auto_play_next: boolean
+  onboarding_completed: boolean
+  onboarding_skipped: boolean
   openrouter_configured: boolean
   elevenlabs_configured: boolean
   news_api_configured: boolean
@@ -467,6 +469,8 @@ export const settingsApi = {
     resend_from_email: string
     user_name: string
     auto_play_next: boolean
+    onboarding_completed: boolean
+    onboarding_skipped: boolean
   }>) => {
     const { data } = await api.put<AppSettings>('/api/settings', settings)
     return data

@@ -5,8 +5,12 @@ import re
 import socket
 from datetime import datetime
 from typing import Optional, List
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from app.config import get_settings
 from app.models.briefing import Briefing
+from app.models.topic import Topic
+from app.database import async_session_maker
 
 
 def get_network_ip() -> Optional[str]:
@@ -153,7 +157,7 @@ async def send_briefing_email(
                                         <td style="background-color: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 6px; padding: 20px;">
                                             <h2 style="margin: 0 0 16px 0; color: #333333; font-size: 20px; font-weight: 600; font-family: Arial, Helvetica, sans-serif;">{briefing_title}</h2>
                                             {f'<p style="margin: 0 0 20px 0; color: #666666; font-size: 14px; line-height: 1.6; font-family: Arial, Helvetica, sans-serif;">{summary_text}</p>' if summary_text else ''}
-                                            {f'<table role="presentation" cellspacing="0" cellpadding="0" border="0"><tr><td><a href="{briefing_url}" style="display: inline-block; padding: 12px 24px; background-color: #e85d04; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 14px; font-family: Arial, Helvetica, sans-serif;">▶ Play Now</a></td></tr></table>' if briefing_url else ''}
+                                            {f'<table role="presentation" cellspacing="0" cellpadding="0" border="0"><tr><td><a href="{briefing_url}" style="display: inline-block; padding: 12px 24px; background-color: #e85d04; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 14px; font-family: Arial, Helvetica, sans-serif;">Play Now</a></td></tr></table>' if briefing_url else ''}
                                         </td>
                                     </tr>
                                 </table>
@@ -264,6 +268,7 @@ async def send_batched_briefings_email(
     briefings: List[Briefing],
     recipients: List[str],
     api_key: Optional[str] = None,
+    db: Optional[AsyncSession] = None,
 ) -> bool:
     """Send a single email notification with multiple briefings.
     
@@ -271,6 +276,7 @@ async def send_batched_briefings_email(
         briefings: List of Briefing objects to include in the email
         recipients: List of email addresses to send to
         api_key: Resend API key (uses global setting if not provided)
+        db: Optional database session for querying topics
     
     Returns:
         True if email was sent successfully, False otherwise
@@ -309,6 +315,27 @@ async def send_batched_briefings_email(
     
     frontend_url = external_url
     
+    # Get topics for all briefings if database session is available
+    topics_map = {}  # Map topic_id -> topic_name
+    if db:
+        try:
+            # Collect all topic IDs from all briefings
+            all_topic_ids = set()
+            for briefing in briefings:
+                if hasattr(briefing, 'extra_data') and briefing.extra_data:
+                    topic_ids = briefing.extra_data.get('topic_ids', []) or []
+                    all_topic_ids.update(topic_ids)
+            
+            # Query all topics at once
+            if all_topic_ids:
+                result = await db.execute(
+                    select(Topic).where(Topic.id.in_(all_topic_ids))
+                )
+                topics = result.scalars().all()
+                topics_map = {topic.id: topic.name for topic in topics}
+        except Exception as e:
+            print(f"[Email] Error fetching topics: {e}")
+    
     briefing_sections = []
     for briefing in briefings:
         # Get summary from extra_data (story_analysis) or fall back to empty
@@ -317,6 +344,12 @@ async def send_batched_briefings_email(
             summary = briefing.extra_data.get('story_analysis', '') or ''
         if summary:
             summary = summary[:300] + "..." if len(summary) > 300 else summary
+        
+        # Get topic names for this briefing
+        topic_names = []
+        if hasattr(briefing, 'extra_data') and briefing.extra_data:
+            topic_ids = briefing.extra_data.get('topic_ids', []) or []
+            topic_names = [topics_map.get(tid) for tid in topic_ids if topics_map.get(tid)]
         
         # Construct briefing detail page URL with auto-play
         briefing_url = f"{frontend_url}/briefing/{briefing.id}?autoplay=true"
@@ -333,6 +366,7 @@ async def send_batched_briefings_email(
             'summary': summary,
             'briefing_url': briefing_url,
             'duration': duration_str,
+            'topics': topic_names,
         })
     
     # Build email HTML optimized for Gmail compatibility
@@ -345,12 +379,13 @@ async def send_batched_briefings_email(
                                     <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 6px; padding: 20px;">
                                         <tr>
                                             <td>
-                                                <h3 style="margin: 0 0 12px 0; color: #333333; font-size: 18px; font-weight: 600; font-family: Arial, Helvetica, sans-serif;">{section['title']}</h3>
+                                                <h3 style="margin: 0 0 8px 0; color: #333333; font-size: 18px; font-weight: 600; font-family: Arial, Helvetica, sans-serif;">{section['title']}</h3>
+                                                {f'<p style="margin: 0 0 16px 0; color: #999999; font-size: 13px; font-family: Arial, Helvetica, sans-serif;">{", ".join(section["topics"])}</p>' if section.get('topics') else ''}
                                                 {f'<p style="margin: 0 0 16px 0; color: #666666; font-size: 14px; line-height: 1.6; font-family: Arial, Helvetica, sans-serif;">{section["summary"]}</p>' if section['summary'] else ''}
                                                 <table role="presentation" cellspacing="0" cellpadding="0" border="0">
                                                     <tr>
                                                         <td>
-                                                            <a href="{section['briefing_url']}" style="display: inline-block; padding: 10px 20px; background-color: #e85d04; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 13px; font-family: Arial, Helvetica, sans-serif;">▶ Play Now</a>
+                                                            <a href="{section['briefing_url']}" style="display: inline-block; padding: 10px 20px; background-color: #e85d04; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 13px; font-family: Arial, Helvetica, sans-serif;">Play Now</a>
                                                             {f'<span style="color: #999999; font-size: 13px; font-family: monospace; margin-left: 12px;">{section["duration"]}</span>' if section['duration'] else ''}
                                                         </td>
                                                     </tr>
@@ -429,6 +464,7 @@ async def send_batched_briefings_email(
     for i, section in enumerate(briefing_sections, 1):
         briefing_items_text += f"""
 {i}. {section['title']}
+{f"   Topics: {', '.join(section['topics'])}" if section.get('topics') else ''}
 {f"   {section['summary']}" if section['summary'] else ''}
 {f"   Duration: {section['duration']}" if section['duration'] else ''}
    Play Now: {section['briefing_url']}
