@@ -12,22 +12,23 @@ import {
   FileText,
   ExternalLink,
   Volume2,
-  MoreVertical,
   CheckCircle,
   Circle,
   Check,
   Copy,
   ChevronDown,
+  ChevronUp,
   BookOpen,
   Cpu,
   FileAudio,
   Zap,
   BarChart3,
   Heart,
-  Trash2
+  Trash2,
+  CalendarClock
 } from 'lucide-react'
 import clsx from 'clsx'
-import { briefingsApi, settingsApi, castsApi, SegmentTiming } from '../api/client'
+import { briefingsApi, settingsApi, castsApi, scheduledBriefingsApi, topicsApi, SegmentTiming } from '../api/client'
 import { useStore } from '../store/useStore'
 import { formatFullDate } from '../utils/timezone'
 
@@ -46,11 +47,11 @@ export default function BriefingDetail() {
   
   // Track active segment for highlighting
   const [activeSegmentIndex, setActiveSegmentIndex] = useState<number | null>(null)
-  const [showMenu, setShowMenu] = useState(false)
   const [hasAutoPlayed, setHasAutoPlayed] = useState(false)
   const [notesExpanded, setNotesExpanded] = useState(false)
   const [nerdStatsExpanded, setNerdStatsExpanded] = useState(false)
   const [audioFileSize, setAudioFileSize] = useState<number | null>(null)
+  const [showCreateScheduleModal, setShowCreateScheduleModal] = useState(false)
   
   const { data: briefing, isLoading, error } = useQuery({
     queryKey: ['briefing', id],
@@ -65,6 +66,14 @@ export default function BriefingDetail() {
   })
   
   const timezone = settings?.timezone || 'UTC'
+  
+  // Fetch topics for schedule name
+  const { data: topicsData } = useQuery({
+    queryKey: ['topics'],
+    queryFn: () => topicsApi.list(),
+  })
+  
+  const topics = topicsData?.topics || []
   
   // Fetch cast information if cast_id exists (always fetch to get actual names)
   const { data: cast } = useQuery({
@@ -90,7 +99,6 @@ export default function BriefingDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['briefing', id] })
       queryClient.invalidateQueries({ queryKey: ['briefings'] })
-      setShowMenu(false)
     },
   })
   
@@ -111,6 +119,43 @@ export default function BriefingDetail() {
       queryClient.invalidateQueries({ queryKey: ['briefings'] })
       setShowMenu(false)
       navigate('/dashboard')
+    },
+  })
+  
+  // Mutation for creating schedule from briefing
+  const createScheduleMutation = useMutation({
+    mutationFn: (options: {
+      schedule_time: string
+      schedule_days: number[]
+    }) => {
+      const topicIds = (briefing?.extra_data?.topic_ids as string[]) || []
+      const maxDurationMinutes = briefing?.duration_seconds 
+        ? Math.ceil(briefing.duration_seconds / 60)
+        : 5
+      
+      // Create schedule name from topic names
+      const topicNames = topicIds
+        .map(id => topics.find(t => t.id === id)?.name)
+        .filter(Boolean) as string[]
+      
+      const scheduleName = topicNames.length > 0
+        ? topicNames.join(', ')
+        : briefing?.title || 'Daily Briefing'
+      
+      return scheduledBriefingsApi.create({
+        name: scheduleName,
+        topic_ids: topicIds,
+        schedule_time: options.schedule_time,
+        schedule_days: options.schedule_days,
+        notification_methods: [],
+        is_active: true,
+        max_duration_minutes: maxDurationMinutes,
+        cast_id: briefing?.cast_id,
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['scheduled-briefings'] })
+      setShowCreateScheduleModal(false)
     },
   })
   
@@ -395,7 +440,6 @@ export default function BriefingDetail() {
     
     try {
       await navigator.clipboard.writeText(transcriptText)
-      setShowMenu(false)
     } catch (err) {
       console.error('Failed to copy transcript:', err)
       // Fallback for older browsers
@@ -407,7 +451,6 @@ export default function BriefingDetail() {
       textArea.select()
       try {
         document.execCommand('copy')
-        setShowMenu(false)
       } catch (fallbackErr) {
         console.error('Fallback copy failed:', fallbackErr)
       }
@@ -763,101 +806,85 @@ export default function BriefingDetail() {
             )}
           </div>
           
-          {/* Actions */}
-          {briefing.status === 'completed' && (
-            <div className="flex items-center gap-2">
-              {/* Favorite button */}
-              <button
-                onClick={() => favoriteMutation.mutate({ favorite: !briefing.favorite })}
-                disabled={favoriteMutation.isPending}
-                className={clsx(
-                  'btn btn-ghost p-2 transition-colors',
-                  briefing.favorite
-                    ? 'text-red-500 hover:text-red-400'
-                    : 'text-augustus-400 hover:text-white'
-                )}
-                title={briefing.favorite ? 'Remove from favorites' : 'Add to favorites'}
-              >
-                {favoriteMutation.isPending ? (
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                ) : (
-                  <Heart className={clsx('w-5 h-5', briefing.favorite && 'fill-current')} />
-                )}
-              </button>
-              
-              {/* Menu button */}
-              <div className={clsx('relative', showMenu && 'z-[102]')}>
-                <button
-                  onClick={() => setShowMenu(!showMenu)}
-                  className="btn btn-ghost p-2 text-augustus-400 hover:text-white"
-                >
-                  <MoreVertical className="w-5 h-5" />
-                </button>
-              
-              {/* Dropdown menu */}
-              {showMenu && (
-                <>
-                  <div 
-                    className="fixed inset-0 z-[100]" 
-                    onClick={() => setShowMenu(false)}
-                  />
-                  <div className="absolute right-0 top-full mt-2 w-56 bg-augustus-900 border border-augustus-700 rounded-lg shadow-xl z-[101] overflow-hidden">
-                    <div className="py-1">
-                      <button
-                        onClick={handleCopyTranscript}
-                        disabled={!briefing.transcript && segmentTimings.length === 0}
-                        className="w-full px-4 py-3 text-left hover:bg-augustus-800 active:bg-augustus-700 transition-colors flex items-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        <Copy className="w-5 h-5 text-augustus-400" />
-                        <div>
-                          <span className="text-white font-medium block text-sm">
-                            Copy transcript
-                          </span>
-                        </div>
-                      </button>
-                      <button
-                        onClick={() => listenedMutation.mutate({ listened: !briefing.listened })}
-                        disabled={listenedMutation.isPending}
-                        className="w-full px-4 py-3 text-left hover:bg-augustus-800 active:bg-augustus-700 transition-colors flex items-center gap-3"
-                      >
-                        {listenedMutation.isPending ? (
-                          <Loader2 className="w-5 h-5 animate-spin text-augustus-400" />
-                        ) : briefing.listened ? (
-                          <Circle className="w-5 h-5 text-augustus-400" />
-                        ) : (
-                          <Check className="w-5 h-5 text-accent" />
-                        )}
-                        <div>
-                          <span className="text-white font-medium block text-sm">
-                            {briefing.listened ? 'Mark as Not Listened' : 'Mark as listened'}
-                          </span>
-                        </div>
-                      </button>
-                      <button
-                        onClick={() => deleteMutation.mutate()}
-                        disabled={deleteMutation.isPending}
-                        className="w-full px-4 py-3 text-left hover:bg-red-500/10 active:bg-red-500/20 transition-colors flex items-center gap-3 text-red-400 hover:text-red-300"
-                      >
-                        {deleteMutation.isPending ? (
-                          <Loader2 className="w-5 h-5 animate-spin" />
-                        ) : (
-                          <Trash2 className="w-5 h-5" />
-                        )}
-                        <div>
-                          <span className="font-medium block text-sm">
-                            Delete briefing
-                          </span>
-                        </div>
-                      </button>
-                    </div>
-                  </div>
-                </>
-              )}
-              </div>
-            </div>
-          )}
         </div>
       </div>
+      
+      {/* Action Bar */}
+      {briefing.status === 'completed' && (briefing.transcript || segmentTimings.length > 0) && (
+        <div className="card mb-4 sm:mb-6">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+            <button
+              onClick={() => favoriteMutation.mutate({ favorite: !briefing.favorite })}
+              disabled={favoriteMutation.isPending}
+              className={clsx(
+                'btn btn-ghost flex items-center gap-2 text-sm transition-colors',
+                briefing.favorite
+                  ? 'text-red-500 hover:text-red-400'
+                  : 'text-augustus-400 hover:text-white'
+              )}
+              title={briefing.favorite ? 'Remove from favorites' : 'Add to favorites'}
+            >
+              {favoriteMutation.isPending ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Heart className={clsx('w-4 h-4', briefing.favorite && 'fill-current')} />
+              )}
+              <span className="hidden sm:inline">Favorite</span>
+            </button>
+            
+            <button
+              onClick={handleCopyTranscript}
+              disabled={!briefing.transcript && segmentTimings.length === 0}
+              className="btn btn-ghost flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Copy transcript"
+            >
+              <Copy className="w-4 h-4" />
+              <span className="hidden sm:inline">Copy</span>
+            </button>
+            
+            <button
+              onClick={() => listenedMutation.mutate({ listened: !briefing.listened })}
+              disabled={listenedMutation.isPending}
+              className="btn btn-ghost flex items-center gap-2 text-sm"
+              title={briefing.listened ? 'Mark as Not Listened' : 'Mark as Listened'}
+            >
+              {listenedMutation.isPending ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : briefing.listened ? (
+                <CheckCircle className="w-4 h-4" />
+              ) : (
+                <Circle className="w-4 h-4" />
+              )}
+              <span className="hidden sm:inline">
+                {briefing.listened ? 'Not Listened' : 'Listened'}
+              </span>
+            </button>
+            
+            <button
+              onClick={() => setShowCreateScheduleModal(true)}
+              className="btn btn-ghost flex items-center gap-2 text-sm"
+              title="Create Schedule"
+            >
+              <CalendarClock className="w-4 h-4" />
+              <span className="hidden sm:inline">Schedule</span>
+            </button>
+            
+            <button
+              onClick={() => deleteMutation.mutate()}
+              disabled={deleteMutation.isPending}
+              className="btn btn-ghost flex items-center gap-2 text-sm text-red-400 hover:text-red-300"
+              title="Delete briefing"
+            >
+              {deleteMutation.isPending ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Trash2 className="w-4 h-4" />
+              )}
+              <span className="hidden sm:inline">Delete</span>
+            </button>
+          </div>
+        </div>
+      )}
       
       {/* Transcript */}
       {(briefing.transcript || segmentTimings.length > 0) && (
@@ -1296,6 +1323,199 @@ export default function BriefingDetail() {
           )}
         </div>
       )}
+      
+      {/* Create Schedule Modal */}
+      {showCreateScheduleModal && (
+        <CreateScheduleModal
+          isOpen={showCreateScheduleModal}
+          onClose={() => setShowCreateScheduleModal(false)}
+          onConfirm={(scheduleTime, scheduleDays) => {
+            createScheduleMutation.mutate({
+              schedule_time: scheduleTime,
+              schedule_days: scheduleDays,
+            })
+          }}
+          isLoading={createScheduleMutation.isPending}
+          timezone={timezone}
+        />
+      )}
     </div>
+  )
+}
+
+// Create Schedule Modal Component
+interface CreateScheduleModalProps {
+  isOpen: boolean
+  onClose: () => void
+  onConfirm: (scheduleTime: string, scheduleDays: number[]) => void
+  isLoading: boolean
+  timezone: string
+}
+
+function CreateScheduleModal({
+  isOpen,
+  onClose,
+  onConfirm,
+  isLoading,
+  timezone,
+}: CreateScheduleModalProps) {
+  const [hours, setHours] = useState(8)
+  const [minutes, setMinutes] = useState(0)
+  const [selectedDays, setSelectedDays] = useState<number[]>([0, 1, 2, 3, 4]) // Mon-Fri by default
+  
+  const DAYS_OF_WEEK = [
+    { value: 0, label: 'Mon', fullLabel: 'Monday' },
+    { value: 1, label: 'Tue', fullLabel: 'Tuesday' },
+    { value: 2, label: 'Wed', fullLabel: 'Wednesday' },
+    { value: 3, label: 'Thu', fullLabel: 'Thursday' },
+    { value: 4, label: 'Fri', fullLabel: 'Friday' },
+    { value: 5, label: 'Sat', fullLabel: 'Saturday' },
+    { value: 6, label: 'Sun', fullLabel: 'Sunday' },
+  ]
+  
+  const handleDayToggle = (day: number) => {
+    setSelectedDays(prev => 
+      prev.includes(day) 
+        ? prev.filter(d => d !== day)
+        : [...prev, day]
+    )
+  }
+  
+  const handleConfirm = () => {
+    const scheduleTime = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`
+    onConfirm(scheduleTime, selectedDays)
+  }
+  
+  if (!isOpen) return null
+  
+  return (
+    <>
+      <div 
+        className="fixed inset-0 bg-black/50 z-[200]" 
+        onClick={onClose}
+      />
+      <div className="fixed inset-0 z-[201] flex items-center justify-center p-4">
+        <div 
+          className="bg-augustus-900 border border-augustus-700 rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="p-6 sm:p-8">
+            <h2 className="text-xl sm:text-2xl font-semibold text-white mb-6">
+              Create Schedule
+            </h2>
+            
+            {/* Time Selection with Big Numbers */}
+            <div className="mb-8">
+              <label className="block text-sm font-medium text-augustus-300 mb-4">
+                Schedule Time ({timezone})
+              </label>
+              <div className="flex items-center justify-center gap-4 sm:gap-8">
+                {/* Hours */}
+                <div className="flex flex-col items-center">
+                  <label className="text-xs text-augustus-400 mb-2 uppercase tracking-wide">Hours</label>
+                  <div className="flex flex-col gap-2">
+                    <button
+                      onClick={() => setHours(prev => Math.min(23, prev + 1))}
+                      className="btn btn-ghost p-2 text-augustus-400 hover:text-white"
+                      disabled={isLoading}
+                    >
+                      <ChevronUp className="w-4 h-4" />
+                    </button>
+                    <div className="text-6xl sm:text-8xl font-bold text-white tabular-nums min-w-[80px] sm:min-w-[120px] text-center">
+                      {hours.toString().padStart(2, '0')}
+                    </div>
+                    <button
+                      onClick={() => setHours(prev => Math.max(0, prev - 1))}
+                      className="btn btn-ghost p-2 text-augustus-400 hover:text-white"
+                      disabled={isLoading}
+                    >
+                      <ChevronDown className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+                
+                {/* Separator */}
+                <div className="text-6xl sm:text-8xl font-bold text-augustus-600 pb-8">
+                  :
+                </div>
+                
+                {/* Minutes */}
+                <div className="flex flex-col items-center">
+                  <label className="text-xs text-augustus-400 mb-2 uppercase tracking-wide">Minutes</label>
+                  <div className="flex flex-col gap-2">
+                    <button
+                      onClick={() => setMinutes(prev => Math.min(59, prev + 1))}
+                      className="btn btn-ghost p-2 text-augustus-400 hover:text-white"
+                      disabled={isLoading}
+                    >
+                      <ChevronUp className="w-4 h-4" />
+                    </button>
+                    <div className="text-6xl sm:text-8xl font-bold text-white tabular-nums min-w-[80px] sm:min-w-[120px] text-center">
+                      {minutes.toString().padStart(2, '0')}
+                    </div>
+                    <button
+                      onClick={() => setMinutes(prev => Math.max(0, prev - 1))}
+                      className="btn btn-ghost p-2 text-augustus-400 hover:text-white"
+                      disabled={isLoading}
+                    >
+                      <ChevronDown className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            {/* Days Selection */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-augustus-300 mb-4">
+                Days of Week
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {DAYS_OF_WEEK.map(day => (
+                  <button
+                    key={day.value}
+                    onClick={() => handleDayToggle(day.value)}
+                    disabled={isLoading}
+                    className={clsx(
+                      'px-4 py-2 rounded-lg text-sm font-medium transition-colors',
+                      selectedDays.includes(day.value)
+                        ? 'bg-accent text-white'
+                        : 'bg-augustus-800 text-augustus-300 hover:bg-augustus-700'
+                    )}
+                  >
+                    {day.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            
+            {/* Actions */}
+            <div className="flex items-center justify-end gap-3 pt-4 border-t border-augustus-700">
+              <button
+                onClick={onClose}
+                disabled={isLoading}
+                className="btn btn-ghost"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirm}
+                disabled={isLoading || selectedDays.length === 0}
+                className="btn btn-primary"
+              >
+                {isLoading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                    Creating...
+                  </>
+                ) : (
+                  'Create Schedule'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </>
   )
 }

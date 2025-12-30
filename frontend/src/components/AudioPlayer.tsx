@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useCallback } from 'react'
+import { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { 
@@ -246,13 +246,48 @@ export default function AudioPlayer() {
     }
   }, [currentAudio?.initialPosition, currentAudio?.id, hasSetInitialPosition, setCurrentTime])
   
+  // Track the previous audio URL to detect source changes
+  const previousAudioUrlRef = useRef<string | undefined>(undefined)
+  const isSourceChangingRef = useRef(false)
+  
+  // Helper to normalize URLs for comparison
+  const normalizeUrl = useCallback((url: string) => {
+    try {
+      return new URL(url, window.location.origin).href
+    } catch {
+      return url
+    }
+  }, [])
+  
   // When audio source changes, pause old audio and load new source
   useEffect(() => {
     const audio = audioRef.current
-    if (!audio || !currentAudio) return
+    if (!audio || !currentAudio) {
+      previousAudioUrlRef.current = undefined
+      return
+    }
+    
+    const isSourceChanging = previousAudioUrlRef.current !== undefined && 
+                             previousAudioUrlRef.current !== currentAudio.audioUrl
+    isSourceChangingRef.current = isSourceChanging
+    previousAudioUrlRef.current = currentAudio.audioUrl
+    
+    // Only handle source changes, not initial load
+    if (!isSourceChanging) {
+      // On initial load, just ensure src is set (compare normalized URLs)
+      const currentSrc = normalizeUrl(audio.src || '')
+      const targetSrc = normalizeUrl(currentAudio.audioUrl)
+      if (currentSrc !== targetSrc) {
+        audio.src = currentAudio.audioUrl
+      }
+      return
+    }
     
     // Pause any currently playing audio when switching to a new source
     audio.pause()
+    
+    // Set the new source
+    audio.src = currentAudio.audioUrl
     
     // Load the new source (this will reset the audio element)
     audio.load()
@@ -260,17 +295,72 @@ export default function AudioPlayer() {
     // Reset time tracking
     setCurrentTime(0)
     setHasSetInitialPosition(false)
-  }, [currentAudio?.audioUrl, setCurrentTime])
+    
+    // If we're supposed to be playing, wait for the new source to load before playing
+    if (isPlaying) {
+      const handleCanPlayThrough = () => {
+        audio.removeEventListener('canplaythrough', handleCanPlayThrough)
+        isSourceChangingRef.current = false
+        // Small delay to ensure everything is ready
+        setTimeout(() => {
+          audio.play().catch((error) => {
+            console.log('[AudioPlayer] Failed to play audio after source change:', error)
+            setIsPlaying(false)
+          })
+        }, 100)
+      }
+      audio.addEventListener('canplaythrough', handleCanPlayThrough)
+      
+      // Fallback timeout in case canplaythrough doesn't fire
+      const timeout = setTimeout(() => {
+        audio.removeEventListener('canplaythrough', handleCanPlayThrough)
+        isSourceChangingRef.current = false
+        audio.play().catch((error) => {
+          console.log('[AudioPlayer] Failed to play audio after source change (timeout):', error)
+          setIsPlaying(false)
+        })
+      }, 5000)
+      
+      return () => {
+        audio.removeEventListener('canplaythrough', handleCanPlayThrough)
+        clearTimeout(timeout)
+      }
+    } else {
+      isSourceChangingRef.current = false
+    }
+  }, [currentAudio?.audioUrl, setCurrentTime, isPlaying, setIsPlaying])
   
   // Handle play/pause - ensure audio is ready before playing
+  // This only handles play/pause on the same track, not source changes
   useEffect(() => {
     const audio = audioRef.current
-    if (!audio) return
+    if (!audio || !currentAudio) return
+    
+    // Skip if source is changing (let the source change effect handle it)
+    if (isSourceChangingRef.current) return
     
     if (isPlaying) {
       // Ensure audio is loaded before playing
       const playAudio = async () => {
         try {
+          // Check if src matches - compare using URL objects to handle relative vs absolute URLs
+          const currentSrc = audio.src ? new URL(audio.src, window.location.origin).href : ''
+          const targetSrc = new URL(currentAudio.audioUrl, window.location.origin).href
+          
+          if (currentSrc !== targetSrc) {
+            // Source mismatch - this shouldn't happen often, but handle it
+            audio.src = currentAudio.audioUrl
+            audio.load()
+            // Wait for load to complete
+            await new Promise((resolve) => {
+              const handleCanPlay = () => {
+                audio.removeEventListener('canplay', handleCanPlay)
+                resolve(undefined)
+              }
+              audio.addEventListener('canplay', handleCanPlay)
+            })
+          }
+          
           // If audio is not ready, wait for it
           if (audio.readyState < 2) {
             await new Promise((resolve) => {
@@ -281,6 +371,8 @@ export default function AudioPlayer() {
               audio.addEventListener('canplay', handleCanPlay)
             })
           }
+          
+          // Simply play - the audio element maintains its own position
           await audio.play()
         } catch (error) {
           // If play fails, reset playing state
@@ -292,7 +384,7 @@ export default function AudioPlayer() {
     } else {
       audio.pause()
     }
-  }, [isPlaying, setIsPlaying])
+  }, [isPlaying, setIsPlaying, currentAudio])
   
   useEffect(() => {
     if (audioRef.current) {
@@ -305,7 +397,8 @@ export default function AudioPlayer() {
       audioRef.current.playbackRate = playbackRate
     }
   }, [playbackRate])
-  
+
+
   const formatTime = (seconds: number) => {
     if (!seconds || isNaN(seconds)) return '0:00'
     const mins = Math.floor(seconds / 60)
@@ -354,21 +447,19 @@ export default function AudioPlayer() {
     setCurrentTime(time)
   }
   
-  const skip = (seconds: number) => {
-    if (audioRef.current) {
-      audioRef.current.currentTime = Math.max(0, Math.min(duration, currentTime + seconds))
-    }
-  }
-  
   // Navigate to previous chapter
-  const skipToPreviousChapter = () => {
+  const skipToPreviousChapter = useCallback(() => {
     if (!currentAudio?.chapters || currentAudio.chapters.length === 0 || !audioRef.current) {
       // Fallback to 15 seconds back if no chapters
-      skip(-15)
+      if (audioRef.current && duration) {
+        const newTime = Math.max(0, currentTime - 15)
+        audioRef.current.currentTime = newTime
+        setCurrentTime(newTime)
+      }
       return
     }
     
-    const currentIndex = activeChapterIndex
+    const currentIndex = getActiveChapterIndex()
     if (currentIndex === null) {
       // Not in any chapter, go to the last chapter
       const lastChapter = currentAudio.chapters[currentAudio.chapters.length - 1]
@@ -387,17 +478,21 @@ export default function AudioPlayer() {
       audioRef.current.currentTime = 0
       setCurrentTime(0)
     }
-  }
+  }, [currentAudio, currentTime, duration, setCurrentTime, getActiveChapterIndex])
   
   // Navigate to next chapter
-  const skipToNextChapter = () => {
+  const skipToNextChapter = useCallback(() => {
     if (!currentAudio?.chapters || currentAudio.chapters.length === 0 || !audioRef.current) {
       // Fallback to 30 seconds forward if no chapters
-      skip(30)
+      if (audioRef.current && duration) {
+        const newTime = Math.min(duration, currentTime + 30)
+        audioRef.current.currentTime = newTime
+        setCurrentTime(newTime)
+      }
       return
     }
     
-    const currentIndex = activeChapterIndex
+    const currentIndex = getActiveChapterIndex()
     if (currentIndex === null) {
       // Not in any chapter, go to the first chapter
       const firstChapter = currentAudio.chapters[0]
@@ -413,12 +508,144 @@ export default function AudioPlayer() {
       setCurrentTime(nextChapter.start_time)
     } else {
       // Already at last chapter, go to end
-      if (duration) {
+      if (duration && audioRef.current) {
         audioRef.current.currentTime = duration
         setCurrentTime(duration)
       }
     }
-  }
+  }, [currentAudio, currentTime, duration, setCurrentTime, getActiveChapterIndex])
+
+  // Stable artwork URL - use absolute URL for iOS compatibility
+  const artworkUrl = useMemo(() => {
+    return `${window.location.origin}/augustus-logo.png`
+  }, [])
+
+  // Media Session API integration for mobile media controls
+  // Update metadata only when audio or cast changes (not on every time update)
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return
+
+    const mediaSession = navigator.mediaSession
+
+    // Update metadata when audio changes
+    if (currentAudio) {
+      const artist = cast?.name || 'Augustus'
+      const album = currentAudio.type === 'briefing' ? 'Briefing' : 'Cast'
+      
+      // Use stable artwork array with absolute URL
+      const artwork = [
+        {
+          src: artworkUrl,
+          sizes: '192x192',
+          type: 'image/png'
+        },
+        {
+          src: artworkUrl,
+          sizes: '512x512',
+          type: 'image/png'
+        }
+      ]
+      
+      mediaSession.metadata = new MediaMetadata({
+        title: currentAudio.title,
+        artist: artist,
+        album: album,
+        artwork: artwork
+      })
+    } else {
+      // Clear metadata when no audio
+      mediaSession.metadata = null
+    }
+  }, [currentAudio, cast, artworkUrl])
+
+  // Set up action handlers separately - only once
+  useEffect(() => {
+    if (!('mediaSession' in navigator) || !currentAudio) return
+
+    const mediaSession = navigator.mediaSession
+
+    // Set up action handlers
+    mediaSession.setActionHandler('play', () => {
+      setIsPlaying(true)
+    })
+
+    mediaSession.setActionHandler('pause', () => {
+      setIsPlaying(false)
+    })
+
+    // 30-second skip backward
+    mediaSession.setActionHandler('seekbackward', (details) => {
+      const skipTime = details.seekOffset || 30
+      if (audioRef.current) {
+        const newTime = Math.max(0, currentTime - skipTime)
+        audioRef.current.currentTime = newTime
+        setCurrentTime(newTime)
+      }
+    })
+
+    // 30-second skip forward
+    mediaSession.setActionHandler('seekforward', (details) => {
+      const skipTime = details.seekOffset || 30
+      if (audioRef.current && duration) {
+        const newTime = Math.min(duration, currentTime + skipTime)
+        audioRef.current.currentTime = newTime
+        setCurrentTime(newTime)
+      }
+    })
+
+    // Previous track (go to previous chapter or skip back 30s)
+    mediaSession.setActionHandler('previoustrack', () => {
+      skipToPreviousChapter()
+    })
+
+    // Next track (go to next chapter or skip forward 30s)
+    mediaSession.setActionHandler('nexttrack', () => {
+      skipToNextChapter()
+    })
+
+    // Seek to specific time (if supported)
+    mediaSession.setActionHandler('seekto', (details) => {
+      if (audioRef.current && details.seekTime !== undefined) {
+        audioRef.current.currentTime = details.seekTime
+        setCurrentTime(details.seekTime)
+      }
+    })
+
+    return () => {
+      // Cleanup action handlers
+      try {
+        mediaSession.setActionHandler('play', null)
+        mediaSession.setActionHandler('pause', null)
+        mediaSession.setActionHandler('seekbackward', null)
+        mediaSession.setActionHandler('seekforward', null)
+        mediaSession.setActionHandler('previoustrack', null)
+        mediaSession.setActionHandler('nexttrack', null)
+        mediaSession.setActionHandler('seekto', null)
+      } catch (e) {
+        // Ignore errors during cleanup
+      }
+    }
+  }, [currentAudio, setIsPlaying, currentTime, duration, setCurrentTime, skipToPreviousChapter, skipToNextChapter])
+
+  // Update Media Session position state as audio plays
+  useEffect(() => {
+    if (!('mediaSession' in navigator) || !currentAudio) return
+
+    const mediaSession = navigator.mediaSession
+    if (mediaSession.setPositionState) {
+      try {
+        mediaSession.setPositionState({
+          duration: duration || 0,
+          playbackRate: playbackRate,
+          position: currentTime
+        })
+      } catch (error) {
+        // Some browsers may not support setPositionState
+        // This is fine, we'll just continue without it
+        console.debug('[AudioPlayer] MediaSession.setPositionState not supported:', error)
+      }
+    }
+  }, [currentAudio, currentTime, duration, playbackRate])
   
   const cyclePlaybackRate = () => {
     const rates = [0.75, 1, 1.25, 1.5, 1.75, 2]

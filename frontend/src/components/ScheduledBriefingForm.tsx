@@ -175,6 +175,25 @@ export default function ScheduledBriefingForm({
     )
   }
   
+  // Generate a name based on selected topics
+  const generateScheduleName = () => {
+    if (selectedTopicIds.length === 0) {
+      return 'All Topics Briefing'
+    }
+    
+    const selectedTopicNames = topics
+      .filter((t) => selectedTopicIds.includes(t.id))
+      .map((t) => t.name)
+    
+    if (selectedTopicNames.length === 1) {
+      return `${selectedTopicNames[0]} Briefing`
+    } else if (selectedTopicNames.length === 2) {
+      return `${selectedTopicNames[0]} & ${selectedTopicNames[1]} Briefing`
+    } else {
+      return `${selectedTopicNames[0]}, ${selectedTopicNames[1]} +${selectedTopicNames.length - 2} more`
+    }
+  }
+  
   const createMutation = useMutation({
     mutationFn: (payload: any) => scheduledBriefingsApi.create(payload),
     onSuccess: () => {
@@ -201,11 +220,8 @@ export default function ScheduledBriefingForm({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     
-    // Validation
-    if (!name.trim()) {
-      alert('Please enter a name for the schedule')
-      return
-    }
+    // Auto-generate name if not provided
+    const scheduleName = name.trim() || generateScheduleName()
     
     if (scheduleDays.length === 0) {
       alert('Please select at least one day of the week')
@@ -235,7 +251,7 @@ export default function ScheduledBriefingForm({
     }
     
     const payload = {
-      name: name.trim(),
+      name: scheduleName,
       topic_ids: selectedTopicIds.length > 0 ? selectedTopicIds : undefined,
       schedule_time: scheduleTime,
       schedule_days: scheduleDays,
@@ -295,15 +311,17 @@ export default function ScheduledBriefingForm({
           <div className="p-4 sm:p-6 space-y-5 sm:space-y-6">
             {/* Name */}
             <div>
-              <label className="label">Schedule Name</label>
+              <label className="label">Schedule Name (optional)</label>
               <input
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="e.g., Morning Briefing"
+                placeholder="Leave blank to auto-generate"
                 className="input"
-                required
               />
+              <p className="text-xs text-augustus-500 mt-1">
+                {name.trim() ? '' : `Will be named: "${generateScheduleName()}"`}
+              </p>
             </div>
             
             {/* Topics */}
