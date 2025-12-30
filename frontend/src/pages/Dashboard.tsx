@@ -66,7 +66,7 @@ export default function Dashboard() {
   }, [])
   
   // Scheduled briefings accordion state - persisted to localStorage
-  const [scheduledExpanded, setScheduledExpanded] = useState(() => {
+  const [scheduledExpanded] = useState(() => {
     const saved = localStorage.getItem('scheduledBriefingsExpanded')
     return saved !== null ? JSON.parse(saved) : true
   })

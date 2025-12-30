@@ -14,7 +14,6 @@ import {
   Volume2,
   CheckCircle,
   Circle,
-  Check,
   Copy,
   ChevronDown,
   ChevronUp,
@@ -117,7 +116,6 @@ export default function BriefingDetail() {
     mutationFn: () => briefingsApi.delete(id!),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['briefings'] })
-      setShowMenu(false)
       navigate('/dashboard')
     },
   })

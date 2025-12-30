@@ -531,6 +531,7 @@ export const scheduledBriefingsApi = {
     is_active?: boolean
     max_duration_minutes?: number
     resend_api_key?: string
+    cast_id?: string
   }) => {
     const { data } = await api.post<ScheduledBriefing>('/api/scheduled-briefings', options)
     return data
