@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { 
   Play,
@@ -26,13 +26,13 @@ import {
   Heart
 } from 'lucide-react'
 import clsx from 'clsx'
-import { briefingsApi, settingsApi, topicsApi, scheduledBriefingsApi, castsApi, Briefing, ScheduledBriefing } from '../api/client'
+import { briefingsApi, settingsApi, topicsApi, scheduledBriefingsApi, castsApi, Briefing } from '../api/client'
 import { useStore } from '../store/useStore'
 import { formatCompactDate } from '../utils/timezone'
-import ScheduledBriefingForm from '../components/ScheduledBriefingForm'
 
 export default function Dashboard() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const queryClient = useQueryClient()
   const currentAudio = useStore((s) => s.currentAudio)
   const isPlaying = useStore((s) => s.isPlaying)
@@ -46,16 +46,31 @@ export default function Dashboard() {
     const saved = localStorage.getItem('selectedCastId')
     return saved || undefined
   })
-  const [showScheduleForm, setShowScheduleForm] = useState(false)
-  const [editingSchedule, setEditingSchedule] = useState<ScheduledBriefing | null>(null)
   const [listenedFilter, setListenedFilter] = useState<boolean | undefined>(undefined)
   const [filterCastId, setFilterCastId] = useState<string | undefined>(undefined)
   const [filterTopicIds, setFilterTopicIds] = useState<string[]>([])
   const [favoriteFilter, setFavoriteFilter] = useState<boolean | undefined>(undefined)
   const [currentPage, setCurrentPage] = useState(0)
-  const [activeTab, setActiveTab] = useState<'audio-briefs' | 'generate' | 'schedules'>('audio-briefs')
+  
+  // Read initial tab from URL, default to 'audio-briefs'
+  const tabFromUrl = searchParams.get('tab')
+  const initialTab = (tabFromUrl === 'generate' || tabFromUrl === 'schedules') ? tabFromUrl : 'audio-briefs'
+  const [activeTab, setActiveTab] = useState<'audio-briefs' | 'generate' | 'schedules'>(initialTab)
+  
   const [isMobile, setIsMobile] = useState(false)
   const pageSize = 10
+  
+  // Update URL when tab changes
+  const handleTabChange = (tab: 'audio-briefs' | 'generate' | 'schedules') => {
+    setActiveTab(tab)
+    if (tab === 'audio-briefs') {
+      // Remove tab param for default
+      searchParams.delete('tab')
+    } else {
+      searchParams.set('tab', tab)
+    }
+    setSearchParams(searchParams, { replace: true })
+  }
   
   // Detect mobile screen size
   useEffect(() => {
@@ -764,7 +779,7 @@ export default function Dashboard() {
         key={briefing.id}
         onClick={() => navigate(`/briefing/${briefing.id}`)}
         className={clsx(
-          'card hover:border-augustus-600 transition-colors cursor-pointer group active:scale-[0.99] relative',
+          'card hover:border-augustus-600 transition-colors cursor-pointer group active:scale-[0.99] relative flex flex-col',
           isLatest && 'p-6 sm:p-8'
         )}
       >
@@ -785,7 +800,7 @@ export default function Dashboard() {
          )}
          
          <div className={clsx(
-           'flex flex-col',
+           'flex flex-col flex-1 min-w-0',
            briefing.status === 'completed' && 'pl-14 sm:pl-16'
          )}>
            {/* Topics */}
@@ -815,8 +830,8 @@ export default function Dashboard() {
           
           {/* Title */}
           <h3 className={clsx(
-            'font-semibold text-white truncate group-hover:text-accent transition-colors mb-2',
-            isLatest ? 'text-lg sm:text-2xl' : 'text-sm sm:text-base'
+            'font-semibold text-white break-words group-hover:text-accent transition-colors mb-2',
+            isLatest ? 'text-lg sm:text-2xl' : 'text-lg sm:text-xl'
           )}>
             {briefing.title}
           </h3>
@@ -941,7 +956,7 @@ export default function Dashboard() {
       <div className="mb-6 sm:mb-8">
         <div className="inline-flex bg-augustus-800/50 p-1 rounded-full">
           <button
-            onClick={() => setActiveTab('audio-briefs')}
+            onClick={() => handleTabChange('audio-briefs')}
             className={clsx(
               'px-4 sm:px-6 py-2 sm:py-2.5 rounded-full text-sm sm:text-base font-medium transition-all',
               activeTab === 'audio-briefs'
@@ -952,7 +967,7 @@ export default function Dashboard() {
             Briefs
           </button>
           <button
-            onClick={() => setActiveTab('generate')}
+            onClick={() => handleTabChange('generate')}
             className={clsx(
               'px-4 sm:px-6 py-2 sm:py-2.5 rounded-full text-sm sm:text-base font-medium transition-all',
               activeTab === 'generate'
@@ -963,7 +978,7 @@ export default function Dashboard() {
             Generate
           </button>
           <button
-            onClick={() => setActiveTab('schedules')}
+            onClick={() => handleTabChange('schedules')}
             className={clsx(
               'px-4 sm:px-6 py-2 sm:py-2.5 rounded-full text-sm sm:text-base font-medium transition-all',
               activeTab === 'schedules'
@@ -1187,8 +1202,16 @@ export default function Dashboard() {
               </h2>
               <button
                 onClick={() => {
-                  setEditingSchedule(null)
-                  setShowScheduleForm(true)
+                  // Build URL with optional query params
+                  const params = new URLSearchParams()
+                  if (selectedTopicIds.length > 0) {
+                    params.set('topicIds', selectedTopicIds.join(','))
+                  }
+                  if (selectedCastId) {
+                    params.set('castId', selectedCastId)
+                  }
+                  const queryString = params.toString()
+                  navigate(`/schedules/create${queryString ? `?${queryString}` : ''}`)
                 }}
                 className="btn btn-primary flex items-center gap-2"
               >
@@ -1262,10 +1285,7 @@ export default function Dashboard() {
                         </div>
                         <div className="flex items-center gap-1">
                           <button
-                            onClick={() => {
-                              setEditingSchedule(schedule)
-                              setShowScheduleForm(true)
-                            }}
+                            onClick={() => navigate(`/schedules/${schedule.id}/edit`)}
                             className="btn btn-ghost p-2 text-augustus-500 hover:text-accent"
                             title="Edit"
                           >
@@ -1691,20 +1711,6 @@ export default function Dashboard() {
         </>
       )}
       
-      {/* Scheduled Briefing Form Modal */}
-      <ScheduledBriefingForm
-        isOpen={showScheduleForm}
-        onClose={() => {
-          setShowScheduleForm(false)
-          setEditingSchedule(null)
-        }}
-        onSuccess={() => {
-          queryClient.invalidateQueries({ queryKey: ['scheduled-briefings'] })
-        }}
-        initialTopicIds={selectedTopicIds.length > 0 ? selectedTopicIds : undefined}
-        initialCastId={selectedCastId}
-        editingSchedule={editingSchedule}
-      />
-    </div>
+      </div>
   )
 }
