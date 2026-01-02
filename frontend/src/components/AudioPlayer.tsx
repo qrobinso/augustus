@@ -18,7 +18,7 @@ import {
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useStore } from '../store/useStore'
-import { briefingsApi, castsApi, settingsApi, Briefing } from '../api/client'
+import { briefingsApi, castsApi, settingsApi, topicsApi, Briefing } from '../api/client'
 import { audioManager } from '../utils/audioManager'
 
 export default function AudioPlayer() {
@@ -51,7 +51,6 @@ export default function AudioPlayer() {
     setDuration,
     clearAudio,
     togglePlayPause,
-    playAudio,
   } = useStore()
   
   // Fetch briefing to get cast_id
@@ -73,6 +72,19 @@ export default function AudioPlayer() {
     queryKey: ['settings'],
     queryFn: () => settingsApi.get(),
   })
+  
+  // Fetch topics to get topic names
+  const { data: topicsData } = useQuery({
+    queryKey: ['topics'],
+    queryFn: () => topicsApi.list(),
+  })
+  
+  // Get topic names for the current briefing
+  const briefingTopics = useMemo(() => {
+    if (!briefing?.extra_data?.topic_ids || !topicsData?.topics) return []
+    const topicIds = briefing.extra_data.topic_ids as string[]
+    return topicsData.topics.filter(t => topicIds.includes(t.id))
+  }, [briefing?.extra_data?.topic_ids, topicsData?.topics])
   
   // Mutation for marking as listened
   const markListenedMutation = useMutation({
@@ -572,6 +584,11 @@ export default function AudioPlayer() {
                   onClick={() => navigate(`/briefing/${currentAudio.id}`)}
                   className="text-left w-full"
                 >
+                  {briefingTopics.length > 0 && (
+                    <p className="text-xs text-augustus-400 truncate mb-0.5">
+                      {briefingTopics.map(t => t.name).join(', ')}
+                    </p>
+                  )}
                   <h4 className="font-medium text-white truncate text-sm sm:text-base hover:text-accent transition-colors cursor-pointer">
                     {currentAudio.title}
                   </h4>
@@ -581,6 +598,11 @@ export default function AudioPlayer() {
                 </button>
               ) : (
                 <div>
+                  {briefingTopics.length > 0 && (
+                    <p className="text-xs text-augustus-400 truncate mb-0.5">
+                      {briefingTopics.map(t => t.name).join(', ')}
+                    </p>
+                  )}
                   <h4 className="font-medium text-white truncate text-sm sm:text-base">{currentAudio.title}</h4>
                   <p className="text-xs text-augustus-500 mt-0.5 truncate">
                     {formatTime(currentTime)} / {formatTime(duration)}
@@ -830,6 +852,11 @@ export default function AudioPlayer() {
                 onClick={() => navigate(`/briefing/${currentAudio.id}`)}
                 className="text-left w-full min-h-[44px] sm:min-h-0 flex flex-col justify-center"
               >
+                {briefingTopics.length > 0 && (
+                  <p className="text-xs text-augustus-400 truncate mb-0.5">
+                    {briefingTopics.map(t => t.name).join(', ')}
+                  </p>
+                )}
                 <h4 className="font-medium text-white truncate text-sm sm:text-base hover:text-accent transition-colors cursor-pointer">
                   {currentAudio.title}
                 </h4>
@@ -841,6 +868,11 @@ export default function AudioPlayer() {
               </button>
             ) : (
               <div className="min-h-[44px] sm:min-h-0 flex flex-col justify-center">
+                {briefingTopics.length > 0 && (
+                  <p className="text-xs text-augustus-400 truncate mb-0.5">
+                    {briefingTopics.map(t => t.name).join(', ')}
+                  </p>
+                )}
                 <h4 className="font-medium text-white truncate text-sm sm:text-base">{currentAudio.title}</h4>
                 <p className="text-xs text-augustus-500 mt-0.5 truncate">
                   {currentAudio.chapters && currentAudio.chapters.length > 0 && activeChapterIndex !== null

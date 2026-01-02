@@ -52,7 +52,7 @@ class AudioManager {
       this.onPauseCallbacks.forEach(cb => cb())
     })
     
-    this.audio.addEventListener('error', (e) => {
+    this.audio.addEventListener('error', () => {
       const error = new Error(`Audio error: ${this.audio?.error?.message || 'Unknown error'}`)
       this.onErrorCallbacks.forEach(cb => cb(error))
     })
@@ -171,4 +171,5 @@ class AudioManager {
 
 // Export singleton instance
 export const audioManager = new AudioManager()
+
 

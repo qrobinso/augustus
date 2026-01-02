@@ -11,7 +11,6 @@ import {
   Trash2,
   AlertCircle,
   FileText,
-  ChevronRight,
   ChevronDown,
   CheckCircle,
   Circle,
@@ -316,14 +315,6 @@ export default function Dashboard() {
         initialPosition: briefing.playback_position || undefined,
       })
     }
-  }
-  
-  const truncateTranscript = (transcript?: string, maxLength = 150) => {
-    if (!transcript) return null
-    // Remove HOST1:/HOST2: prefixes for preview
-    const cleaned = transcript.replace(/HOST[12]:\s*/gi, '').trim()
-    if (cleaned.length <= maxLength) return cleaned
-    return cleaned.substring(0, maxLength).trim() + '...'
   }
   
   const handleGenerate = () => {
@@ -683,7 +674,7 @@ export default function Dashboard() {
             </div>
 
             {/* Bottom: Date • Duration • Summary */}
-            {briefing.status === 'completed' && briefing.extra_data?.story_analysis ? (
+            {briefing.status === 'completed' && briefing.extra_data?.story_analysis_raw ? (
               <div className="mt-auto flex flex-col sm:flex-row sm:items-end justify-between gap-6 sm:gap-8">
                 <div className="flex-1">
                   <p className="text-base sm:text-lg text-augustus-300 leading-relaxed">
@@ -692,7 +683,7 @@ export default function Dashboard() {
                     </span>{' '}
                     <span className="text-augustus-200">
                       {(() => {
-                        const summary = (briefing.extra_data?.story_analysis as string) || ''
+                        const summary = (briefing.extra_data?.story_analysis_raw as string) || ''
                         const maxLength = 300
                         return summary.length > maxLength ? summary.substring(0, maxLength).trim() + '...' : summary
                       })()}
@@ -706,18 +697,13 @@ export default function Dashboard() {
                     e.stopPropagation()
                     handlePlayPause(briefing, e)
                   }}
-                  disabled={briefing.status !== 'completed'}
                   className={clsx(
                     'w-20 h-20 sm:w-28 sm:h-28 rounded-full flex items-center justify-center transition-all active:scale-95 flex-shrink-0 relative overflow-hidden group/btn shadow-2xl',
-                    briefing.status === 'completed'
-                      ? 'bg-accent hover:bg-accent-600 text-white hover:scale-105'
-                      : 'bg-augustus-800 text-augustus-500'
+                    'bg-accent hover:bg-accent-600 text-white hover:scale-105'
                   )}
                 >
                   <div className="absolute inset-0 bg-gradient-to-br from-white/20 to-transparent opacity-0 group-hover/btn:opacity-100 transition-opacity" />
-                  {briefing.status === 'generating' || briefing.status === 'pending' ? (
-                    <Loader2 className="w-10 h-10 animate-spin" />
-                  ) : isCurrentlyPlaying ? (
+                  {isCurrentlyPlaying ? (
                     <Pause className="w-10 h-10 sm:w-14 sm:h-14 fill-current relative z-10" />
                   ) : (
                     <Play className="w-10 h-10 sm:w-14 sm:h-14 fill-current ml-1.5 relative z-10" />
@@ -837,7 +823,7 @@ export default function Dashboard() {
           </h3>
           
           {/* Date • Duration • Summary preview format */}
-          {briefing.status === 'completed' && briefing.extra_data?.story_analysis ? (
+          {briefing.status === 'completed' && briefing.extra_data?.story_analysis_raw ? (
             <div className="space-y-1">
               <p className={clsx(
                 'text-augustus-300 leading-relaxed',
@@ -848,7 +834,7 @@ export default function Dashboard() {
                 </span>{' '}
                 <span className="text-augustus-200">
                   {(() => {
-                    const summary = (briefing.extra_data?.story_analysis as string) || ''
+                    const summary = (briefing.extra_data?.story_analysis_raw as string) || ''
                     const maxLength = isLatest ? 300 : 200
                     return summary.length > maxLength ? summary.substring(0, maxLength).trim() + '...' : summary
                   })()}
@@ -1624,7 +1610,7 @@ export default function Dashboard() {
                           </h2>
                         </div>
                       </div>
-                      {notListened.map((briefing, index) => {
+                      {notListened.map((briefing) => {
                         const isCurrentlyPlaying = currentAudio?.id === briefing.id && isPlaying
                         const isLatest = isMobile && notListened.length > 0
                         // Get topic IDs from extra_data
@@ -1651,7 +1637,7 @@ export default function Dashboard() {
                           </h2>
                         </div>
                       </div>
-                      {listened.map((briefing, index) => {
+                      {listened.map((briefing) => {
                         const isCurrentlyPlaying = currentAudio?.id === briefing.id && isPlaying
                         const isLatest = false // Only show latest styling for first not-listened item
                         // Get topic IDs from extra_data
@@ -1667,7 +1653,7 @@ export default function Dashboard() {
               )
             } else {
               // No grouping when filter is applied - show all briefings normally
-              return briefings.map((briefing, index) => {
+              return briefings.map((briefing) => {
                 const isCurrentlyPlaying = currentAudio?.id === briefing.id && isPlaying
                 const isLatest = isMobile && !briefing.listened
                 // Get topic IDs from extra_data

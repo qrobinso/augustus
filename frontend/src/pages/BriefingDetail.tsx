@@ -25,7 +25,8 @@ import {
   Heart,
   Trash2,
   CalendarClock,
-  Download
+  Download,
+  Navigation2
 } from 'lucide-react'
 import clsx from 'clsx'
 import { briefingsApi, settingsApi, castsApi, scheduledBriefingsApi, topicsApi, SegmentTiming } from '../api/client'
@@ -38,8 +39,10 @@ export default function BriefingDetail() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const queryClient = useQueryClient()
-  const audioRef = useRef<HTMLAudioElement | null>(null)
   const segmentRefs = useRef<Map<number, HTMLDivElement>>(new Map())
+  const transcriptContainerRef = useRef<HTMLDivElement | null>(null)
+  const isAutoScrollingRef = useRef(false)
+  const shouldAutoScrollRef = useRef(true)
   
   const currentAudio = useStore((s) => s.currentAudio)
   const isPlaying = useStore((s) => s.isPlaying)
@@ -55,6 +58,7 @@ export default function BriefingDetail() {
   const [nerdStatsExpanded, setNerdStatsExpanded] = useState(false)
   const [audioFileSize, setAudioFileSize] = useState<number | null>(null)
   const [showCreateScheduleModal, setShowCreateScheduleModal] = useState(false)
+  const [showScrollToTranscript, setShowScrollToTranscript] = useState(false)
   
   const { data: briefing, isLoading, error } = useQuery({
     queryKey: ['briefing', id],
@@ -290,15 +294,115 @@ export default function BriefingDetail() {
     }
   }, [isThisBriefingLoaded, currentAudio?.id, id, findActiveSegment])
   
-  // Auto-scroll to active segment
+  // Auto-scroll to active segment (only if shouldAutoScrollRef is true)
   useEffect(() => {
-    if (activeSegmentIndex !== null && isCurrentlyPlaying) {
+    if (activeSegmentIndex !== null && isCurrentlyPlaying && shouldAutoScrollRef.current) {
       const segmentEl = segmentRefs.current.get(activeSegmentIndex)
       if (segmentEl) {
+        isAutoScrollingRef.current = true
         segmentEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        // Reset flag after scroll completes
+        setTimeout(() => {
+          isAutoScrollingRef.current = false
+        }, 500)
       }
     }
   }, [activeSegmentIndex, isCurrentlyPlaying])
+
+  // Check if user has scrolled away from the active segment
+  useEffect(() => {
+    if (!isCurrentlyPlaying || activeSegmentIndex === null) {
+      setShowScrollToTranscript(false)
+      shouldAutoScrollRef.current = true
+      return
+    }
+
+    const checkScrollPosition = () => {
+      // Skip if we're currently auto-scrolling
+      if (isAutoScrollingRef.current) {
+        return
+      }
+
+      const segmentEl = segmentRefs.current.get(activeSegmentIndex)
+      if (!segmentEl) {
+        setShowScrollToTranscript(false)
+        shouldAutoScrollRef.current = true
+        return
+      }
+
+      const segmentRect = segmentEl.getBoundingClientRect()
+      const viewportHeight = window.innerHeight
+      const viewportCenter = viewportHeight / 2
+      
+      // Check if the active segment is visible in the viewport
+      const isVisible = 
+        segmentRect.top >= 0 &&
+        segmentRect.bottom <= viewportHeight &&
+        segmentRect.left >= 0 &&
+        segmentRect.right <= window.innerWidth
+
+      // Also check if it's reasonably close to the viewport center (within 250px)
+      const segmentCenter = segmentRect.top + segmentRect.height / 2
+      const distanceFromCenter = Math.abs(segmentCenter - viewportCenter)
+      const isNearCenter = distanceFromCenter < 250
+
+      const isScrolledAway = !isVisible && !isNearCenter
+      
+      if (isScrolledAway) {
+        // User has scrolled away - stop auto-scrolling and show pill
+        shouldAutoScrollRef.current = false
+        setShowScrollToTranscript(true)
+      } else {
+        // User is near the active segment - resume auto-scrolling and hide pill
+        shouldAutoScrollRef.current = true
+        setShowScrollToTranscript(false)
+      }
+    }
+
+    // Check on scroll with debouncing
+    let scrollTimeout: NodeJS.Timeout
+    const handleScroll = () => {
+      if (!isAutoScrollingRef.current) {
+        clearTimeout(scrollTimeout)
+        scrollTimeout = setTimeout(checkScrollPosition, 100)
+      }
+    }
+
+    // Check when active segment changes
+    const checkInterval = setInterval(() => {
+      if (!isAutoScrollingRef.current) {
+        checkScrollPosition()
+      }
+    }, 500)
+
+    window.addEventListener('scroll', handleScroll, { passive: true })
+    
+    // Initial check
+    checkScrollPosition()
+    
+    return () => {
+      clearTimeout(scrollTimeout)
+      clearInterval(checkInterval)
+      window.removeEventListener('scroll', handleScroll)
+    }
+  }, [activeSegmentIndex, isCurrentlyPlaying])
+
+  // Handle clicking the scroll-to-transcript pill
+  const handleScrollToTranscript = () => {
+    if (activeSegmentIndex !== null) {
+      const segmentEl = segmentRefs.current.get(activeSegmentIndex)
+      if (segmentEl) {
+        // Resume auto-scrolling
+        shouldAutoScrollRef.current = true
+        isAutoScrollingRef.current = true
+        segmentEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        setTimeout(() => {
+          isAutoScrollingRef.current = false
+          setShowScrollToTranscript(false)
+        }, 500)
+      }
+    }
+  }
   
   const handlePlayPause = () => {
     if (!briefing?.audio_url) return
@@ -832,9 +936,9 @@ export default function BriefingDetail() {
             </div>
             
             {/* Summary */}
-            {briefing.status === 'completed' && briefing.extra_data?.story_analysis && (
+            {briefing.status === 'completed' && briefing.extra_data?.story_analysis_raw && (
               <p className="text-sm sm:text-base text-augustus-300 leading-relaxed mt-3 sm:mt-4">
-                {briefing.extra_data.story_analysis as string}
+                {briefing.extra_data.story_analysis_raw as string}
               </p>
             )}
             
@@ -933,7 +1037,7 @@ export default function BriefingDetail() {
       
       {/* Transcript */}
       {(briefing.transcript || segmentTimings.length > 0) && (
-        <div className="card">
+        <div className="card" ref={transcriptContainerRef}>
           <h2 className="text-base sm:text-lg font-semibold text-white mb-3 sm:mb-4 flex items-center gap-2">
             <FileText className="w-5 h-5 text-accent" />
             Transcript
@@ -948,6 +1052,27 @@ export default function BriefingDetail() {
             {formatTranscript()}
           </div>
         </div>
+      )}
+
+      {/* Scroll to Transcript Pill - positioned above audio player */}
+      {showScrollToTranscript && isCurrentlyPlaying && (
+        <button
+          onClick={handleScrollToTranscript}
+          className="fixed left-1/2 transform -translate-x-1/2 z-50 
+                     bg-accent hover:bg-accent-600 text-white 
+                     px-4 py-2 rounded-full shadow-lg 
+                     flex items-center gap-2 
+                     transition-all duration-300 
+                     hover:scale-105 active:scale-95
+                     bottom-44 md:bottom-36"
+          style={{
+            // Add safe area inset for devices with home indicator
+            marginBottom: 'env(safe-area-inset-bottom, 0px)'
+          }}
+        >
+          <Navigation2 className="w-4 h-4" />
+          <span className="text-sm font-medium">Follow Transcript</span>
+        </button>
       )}
       
       {/* Sources */}
