@@ -516,7 +516,7 @@ export default function Topics() {
       {/* Header */}
       <div className="mb-6 sm:mb-8">
         <h1 className="text-2xl sm:text-3xl font-display font-semibold text-white mb-1 sm:mb-2">
-          Topics & Sites
+          Topics
         </h1>
         <p className="text-sm sm:text-base text-augustus-400">
           Manage your news topics and their associated websites

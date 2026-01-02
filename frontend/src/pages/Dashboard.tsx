@@ -38,6 +38,8 @@ export default function Dashboard() {
   const isPlaying = useStore((s) => s.isPlaying)
   const setCurrentAudio = useStore((s) => s.setCurrentAudio)
   const setIsPlaying = useStore((s) => s.setIsPlaying)
+  const playAudio = useStore((s) => s.playAudio)
+  const togglePlayPause = useStore((s) => s.togglePlayPause)
   
   const [selectedTopicIds, setSelectedTopicIds] = useState<string[]>([])
   const [selectedCastId, setSelectedCastId] = useState<string | undefined>(() => {
@@ -179,8 +181,9 @@ export default function Dashboard() {
   const handlePlayAndNavigate = (briefing: Briefing) => {
     if (!briefing.audio_url) return
     
-    // Start playing
-    setCurrentAudio({
+    // Start playing using playAudio for mobile compatibility
+    // playAudio calls audio.play() synchronously in the click handler
+    playAudio({
       id: briefing.id,
       type: 'briefing',
       title: briefing.title,
@@ -189,13 +192,14 @@ export default function Dashboard() {
       chapters: briefing.chapters,
       initialPosition: briefing.playback_position || undefined,
     })
-    setIsPlaying(true)
     
     // Navigate to detail page
     navigate(`/briefing/${briefing.id}`)
   }
   
   // Auto-play when a briefing finishes generating
+  // Note: On mobile, this may not auto-play due to browser restrictions on audio
+  // without direct user interaction. The user will need to tap play manually.
   useEffect(() => {
     if (newlyCompletedBriefing && newlyCompletedBriefing.audio_url) {
       // Only auto-play if we haven't already played this briefing
@@ -203,7 +207,7 @@ export default function Dashboard() {
         // Mark as auto-played
         autoPlayedBriefingsRef.current.add(newlyCompletedBriefing.id)
         
-        // Start playing automatically
+        // Set up audio (may not auto-play on mobile without user interaction)
         setCurrentAudio({
           id: newlyCompletedBriefing.id,
           type: 'briefing',
@@ -283,11 +287,11 @@ export default function Dashboard() {
     if (!briefing.audio_url) return
     
     if (currentAudio?.id === briefing.id) {
-      // Toggle play/pause for current audio
-      setIsPlaying(!isPlaying)
+      // Toggle play/pause for current audio (uses audio manager for mobile compatibility)
+      togglePlayPause()
     } else {
-      // Start playing this briefing, resuming from saved position if available
-      setCurrentAudio({
+      // Start playing this briefing using playAudio for mobile compatibility
+      playAudio({
         id: briefing.id,
         type: 'briefing',
         title: briefing.title,
@@ -296,7 +300,6 @@ export default function Dashboard() {
         chapters: briefing.chapters,
         initialPosition: briefing.playback_position || undefined,
       })
-      setIsPlaying(true)
     }
   }
   
@@ -359,6 +362,24 @@ export default function Dashboard() {
     return `${mins}:${secs.toString().padStart(2, '0')}`
   }
   
+  const formatDurationLong = (seconds?: number) => {
+    if (!seconds) return '-- min -- sec'
+    const mins = Math.floor(seconds / 60)
+    const secs = Math.floor(seconds % 60)
+    return `${mins} min ${secs} sec`
+  }
+  
+  const formatDateShort = (dateStr: string) => {
+    const date = new Date(dateStr)
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    })
+    return formatter.format(date)
+  }
+  
   const formatDate = (dateStr: string) => {
     return formatCompactDate(dateStr, timezone)
   }
@@ -369,13 +390,12 @@ export default function Dashboard() {
     const diffMs = now.getTime() - date.getTime()
     const diffSecs = Math.floor(diffMs / 1000)
     const diffMins = Math.floor(diffSecs / 60)
-    const diffHours = Math.floor(diffMins / 60)
     
     // Get dates in user's timezone for comparison
     const dateInTz = new Date(dateStr)
     const nowInTz = new Date()
     
-    // Format time in user's timezone
+    // Format time in user's timezone with minutes for precision
     const timeFormatter = new Intl.DateTimeFormat('en-US', {
       timeZone: timezone,
       hour: 'numeric',
@@ -392,12 +412,18 @@ export default function Dashboard() {
     const dateStrInTz = dateFormatter.format(dateInTz)
     const nowStrInTz = dateFormatter.format(nowInTz)
     
-    // Same day
+    // Same day - always show the actual time for precision
     if (dateStrInTz === nowStrInTz) {
-      if (diffMins < 1) return 'Just now'
-      if (diffMins < 60) return `${diffMins} minute${diffMins === 1 ? '' : 's'} ago`
-      // For same day but more than an hour, show "at 8am today"
       const timeStr = timeFormatter.format(dateInTz)
+      // For very recent items (less than 1 minute), show both relative and time
+      if (diffMins < 1) {
+        return `Just now (${timeStr})`
+      }
+      // For items less than 1 hour, show both minutes and time
+      if (diffMins < 60) {
+        return `${diffMins} minute${diffMins === 1 ? '' : 's'} ago (${timeStr})`
+      }
+      // For same day but more than an hour, show "at 8:15am today"
       return `at ${timeStr} today`
     }
     
@@ -410,13 +436,9 @@ export default function Dashboard() {
       return `at ${timeStr} yesterday`
     }
     
-    // Older than yesterday
-    if (diffHours < 48) {
-      return `${diffHours} hour${diffHours === 1 ? '' : 's'} ago`
-    }
-    
-    // Show date for older items
-    return dateFormatter.format(dateInTz)
+    // Older than yesterday - show date and time
+    const timeStr = timeFormatter.format(dateInTz)
+    return `${dateFormatter.format(dateInTz)} at ${timeStr}`
   }
   
   // Prepare animation items for the generation progress
@@ -544,6 +566,349 @@ export default function Dashboard() {
     )
   }
 
+  // Helper function to render a briefing card
+  const renderBriefingCard = (briefing: Briefing, isLatest: boolean, isCurrentlyPlaying: boolean, briefingTopics: typeof topics) => {
+    if (isLatest) {
+      return (
+        <div
+          key={briefing.id}
+          onClick={() => navigate(`/briefing/${briefing.id}`)}
+          className="relative group cursor-pointer overflow-hidden rounded-[2rem] bg-augustus-900 border border-augustus-800/50 shadow-2xl transition-all hover:border-augustus-700 active:scale-[0.99] min-h-[380px] sm:min-h-[450px] flex flex-col p-6 sm:p-10"
+        >
+          {/* Subtle Background Pattern/Gradient */}
+          <div className="absolute inset-0 bg-gradient-to-br from-accent/10 via-transparent to-transparent opacity-50" />
+          <div className="absolute -right-20 -top-20 w-96 h-96 bg-accent/25 rounded-full blur-[100px] animate-spotlight pointer-events-none" />
+          
+          {/* Chapter Names Background */}
+          {briefing.chapters && briefing.chapters.length > 0 && (
+            <div className="absolute inset-0 overflow-visible pointer-events-none">
+              <div
+                className="absolute font-black text-white uppercase tracking-tighter opacity-5 text-8xl sm:text-[12rem] top-1/2 -translate-y-1/2 left-0 -translate-x-8 w-[150%] text-left leading-[0.9]"
+                style={{ 
+                  textShadow: '0 0 20px rgba(255,255,255,0.1)'
+                }}
+              >
+                {briefing.chapters.map(c => c.title).join(' ')}
+              </div>
+            </div>
+          )}
+          
+          {/* Content Container */}
+          <div className="relative z-10 flex flex-col h-full justify-between flex-1">
+            {/* Top Row: Cast & Status */}
+            <div className="flex justify-between items-start mb-6">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-xl bg-augustus-800 flex items-center justify-center border border-augustus-700 shadow-lg">
+                  <Waves className="w-6 h-6 text-accent" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span className="w-2 h-2 rounded-full bg-accent animate-pulse" />
+                    <p className="text-[10px] text-augustus-500 font-black">
+                      Generated {formatRelativeTime(briefing.generated_at || briefing.created_at)}
+                    </p>
+                  </div>
+                  {(briefing.extra_data?.cast_name as string) && (
+                    <p className="text-white text-base font-bold">{(briefing.extra_data?.cast_name as string)}</p>
+                  )}
+                </div>
+              </div>
+              
+              {/* Delete Button */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  if (confirm('Are you sure you want to delete this briefing?')) {
+                    deleteMutation.mutate(briefing.id)
+                  }
+                }}
+                className="btn btn-ghost p-2 text-augustus-500 hover:text-red-400 flex-shrink-0"
+                title="Delete"
+              >
+                <Trash2 className="w-5 h-5 sm:w-6 sm:h-6" />
+              </button>
+            </div>
+
+            {/* Middle: Topics & Title */}
+            <div className="mb-8 mt-2 sm:mt-4">
+              <div className="flex flex-wrap gap-2 mb-6 sm:mb-8">
+                {briefingTopics.map((topic) => (
+                  <span
+                    key={topic.id}
+                    className="px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest bg-white/10 text-white/90 border border-white/10 backdrop-blur-md"
+                  >
+                    {topic.name}
+                  </span>
+                ))}
+              </div>
+              
+              <h2 className="text-4xl sm:text-6xl font-display font-black text-white leading-[0.85] tracking-tighter group-hover:text-accent transition-colors">
+                {briefing.title}
+              </h2>
+              
+              {/* Progress bar for generating briefings */}
+              {(briefing.status === 'generating' || briefing.status === 'pending') && briefing.extra_data?.progress && (
+                <div className="mt-4 space-y-2">
+                  <div className="flex justify-between text-xs sm:text-sm">
+                    <span className="text-augustus-300 truncate mr-2">
+                      Step {briefing.extra_data.progress.step}/{briefing.extra_data.progress.total_steps}: {briefing.extra_data.progress.step_name}
+                    </span>
+                    <span className="text-augustus-400 flex-shrink-0">
+                      {briefing.extra_data.progress.percent}%
+                    </span>
+                  </div>
+                  <div className="h-2 bg-augustus-800/50 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-yellow-500 rounded-full transition-all duration-500"
+                      style={{ width: `${briefing.extra_data.progress.percent}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Bottom: Date • Duration • Summary */}
+            {briefing.status === 'completed' && briefing.extra_data?.story_analysis ? (
+              <div className="mt-auto flex flex-col sm:flex-row sm:items-end justify-between gap-6 sm:gap-8">
+                <div className="flex-1">
+                  <p className="text-base sm:text-lg text-augustus-300 leading-relaxed">
+                    <span className="text-augustus-400">
+                      {formatDateShort(briefing.created_at)} • {formatDurationLong(briefing.duration_seconds)} • 
+                    </span>{' '}
+                    <span className="text-augustus-200">
+                      {(() => {
+                        const summary = (briefing.extra_data?.story_analysis as string) || ''
+                        const maxLength = 300
+                        return summary.length > maxLength ? summary.substring(0, maxLength).trim() + '...' : summary
+                      })()}
+                    </span>
+                  </p>
+                </div>
+                
+                {/* Prominent Play Button */}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handlePlayPause(briefing, e)
+                  }}
+                  disabled={briefing.status !== 'completed'}
+                  className={clsx(
+                    'w-20 h-20 sm:w-28 sm:h-28 rounded-full flex items-center justify-center transition-all active:scale-95 flex-shrink-0 relative overflow-hidden group/btn shadow-2xl',
+                    briefing.status === 'completed'
+                      ? 'bg-accent hover:bg-accent-600 text-white hover:scale-105'
+                      : 'bg-augustus-800 text-augustus-500'
+                  )}
+                >
+                  <div className="absolute inset-0 bg-gradient-to-br from-white/20 to-transparent opacity-0 group-hover/btn:opacity-100 transition-opacity" />
+                  {briefing.status === 'generating' || briefing.status === 'pending' ? (
+                    <Loader2 className="w-10 h-10 animate-spin" />
+                  ) : isCurrentlyPlaying ? (
+                    <Pause className="w-10 h-10 sm:w-14 sm:h-14 fill-current relative z-10" />
+                  ) : (
+                    <Play className="w-10 h-10 sm:w-14 sm:h-14 fill-current ml-1.5 relative z-10" />
+                  )}
+                </button>
+              </div>
+            ) : (
+              <div className="mt-auto flex flex-col sm:flex-row sm:items-end justify-between gap-8">
+                {/* Large Stats */}
+                <div className="flex gap-12 items-end flex-1 min-w-0">
+                  <div className="flex flex-col">
+                    <div className="h-[2em] sm:h-[2.5em] flex items-end">
+                      <span className="text-4xl sm:text-5xl font-black text-white leading-none tracking-tighter">
+                        {formatDuration(briefing.duration_seconds)}
+                      </span>
+                    </div>
+                    <span className="text-[9px] uppercase tracking-[0.2em] text-augustus-500 font-black mt-3">Duration</span>
+                  </div>
+                  
+                  <div className="hidden sm:flex flex-col">
+                    <div className="h-[2.5em] flex items-end">
+                      <span className="text-4xl sm:text-5xl font-black text-white leading-none tracking-tighter uppercase">
+                        {new Date(briefing.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      </span>
+                    </div>
+                    <span className="text-[9px] uppercase tracking-[0.2em] text-augustus-500 font-black mt-3">Released</span>
+                  </div>
+                </div>
+
+                {/* Prominent Play Button */}
+                <button
+                  onClick={(e) => handlePlayPause(briefing, e)}
+                  disabled={briefing.status !== 'completed'}
+                  className={clsx(
+                    'w-20 h-20 sm:w-28 sm:h-28 rounded-full flex items-center justify-center transition-all active:scale-95 flex-shrink-0 relative overflow-hidden group/btn shadow-2xl',
+                    briefing.status === 'completed'
+                      ? 'bg-accent hover:bg-accent-600 text-white hover:scale-105'
+                      : 'bg-augustus-800 text-augustus-500'
+                  )}
+                >
+                  <div className="absolute inset-0 bg-gradient-to-br from-white/20 to-transparent opacity-0 group-hover/btn:opacity-100 transition-opacity" />
+                  {briefing.status === 'generating' || briefing.status === 'pending' ? (
+                    <Loader2 className="w-10 h-10 animate-spin" />
+                  ) : isCurrentlyPlaying ? (
+                    <Pause className="w-10 h-10 sm:w-14 sm:h-14 fill-current relative z-10" />
+                  ) : (
+                    <Play className="w-10 h-10 sm:w-14 sm:h-14 fill-current ml-1.5 relative z-10" />
+                  )}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )
+    }
+
+    return (
+      <div
+        key={briefing.id}
+        onClick={() => navigate(`/briefing/${briefing.id}`)}
+        className={clsx(
+          'card hover:border-augustus-600 transition-colors cursor-pointer group active:scale-[0.99] relative',
+          isLatest && 'p-6 sm:p-8'
+        )}
+      >
+         <div className={clsx(
+           'flex flex-col',
+           briefing.status === 'completed' && 'pl-14 sm:pl-16'
+         )}>
+           {/* Topics */}
+           {briefingTopics.length > 0 && (
+            <div className={clsx('flex flex-wrap gap-1.5 sm:gap-2', isLatest ? 'mb-3 sm:mb-4' : 'mb-2')}>
+              {briefingTopics.slice(0, isLatest ? briefingTopics.length : (window.innerWidth < 640 ? 2 : briefingTopics.length)).map((topic) => (
+                <span
+                  key={topic.id}
+                  className={clsx(
+                    'rounded-full font-medium flex items-center gap-1.5',
+                    isLatest ? 'px-3 py-1.5 text-sm sm:text-base' : 'px-1.5 sm:px-2 py-0.5 text-xs'
+                  )}
+                  style={{ backgroundColor: `${topic.color || '#3B82F6'}20`, color: topic.color || '#3B82F6' }}
+                >
+                  <span
+                    className={clsx('rounded-full', isLatest ? 'w-2 h-2 sm:w-2.5 sm:h-2.5' : 'w-1.5 h-1.5 hidden sm:block')}
+                    style={{ backgroundColor: topic.color || '#3B82F6' }}
+                  />
+                  {topic.name}
+                </span>
+              ))}
+              {!isLatest && briefingTopics.length > 2 && window.innerWidth < 640 && (
+                <span className="text-xs text-augustus-500">+{briefingTopics.length - 2}</span>
+              )}
+            </div>
+          )}
+          
+          {/* Title */}
+          <h3 className={clsx(
+            'font-semibold text-white truncate group-hover:text-accent transition-colors mb-2',
+            isLatest ? 'text-lg sm:text-2xl' : 'text-sm sm:text-base'
+          )}>
+            {briefing.title}
+          </h3>
+          
+          {/* Date • Duration • Summary preview format */}
+          {briefing.status === 'completed' && briefing.extra_data?.story_analysis ? (
+            <div className="space-y-1">
+              <p className={clsx(
+                'text-augustus-300 leading-relaxed',
+                isLatest ? 'text-base sm:text-lg' : 'text-sm sm:text-base'
+              )}>
+                <span className="text-augustus-400">
+                  {formatDateShort(briefing.created_at)} • {formatDurationLong(briefing.duration_seconds)} • 
+                </span>{' '}
+                <span className="text-augustus-200">
+                  {(() => {
+                    const summary = (briefing.extra_data?.story_analysis as string) || ''
+                    const maxLength = isLatest ? 300 : 200
+                    return summary.length > maxLength ? summary.substring(0, maxLength).trim() + '...' : summary
+                  })()}
+                </span>
+              </p>
+            </div>
+          ) : (
+            <div className={clsx(
+              'flex flex-wrap items-center gap-x-2 gap-y-1 text-augustus-500',
+              isLatest ? 'text-sm sm:text-base' : 'text-xs sm:text-sm'
+            )}>
+              <span className="flex items-center gap-1.5">
+                <Clock className={clsx(isLatest ? 'w-4 h-4 sm:w-5 sm:h-5' : 'w-3.5 h-3.5')} />
+                {formatDuration(briefing.duration_seconds)}
+              </span>
+              <span className="flex items-center gap-1.5">
+                <Calendar className={clsx(isLatest ? 'w-4 h-4 sm:w-5 sm:h-5' : 'w-3.5 h-3.5')} />
+                {formatDate(briefing.created_at)}
+              </span>
+              {briefing.status === 'completed' && (
+                <span className={clsx(
+                  'flex items-center gap-1.5 px-2 py-0.5 rounded-full font-medium',
+                  isLatest ? 'text-sm sm:text-base' : 'text-xs',
+                  briefing.listened 
+                    ? 'bg-accent/20 text-accent' 
+                    : 'bg-augustus-700 text-augustus-400'
+                )}>
+                  {briefing.listened ? (
+                    <CheckCircle className={clsx(isLatest ? 'w-4 h-4 sm:w-5 sm:h-5' : 'w-3 h-3')} />
+                  ) : (
+                    <Circle className={clsx(isLatest ? 'w-4 h-4 sm:w-5 sm:h-5' : 'w-3 h-3')} />
+                  )}
+                  <span className={isLatest ? '' : 'hidden sm:inline'}>{briefing.listened ? 'Listened' : 'Not Listened'}</span>
+                </span>
+              )}
+            </div>
+          )}
+          
+          {briefing.error_message && (
+            <p className={clsx('text-red-400 mt-2', isLatest ? 'text-sm sm:text-base' : 'text-xs sm:text-sm')}>{briefing.error_message}</p>
+          )}
+          
+          {/* Progress bar for generating briefings */}
+          {(briefing.status === 'generating' || briefing.status === 'pending') && briefing.extra_data?.progress && (
+            <div className={clsx('space-y-1 sm:space-y-2 mt-2', isLatest && 'mt-3 sm:mt-4')}>
+              <div className="flex justify-between text-xs">
+                <span className="text-augustus-400 truncate mr-2">
+                  Step {briefing.extra_data.progress.step}/{briefing.extra_data.progress.total_steps}: {briefing.extra_data.progress.step_name}
+                </span>
+                <span className="text-augustus-500 flex-shrink-0">
+                  {briefing.extra_data.progress.percent}%
+                </span>
+              </div>
+              <div className="h-2 bg-augustus-800 rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-yellow-500 rounded-full transition-all duration-500"
+                  style={{ width: `${briefing.extra_data.progress.percent}%` }}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+        
+         {/* Play button - positioned absolutely or as overlay */}
+         {briefing.status === 'completed' && (
+           <button
+             onClick={(e) => {
+               e.stopPropagation()
+               handlePlayPause(briefing, e)
+             }}
+             className={clsx(
+               'absolute top-4 left-4 rounded-full flex items-center justify-center flex-shrink-0 transition-all z-10',
+               isLatest 
+                 ? 'w-12 h-12 sm:w-14 sm:h-14'
+                 : 'w-10 h-10 sm:w-12 sm:h-12',
+               isCurrentlyPlaying
+                 ? 'bg-accent hover:bg-accent-600 text-white glow'
+                 : 'bg-augustus-800/80 hover:bg-augustus-700 text-augustus-300 hover:text-white backdrop-blur-sm'
+             )}
+           >
+             {isCurrentlyPlaying ? (
+               <Pause className={clsx(isLatest ? 'w-6 h-6 sm:w-7 sm:h-7' : 'w-5 h-5 sm:w-6 sm:h-6')} />
+             ) : (
+               <Play className={clsx(isLatest ? 'w-6 h-6 sm:w-7 sm:h-7' : 'w-5 h-5 sm:w-6 sm:h-6', 'ml-0.5 sm:ml-1')} />
+             )}
+           </button>
+         )}
+      </div>
+    )
+  }
+
   return (
     <div className="page-container">
       {/* Header */}
@@ -643,7 +1008,7 @@ export default function Dashboard() {
                 </button>
               ))}
               <button
-                onClick={() => navigate('/topics/create', { state: { from: '/dashboard' } })}
+                onClick={() => navigate('/topics')}
                 className="px-3 py-1.5 rounded-full text-xs sm:text-sm font-medium transition-all flex items-center gap-1.5 min-h-[36px] bg-augustus-800 text-augustus-300 hover:bg-augustus-700 active:bg-augustus-600 border border-augustus-700 hover:border-augustus-600"
               >
                 <Plus className="w-3.5 h-3.5" />
@@ -1200,316 +1565,84 @@ export default function Dashboard() {
             </p>
           </div>
         ) : (
-          data?.briefings.map((briefing, index) => {
-            const isCurrentlyPlaying = currentAudio?.id === briefing.id && isPlaying
-            const isLatest = index === 0 && isMobile
-            // Get topic IDs from extra_data
-            const briefingTopicIds = (briefing.extra_data?.topic_ids as string[]) || []
-            // Match with topics data
-            const briefingTopics = topics.filter((t) => briefingTopicIds.includes(t.id))
+          (() => {
+            // Group briefings by listened status (only when showing all, not when filtered)
+            const shouldGroupByListened = listenedFilter === undefined
+            const briefings = data?.briefings || []
             
-            if (isLatest) {
+            if (shouldGroupByListened) {
+              // Split into not listened and listened groups
+              const notListened = briefings.filter(b => !b.listened)
+              const listened = briefings.filter(b => b.listened)
+              
               return (
-                <div
-                  key={briefing.id}
-                  onClick={() => navigate(`/briefing/${briefing.id}`)}
-                  className="relative group cursor-pointer overflow-hidden rounded-[2rem] bg-augustus-900 border border-augustus-800/50 shadow-2xl transition-all hover:border-augustus-700 active:scale-[0.99] min-h-[380px] sm:min-h-[450px] flex flex-col p-6 sm:p-10"
-                >
-                  {/* Subtle Background Pattern/Gradient */}
-                  <div className="absolute inset-0 bg-gradient-to-br from-accent/10 via-transparent to-transparent opacity-50" />
-                  <div className="absolute -right-20 -top-20 w-96 h-96 bg-accent/25 rounded-full blur-[100px] animate-spotlight pointer-events-none" />
-                  
-                  {/* Chapter Names Background */}
-                  {briefing.chapters && briefing.chapters.length > 0 && (
-                    <div className="absolute inset-0 overflow-visible pointer-events-none">
-                      <div
-                        className="absolute font-black text-white uppercase tracking-tighter opacity-5 text-8xl sm:text-[12rem] top-1/2 -translate-y-1/2 left-0 -translate-x-8 w-[150%] text-left leading-[0.9]"
-                        style={{ 
-                          textShadow: '0 0 20px rgba(255,255,255,0.1)'
-                        }}
-                      >
-                        {briefing.chapters.map(c => c.title).join(' ')}
+                <>
+                  {/* Not Listened Section */}
+                  {notListened.length > 0 && (
+                    <>
+                      <div className="sticky top-0 z-30 -mx-4 sm:-mx-6 px-4 sm:px-6 py-3 sm:py-4 mb-4 sm:mb-6 bg-augustus-950/95 backdrop-blur-sm border-b border-augustus-800/50">
+                        <div className="flex items-center gap-2">
+                          <Circle className="w-5 h-5 text-augustus-400" />
+                          <h2 className="text-base sm:text-lg font-semibold text-white">
+                            Unplayed ({notListened.length})
+                          </h2>
+                        </div>
                       </div>
-                    </div>
+                      {notListened.map((briefing, index) => {
+                        const isCurrentlyPlaying = currentAudio?.id === briefing.id && isPlaying
+                        const isLatest = isMobile && notListened.length > 0
+                        // Get topic IDs from extra_data
+                        const briefingTopicIds = (briefing.extra_data?.topic_ids as string[]) || []
+                        // Match with topics data
+                        const briefingTopics = topics.filter((t) => briefingTopicIds.includes(t.id))
+                        
+                        return renderBriefingCard(briefing, isLatest, isCurrentlyPlaying, briefingTopics)
+                      })}
+                    </>
                   )}
                   
-                  {/* Content Container */}
-                  <div className="relative z-10 flex flex-col h-full justify-between flex-1">
-                    {/* Top Row: Cast & Status */}
-                    <div className="flex justify-between items-start mb-6">
-                      <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 rounded-xl bg-augustus-800 flex items-center justify-center border border-augustus-700 shadow-lg">
-                          <Waves className="w-6 h-6 text-accent" />
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-2 mb-0.5">
-                            <span className="w-2 h-2 rounded-full bg-accent animate-pulse" />
-                            <p className="text-[10px] text-augustus-500 font-black">
-                              Generated {formatRelativeTime(briefing.generated_at || briefing.created_at)}
-                            </p>
-                          </div>
-                          {(briefing.extra_data?.cast_name as string) && (
-                            <p className="text-white text-base font-bold">{(briefing.extra_data?.cast_name as string)}</p>
-                          )}
-                        </div>
-                      </div>
-                      
-                      {/* Delete Button */}
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          if (confirm('Are you sure you want to delete this briefing?')) {
-                            deleteMutation.mutate(briefing.id)
-                          }
-                        }}
-                        className="btn btn-ghost p-2 text-augustus-500 hover:text-red-400 flex-shrink-0"
-                        title="Delete"
-                      >
-                        <Trash2 className="w-5 h-5 sm:w-6 sm:h-6" />
-                      </button>
-                    </div>
-
-                    {/* Middle: Title & Topics */}
-                    <div className="mb-8 mt-2 sm:mt-4">
-                      <h2 className="text-4xl sm:text-6xl font-display font-black text-white leading-[0.85] tracking-tighter mb-6 sm:mb-8 group-hover:text-accent transition-colors">
-                        {briefing.title}
-                      </h2>
-                      
-                      <div className="flex flex-wrap gap-2">
-                        {briefingTopics.map((topic) => (
-                          <span
-                            key={topic.id}
-                            className="px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest bg-white/10 text-white/90 border border-white/10 backdrop-blur-md"
-                          >
-                            {topic.name}
-                          </span>
-                        ))}
-                      </div>
-                      
-                      {/* Progress bar for generating briefings */}
-                      {(briefing.status === 'generating' || briefing.status === 'pending') && briefing.extra_data?.progress && (
-                        <div className="mt-4 space-y-2">
-                          <div className="flex justify-between text-xs sm:text-sm">
-                            <span className="text-augustus-300 truncate mr-2">
-                              Step {briefing.extra_data.progress.step}/{briefing.extra_data.progress.total_steps}: {briefing.extra_data.progress.step_name}
-                            </span>
-                            <span className="text-augustus-400 flex-shrink-0">
-                              {briefing.extra_data.progress.percent}%
-                            </span>
-                          </div>
-                          <div className="h-2 bg-augustus-800/50 rounded-full overflow-hidden">
-                            <div 
-                              className="h-full bg-yellow-500 rounded-full transition-all duration-500"
-                              style={{ width: `${briefing.extra_data.progress.percent}%` }}
-                            />
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Bottom: Play Button & Stats */}
-                    <div className="mt-auto flex flex-col sm:flex-row sm:items-end justify-between gap-8">
-                      {/* Large Stats */}
-                      <div className="flex gap-12 items-end flex-1 min-w-0">
-                        <div className="flex flex-col">
-                          <div className="h-[2em] sm:h-[2.5em] flex items-end">
-                            <span className="text-4xl sm:text-5xl font-black text-white leading-none tracking-tighter">
-                              {formatDuration(briefing.duration_seconds)}
-                            </span>
-                          </div>
-                          <span className="text-[9px] uppercase tracking-[0.2em] text-augustus-500 font-black mt-3">Duration</span>
-                        </div>
-                        
-                        <div className="hidden sm:flex flex-col">
-                          <div className="h-[2.5em] flex items-end">
-                            <span className="text-4xl sm:text-5xl font-black text-white leading-none tracking-tighter uppercase">
-                              {new Date(briefing.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                            </span>
-                          </div>
-                          <span className="text-[9px] uppercase tracking-[0.2em] text-augustus-500 font-black mt-3">Released</span>
-                        </div>
-                      </div>
-
-                      {/* Prominent Play Button */}
-                      <button
-                        onClick={(e) => handlePlayPause(briefing, e)}
-                        disabled={briefing.status !== 'completed'}
-                        className={clsx(
-                          'w-20 h-20 sm:w-28 sm:h-28 rounded-full flex items-center justify-center transition-all active:scale-95 flex-shrink-0 relative overflow-hidden group/btn shadow-2xl',
-                          briefing.status === 'completed'
-                            ? 'bg-accent hover:bg-accent-600 text-white hover:scale-105'
-                            : 'bg-augustus-800 text-augustus-500'
-                        )}
-                      >
-                        <div className="absolute inset-0 bg-gradient-to-br from-white/20 to-transparent opacity-0 group-hover/btn:opacity-100 transition-opacity" />
-                        {briefing.status === 'generating' || briefing.status === 'pending' ? (
-                          <Loader2 className="w-10 h-10 animate-spin" />
-                        ) : isCurrentlyPlaying ? (
-                          <Pause className="w-10 h-10 sm:w-14 sm:h-14 fill-current relative z-10" />
-                        ) : (
-                          <Play className="w-10 h-10 sm:w-14 sm:h-14 fill-current ml-1.5 relative z-10" />
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )
-            }
-
-            return (
-              <div
-                key={briefing.id}
-                onClick={() => navigate(`/briefing/${briefing.id}`)}
-                className={clsx(
-                  'card hover:border-augustus-600 transition-colors cursor-pointer group active:scale-[0.99]',
-                  isLatest && 'p-6 sm:p-8'
-                )}
-              >
-                <div className={clsx('flex items-center gap-3 sm:gap-4', isLatest && 'gap-4 sm:gap-6')}>
-                  {/* Play button */}
-                  <button
-                    onClick={(e) => handlePlayPause(briefing, e)}
-                    disabled={briefing.status !== 'completed'}
-                    className={clsx(
-                      'rounded-full flex items-center justify-center flex-shrink-0 transition-all',
-                      isLatest 
-                        ? 'w-16 h-16 sm:w-20 sm:h-20'
-                        : 'w-12 h-12 sm:w-14 sm:h-14',
-                      briefing.status === 'completed'
-                        ? 'bg-accent hover:bg-accent-600 text-white glow active:scale-95'
-                        : 'bg-augustus-800 text-augustus-500'
-                    )}
-                  >
-                    {briefing.status === 'generating' || briefing.status === 'pending' ? (
-                      <Loader2 className={clsx(isLatest ? 'w-7 h-7 sm:w-8 sm:h-8' : 'w-5 h-5 sm:w-6 sm:h-6', 'animate-spin')} />
-                    ) : briefing.status === 'failed' || briefing.status === 'cancelled' ? (
-                      <AlertCircle className={clsx(isLatest ? 'w-7 h-7 sm:w-8 sm:h-8' : 'w-5 h-5 sm:w-6 sm:h-6', 'text-red-500')} />
-                    ) : isCurrentlyPlaying ? (
-                      <Pause className={clsx(isLatest ? 'w-7 h-7 sm:w-8 sm:h-8' : 'w-5 h-5 sm:w-6 sm:h-6')} />
-                    ) : (
-                      <Play className={clsx(isLatest ? 'w-7 h-7 sm:w-8 sm:h-8' : 'w-5 h-5 sm:w-6 sm:h-6', 'ml-0.5 sm:ml-1')} />
-                    )}
-                  </button>
-                  
-                  {/* Info */}
-                  <div className="flex-1 min-w-0">
-                    <h3 className={clsx(
-                      'font-semibold text-white truncate group-hover:text-accent transition-colors',
-                      isLatest ? 'text-lg sm:text-2xl mb-2' : 'text-sm sm:text-base'
-                    )}>
-                      {briefing.title}
-                    </h3>
-                    <div className={clsx(
-                      'flex flex-wrap items-center gap-x-2 gap-y-1 text-augustus-500',
-                      isLatest ? 'text-sm sm:text-base mt-2' : 'text-xs sm:text-sm mt-1'
-                    )}>
-                      <span className="flex items-center gap-1.5">
-                        <Clock className={clsx(isLatest ? 'w-4 h-4 sm:w-5 sm:h-5' : 'w-3.5 h-3.5')} />
-                        {formatDuration(briefing.duration_seconds)}
-                      </span>
-                      <span className="flex items-center gap-1.5">
-                        <Calendar className={clsx(isLatest ? 'w-4 h-4 sm:w-5 sm:h-5' : 'w-3.5 h-3.5')} />
-                        {formatDate(briefing.created_at)}
-                      </span>
-                      {/* Listened indicator */}
-                      {briefing.status === 'completed' && (
-                        <span className={clsx(
-                          'flex items-center gap-1.5 px-2 py-0.5 rounded-full font-medium',
-                          isLatest ? 'text-sm sm:text-base' : 'text-xs',
-                          briefing.listened 
-                            ? 'bg-accent/20 text-accent' 
-                            : 'bg-augustus-700 text-augustus-400'
-                        )}>
-                          {briefing.listened ? (
-                            <CheckCircle className={clsx(isLatest ? 'w-4 h-4 sm:w-5 sm:h-5' : 'w-3 h-3')} />
-                          ) : (
-                            <Circle className={clsx(isLatest ? 'w-4 h-4 sm:w-5 sm:h-5' : 'w-3 h-3')} />
-                          )}
-                          <span className={isLatest ? '' : 'hidden sm:inline'}>{briefing.listened ? 'Listened' : 'Not Listened'}</span>
-                        </span>
-                      )}
-                    </div>
-                    {/* Topics - show all for latest, limited for others */}
-                    {briefingTopics.length > 0 && (
-                      <div className={clsx('flex flex-wrap gap-1.5 sm:gap-2', isLatest ? 'mt-3 sm:mt-4' : 'mt-1.5 sm:mt-2')}>
-                        {briefingTopics.slice(0, isLatest ? briefingTopics.length : (window.innerWidth < 640 ? 2 : briefingTopics.length)).map((topic) => (
-                          <span
-                            key={topic.id}
-                            className={clsx(
-                              'rounded-full font-medium flex items-center gap-1.5',
-                              isLatest ? 'px-3 py-1.5 text-sm sm:text-base' : 'px-1.5 sm:px-2 py-0.5 text-xs'
-                            )}
-                            style={{ backgroundColor: `${topic.color || '#3B82F6'}20`, color: topic.color || '#3B82F6' }}
-                          >
-                            <span
-                              className={clsx('rounded-full', isLatest ? 'w-2 h-2 sm:w-2.5 sm:h-2.5' : 'w-1.5 h-1.5 hidden sm:block')}
-                              style={{ backgroundColor: topic.color || '#3B82F6' }}
-                            />
-                            {topic.name}
-                          </span>
-                        ))}
-                        {!isLatest && briefingTopics.length > 2 && window.innerWidth < 640 && (
-                          <span className="text-xs text-augustus-500">+{briefingTopics.length - 2}</span>
-                        )}
-                      </div>
-                    )}
-                    {briefing.error_message && (
-                      <p className={clsx('text-red-400', isLatest ? 'text-sm sm:text-base mt-2' : 'text-xs sm:text-sm mt-1')}>{briefing.error_message}</p>
-                    )}
-                    {/* Progress bar for generating briefings */}
-                    {(briefing.status === 'generating' || briefing.status === 'pending') && briefing.extra_data?.progress && (
-                      <div className={clsx('space-y-1 sm:space-y-2', isLatest ? 'mt-3 sm:mt-4' : 'mt-2')}>
-                        <div className="flex justify-between text-xs">
-                          <span className="text-augustus-400 truncate mr-2">
-                            Step {briefing.extra_data.progress.step}/{briefing.extra_data.progress.total_steps}: {briefing.extra_data.progress.step_name}
-                          </span>
-                          <span className="text-augustus-500 flex-shrink-0">
-                            {briefing.extra_data.progress.percent}%
-                          </span>
-                        </div>
-                        <div className="h-2 bg-augustus-800 rounded-full overflow-hidden">
-                          <div 
-                            className="h-full bg-yellow-500 rounded-full transition-all duration-500"
-                            style={{ width: `${briefing.extra_data.progress.percent}%` }}
-                          />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                  
-                  {/* Actions */}
-                  <div className="flex items-center gap-1 sm:gap-2">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        deleteMutation.mutate(briefing.id)
-                      }}
-                      className="btn btn-ghost p-2 text-augustus-500 hover:text-red-400"
-                      title="Delete"
-                    >
-                      <Trash2 className={clsx(isLatest ? 'w-5 h-5 sm:w-6 sm:h-6' : 'w-4 h-4 sm:w-5 sm:h-5')} />
-                    </button>
-                    <ChevronRight className={clsx(isLatest ? 'w-5 h-5 sm:w-6 sm:h-6' : 'w-4 h-4 sm:w-5 sm:h-5', 'text-augustus-600 group-hover:text-augustus-400 transition-colors')} />
-                  </div>
-                </div>
-                
-                {/* Transcript preview - show more for latest */}
-                {briefing.transcript && (
-                  <div className={clsx('mt-4 pt-4 border-t border-augustus-800/50', isLatest ? 'block' : 'hidden sm:block')}>
-                    <div className="flex items-start gap-2 sm:gap-3">
-                      <FileText className={clsx(isLatest ? 'w-5 h-5 sm:w-6 sm:h-6' : 'w-4 h-4', 'text-augustus-500 flex-shrink-0 mt-0.5')} />
-                      <p className={clsx(
-                        'text-augustus-400',
-                        isLatest ? 'text-base sm:text-lg line-clamp-4' : 'text-sm line-clamp-2'
+                  {/* Listened Section */}
+                  {listened.length > 0 && (
+                    <>
+                      <div className={clsx(
+                        "sticky top-0 z-30 -mx-4 sm:-mx-6 px-4 sm:px-6 py-3 sm:py-4 mb-4 sm:mb-6 bg-augustus-950/95 backdrop-blur-sm border-b border-augustus-800/50",
+                        notListened.length > 0 && "mt-6 sm:mt-8"
                       )}>
-                        {isLatest ? briefing.transcript.replace(/HOST[12]:\s*/gi, '').trim().substring(0, 400) + (briefing.transcript.length > 400 ? '...' : '') : truncateTranscript(briefing.transcript)}
-                      </p>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )
-          })
+                        <div className="flex items-center gap-2">
+                          <CheckCircle className="w-5 h-5 text-accent" />
+                          <h2 className="text-base sm:text-lg font-semibold text-white">
+                            Listened
+                          </h2>
+                        </div>
+                      </div>
+                      {listened.map((briefing, index) => {
+                        const isCurrentlyPlaying = currentAudio?.id === briefing.id && isPlaying
+                        const isLatest = false // Only show latest styling for first not-listened item
+                        // Get topic IDs from extra_data
+                        const briefingTopicIds = (briefing.extra_data?.topic_ids as string[]) || []
+                        // Match with topics data
+                        const briefingTopics = topics.filter((t) => briefingTopicIds.includes(t.id))
+                        
+                        return renderBriefingCard(briefing, isLatest, isCurrentlyPlaying, briefingTopics)
+                      })}
+                    </>
+                  )}
+                </>
+              )
+            } else {
+              // No grouping when filter is applied - show all briefings normally
+              return briefings.map((briefing, index) => {
+                const isCurrentlyPlaying = currentAudio?.id === briefing.id && isPlaying
+                const isLatest = isMobile && !briefing.listened
+                // Get topic IDs from extra_data
+                const briefingTopicIds = (briefing.extra_data?.topic_ids as string[]) || []
+                // Match with topics data
+                const briefingTopics = topics.filter((t) => briefingTopicIds.includes(t.id))
+                
+                return renderBriefingCard(briefing, isLatest, isCurrentlyPlaying, briefingTopics)
+              })
+            }
+          })()
         )}
         
         {/* Pagination footer - simplified on mobile */}

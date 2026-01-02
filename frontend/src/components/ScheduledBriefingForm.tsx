@@ -60,8 +60,9 @@ export default function ScheduledBriefingForm({
   
   const topics = topicsData?.topics || []
   
-  // Get timezone from settings, fallback to browser timezone, then UTC
-  const timezone = settings?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+  // Get timezone from settings (defaults to UTC to match backend default)
+  // Don't fallback to browser timezone as that could cause confusion with scheduler
+  const timezone = settings?.timezone || 'UTC'
   
   // Stabilize initialTopicIds array to prevent reference changes
   // Convert to string for stable comparison

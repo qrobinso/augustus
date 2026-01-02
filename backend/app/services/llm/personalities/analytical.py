@@ -43,3 +43,5 @@ class Analytical(Personality):
 
 
 
+
+

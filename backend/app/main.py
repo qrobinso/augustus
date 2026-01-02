@@ -14,8 +14,6 @@ from app.config import get_settings
 from app.database import init_db, close_db, get_db
 from app.services.scheduled_briefing import ScheduledBriefingService
 
-settings = get_settings()
-
 # Global scheduler instance
 scheduler = AsyncIOScheduler()
 
@@ -30,8 +28,10 @@ async def check_scheduled_briefings():
         async with async_session_maker() as db:
             service = ScheduledBriefingService(db)
             
-            # Get user's timezone from settings
-            user_timezone = settings.timezone
+            # Get user's timezone from FRESH settings (not cached module-level reference)
+            # This ensures timezone changes take effect without server restart
+            current_settings = get_settings()
+            user_timezone = current_settings.timezone
             
             # Get schedules due now
             due_schedules = await service.get_schedules_due_now(user_timezone)
@@ -45,7 +45,7 @@ async def check_scheduled_briefings():
                     await briefing_queue.enqueue(
                         schedule_id=schedule.id,
                         user_id=schedule.user_id,
-                        db_url=settings.database_url,
+                        db_url=current_settings.database_url,
                     )
             else:
                 # Only log occasionally to reduce noise
@@ -98,6 +98,7 @@ async def process_briefing_queue():
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
     # Startup
+    settings = get_settings()
     try:
         await init_db()
         
@@ -153,34 +154,44 @@ async def lifespan(app: FastAPI):
             print(f"[Shutdown] Error closing database: {e}")
 
 
-app = FastAPI(
-    title=settings.app_name,
-    version=settings.app_version,
-    description="Augustus Audio Intelligence Platform - Self-hosted personalized audio briefings",
-    lifespan=lifespan,
-)
-
-# CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately for production
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Mount static files for audio
-if os.path.exists(settings.audio_storage_path):
-    app.mount(
-        "/audio",
-        StaticFiles(directory=settings.audio_storage_path),
-        name="audio",
+def create_app() -> FastAPI:
+    """Create and configure the FastAPI application."""
+    settings = get_settings()
+    
+    application = FastAPI(
+        title=settings.app_name,
+        version=settings.app_version,
+        description="Augustus Audio Intelligence Platform - Self-hosted personalized audio briefings",
+        lifespan=lifespan,
     )
+    
+    # CORS middleware
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],  # Configure appropriately for production
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    
+    # Mount static files for audio
+    if os.path.exists(settings.audio_storage_path):
+        application.mount(
+            "/audio",
+            StaticFiles(directory=settings.audio_storage_path),
+            name="audio",
+        )
+    
+    return application
+
+
+app = create_app()
 
 
 @app.get("/")
 async def root():
     """Root endpoint."""
+    settings = get_settings()
     return {
         "name": settings.app_name,
         "version": settings.app_version,

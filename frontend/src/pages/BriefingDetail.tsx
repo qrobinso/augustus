@@ -24,12 +24,14 @@ import {
   BarChart3,
   Heart,
   Trash2,
-  CalendarClock
+  CalendarClock,
+  Download
 } from 'lucide-react'
 import clsx from 'clsx'
 import { briefingsApi, settingsApi, castsApi, scheduledBriefingsApi, topicsApi, SegmentTiming } from '../api/client'
 import { useStore } from '../store/useStore'
 import { formatFullDate } from '../utils/timezone'
+import { audioManager } from '../utils/audioManager'
 
 export default function BriefingDetail() {
   const { id } = useParams<{ id: string }>()
@@ -43,6 +45,8 @@ export default function BriefingDetail() {
   const isPlaying = useStore((s) => s.isPlaying)
   const setCurrentAudio = useStore((s) => s.setCurrentAudio)
   const setIsPlaying = useStore((s) => s.setIsPlaying)
+  const playAudio = useStore((s) => s.playAudio)
+  const togglePlayPause = useStore((s) => s.togglePlayPause)
   
   // Track active segment for highlighting
   const [activeSegmentIndex, setActiveSegmentIndex] = useState<number | null>(null)
@@ -261,46 +265,30 @@ export default function BriefingDetail() {
     return null
   }, [segmentTimings])
   
-  // Set up audio time tracking
+  // Set up audio time tracking using audioManager
   useEffect(() => {
-    if (!briefing?.audio_filename || !isThisBriefingLoaded) {
+    if (!isThisBriefingLoaded || currentAudio?.id !== id) {
       setActiveSegmentIndex(null)
       return
     }
     
-    // Find the audio element
-    const findAudioElement = () => {
-      const audioElements = document.querySelectorAll('audio')
-      for (const el of audioElements) {
-        if (el.src.includes(briefing.audio_filename || '')) {
-          return el
-        }
-      }
-      return null
-    }
-    
-    const audio = findAudioElement()
-    if (!audio) return
-    
-    audioRef.current = audio
-    
     // Update time handler
-    const handleTimeUpdate = () => {
-      const time = audio.currentTime
+    const handleTimeUpdate = (time: number) => {
       const newActiveIndex = findActiveSegment(time)
       setActiveSegmentIndex(newActiveIndex)
     }
     
     // Initial check
-    handleTimeUpdate()
+    const initialTime = audioManager.currentTime
+    handleTimeUpdate(initialTime)
     
-    // Listen for time updates
-    audio.addEventListener('timeupdate', handleTimeUpdate)
+    // Subscribe to time updates from audioManager
+    const unsubscribe = audioManager.onTimeUpdate(handleTimeUpdate)
     
     return () => {
-      audio.removeEventListener('timeupdate', handleTimeUpdate)
+      unsubscribe()
     }
-  }, [briefing?.audio_filename, isThisBriefingLoaded, findActiveSegment])
+  }, [isThisBriefingLoaded, currentAudio?.id, id, findActiveSegment])
   
   // Auto-scroll to active segment
   useEffect(() => {
@@ -316,11 +304,11 @@ export default function BriefingDetail() {
     if (!briefing?.audio_url) return
     
     if (currentAudio?.id === id) {
-      // Toggle play/pause for current audio
-      setIsPlaying(!isPlaying)
+      // Toggle play/pause for current audio (uses audio manager for mobile compatibility)
+      togglePlayPause()
     } else {
-      // Start playing this briefing, resuming from saved position if available
-      setCurrentAudio({
+      // Start playing this briefing using playAudio for mobile compatibility
+      playAudio({
         id: briefing.id,
         type: 'briefing',
         title: briefing.title,
@@ -329,11 +317,12 @@ export default function BriefingDetail() {
         chapters: briefing.chapters,
         initialPosition: briefing.playback_position || undefined,
       })
-      setIsPlaying(true)
     }
   }
   
   // Auto-play if autoplay parameter is present in URL
+  // Note: On mobile, this may not auto-play due to browser restrictions.
+  // The audio will be set up, but user may need to tap play manually.
   useEffect(() => {
     const audioUrl = briefing?.audio_url
     if (audioUrl && briefing.status === 'completed' && !hasAutoPlayed && id) {
@@ -345,7 +334,7 @@ export default function BriefingDetail() {
             // Toggle play/pause for current audio
             setIsPlaying(!isPlaying)
           } else {
-            // Start playing this briefing, resuming from saved position if available
+            // Set up audio (may not auto-play on mobile without direct user interaction)
             setCurrentAudio({
               id: briefing.id,
               type: 'briefing',
@@ -372,7 +361,8 @@ export default function BriefingDetail() {
     
     // If not currently playing this briefing, start it first
     if (currentAudio?.id !== id) {
-      setCurrentAudio({
+      // Use playAudio for mobile compatibility - starts playing from the segment position
+      playAudio({
         id: briefing.id,
         type: 'briefing',
         title: briefing.title,
@@ -381,28 +371,12 @@ export default function BriefingDetail() {
         chapters: briefing.chapters,
         initialPosition: startSeconds,  // Use the segment start as initial position
       })
-      setIsPlaying(true)
-      
-      // Wait a bit for the audio element to be created, then seek
-      setTimeout(() => {
-        const audioElements = document.querySelectorAll('audio')
-        audioElements.forEach((el) => {
-          if (el.src.includes(briefing.audio_filename || '')) {
-            el.currentTime = startSeconds
-          }
-        })
-      }, 100)
     } else {
-      // Already playing this briefing, just seek
-      const audioElements = document.querySelectorAll('audio')
-      audioElements.forEach((el) => {
-        if (el.src.includes(briefing.audio_filename || '')) {
-          el.currentTime = startSeconds
-          if (!isPlaying) {
-            setIsPlaying(true)
-          }
-        }
-      })
+      // Already playing this briefing, just seek using audio manager
+      audioManager.seek(startSeconds)
+      if (!isPlaying) {
+        togglePlayPause()
+      }
     }
   }
   
@@ -456,6 +430,48 @@ export default function BriefingDetail() {
     }
   }
   
+  // Handle downloading the audio file
+  const handleDownload = async () => {
+    if (!briefing?.audio_url) return
+    
+    try {
+      // Fetch the audio file
+      const response = await fetch(briefing.audio_url)
+      if (!response.ok) {
+        throw new Error('Failed to fetch audio file')
+      }
+      
+      const blob = await response.blob()
+      
+      // Format date as YYYY-MM-DD
+      const date = new Date(briefing.created_at)
+      const dateStr = date.toISOString().split('T')[0]
+      
+      // Create a filename-safe version of the title
+      const titleSlug = briefing.title
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .substring(0, 50) // Limit length
+      
+      // Construct filename: date-title-augustus.mp3
+      const filename = `${dateStr}-${titleSlug}-augustus.mp3`
+      
+      // Create download link
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      window.URL.revokeObjectURL(url)
+    } catch (error) {
+      console.error('Failed to download audio:', error)
+      alert('Failed to download audio file. Please try again.')
+    }
+  }
+  
   // Format timestamp as MM:SS
   const formatTimestamp = (seconds: number) => {
     const mins = Math.floor(seconds / 60)
@@ -481,39 +497,29 @@ export default function BriefingDetail() {
   // Track active chapter for highlighting
   const [activeChapterIndex, setActiveChapterIndex] = useState<number | null>(null)
   
-  // Update active chapter based on audio playback
+  // Update active chapter based on audio playback using audioManager
   useEffect(() => {
-    if (!briefing?.audio_filename || !isThisBriefingLoaded) {
+    if (!isThisBriefingLoaded || currentAudio?.id !== id) {
       setActiveChapterIndex(null)
       return
     }
     
-    const findAudioElement = () => {
-      const audioElements = document.querySelectorAll('audio')
-      for (const el of audioElements) {
-        if (el.src.includes(briefing.audio_filename || '')) {
-          return el
-        }
-      }
-      return null
-    }
-    
-    const audio = findAudioElement()
-    if (!audio) return
-    
-    const handleTimeUpdate = () => {
-      const time = audio.currentTime
+    const handleTimeUpdate = (time: number) => {
       const newActiveIndex = findActiveChapter(time)
       setActiveChapterIndex(newActiveIndex)
     }
     
-    handleTimeUpdate()
-    audio.addEventListener('timeupdate', handleTimeUpdate)
+    // Initial check
+    const initialTime = audioManager.currentTime
+    handleTimeUpdate(initialTime)
+    
+    // Subscribe to time updates from audioManager
+    const unsubscribe = audioManager.onTimeUpdate(handleTimeUpdate)
     
     return () => {
-      audio.removeEventListener('timeupdate', handleTimeUpdate)
+      unsubscribe()
     }
-  }, [briefing?.audio_filename, isThisBriefingLoaded, findActiveChapter])
+  }, [isThisBriefingLoaded, currentAudio?.id, id, findActiveChapter])
   
   // Format transcript with proper styling for HOST1/HOST2
   // Uses segment timings if available for clickable timestamps
@@ -754,6 +760,32 @@ export default function BriefingDetail() {
           
           {/* Info */}
           <div className="flex-1 text-center sm:text-left">
+            {/* Topics */}
+            {(() => {
+              const briefingTopicIds = (briefing.extra_data?.topic_ids as string[]) || []
+              const briefingTopics = topics.filter((t) => briefingTopicIds.includes(t.id))
+              
+              if (briefingTopics.length === 0) return null
+              
+              return (
+                <div className="flex flex-wrap items-center justify-center sm:justify-start gap-1.5 sm:gap-2 mb-3">
+                  {briefingTopics.map((topic) => (
+                    <span
+                      key={topic.id}
+                        className="px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-full text-xs font-medium flex items-center gap-1.5"
+                        style={{ backgroundColor: `${topic.color || '#3B82F6'}20`, color: topic.color || '#3B82F6' }}
+                      >
+                        <span
+                          className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                          style={{ backgroundColor: topic.color || '#3B82F6' }}
+                        />
+                        {topic.name}
+                      </span>
+                    ))}
+                  </div>
+                )
+              })()}
+            
             <h1 className="text-xl sm:text-2xl font-display font-semibold text-white mb-2">
               {briefing.title}
             </h1>
@@ -799,6 +831,13 @@ export default function BriefingDetail() {
               )}
             </div>
             
+            {/* Summary */}
+            {briefing.status === 'completed' && briefing.extra_data?.story_analysis && (
+              <p className="text-sm sm:text-base text-augustus-300 leading-relaxed mt-3 sm:mt-4">
+                {briefing.extra_data.story_analysis as string}
+              </p>
+            )}
+            
             {briefing.error_message && (
               <p className="text-sm text-red-400 mt-2">{briefing.error_message}</p>
             )}
@@ -808,17 +847,15 @@ export default function BriefingDetail() {
       </div>
       
       {/* Action Bar */}
-      {briefing.status === 'completed' && (briefing.transcript || segmentTimings.length > 0) && (
+      {briefing.status === 'completed' && (briefing.transcript || segmentTimings.length > 0 || briefing.audio_url) && (
         <div className="card mb-4 sm:mb-6">
           <div className="flex flex-wrap items-center gap-2 sm:gap-3">
             <button
               onClick={() => favoriteMutation.mutate({ favorite: !briefing.favorite })}
               disabled={favoriteMutation.isPending}
               className={clsx(
-                'btn btn-ghost flex items-center gap-2 text-sm transition-colors',
-                briefing.favorite
-                  ? 'text-red-500 hover:text-red-400'
-                  : 'text-augustus-400 hover:text-white'
+                'btn btn-ghost flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed',
+                briefing.favorite && 'text-red-500 hover:text-red-400'
               )}
               title={briefing.favorite ? 'Remove from favorites' : 'Add to favorites'}
             >
@@ -838,6 +875,16 @@ export default function BriefingDetail() {
             >
               <Copy className="w-4 h-4" />
               <span className="hidden sm:inline">Copy</span>
+            </button>
+            
+            <button
+              onClick={handleDownload}
+              disabled={!briefing.audio_url}
+              className="btn btn-ghost flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Download audio file"
+            >
+              <Download className="w-4 h-4" />
+              <span className="hidden sm:inline">Download</span>
             </button>
             
             <button
