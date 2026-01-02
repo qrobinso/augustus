@@ -352,7 +352,7 @@ export default function CreateTopic() {
       setTestResult({
         siteId: site.id,
         success: result.success,
-        message: result.message,
+        message: result.success ? `Found ${result.articles_found} articles` : (result.error || 'Test failed'),
         articles: result.articles,
       })
     } catch (error) {

@@ -4,8 +4,7 @@ import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query'
 import { 
   Globe,
   Loader2, 
-  ArrowLeft,
-  Tag
+  ArrowLeft
 } from 'lucide-react'
 import { customSitesApi, topicsApi } from '../api/client'
 
@@ -35,7 +34,6 @@ export default function EditSite() {
   const [name, setName] = useState('')
   const [url, setUrl] = useState('')
   const [topicId, setTopicId] = useState('')
-  const [isInitialized, setIsInitialized] = useState(false)
   
   // Track what we've initialized to prevent unnecessary re-initialization
   const initializedRef = useRef<{ siteId?: string; dataHash?: string }>({})
@@ -55,7 +53,6 @@ export default function EditSite() {
         setName(existingSite.name)
         setUrl(existingSite.url)
         setTopicId(existingSite.topic_id)
-        setIsInitialized(true)
         initializedRef.current = { siteId: existingSite.id, dataHash }
       }
     }

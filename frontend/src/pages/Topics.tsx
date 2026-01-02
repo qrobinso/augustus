@@ -18,7 +18,7 @@ import {
   Wand2
 } from 'lucide-react'
 import clsx from 'clsx'
-import { topicsApi, customSitesApi, Topic, CustomSite, GeneratedTopicFromPrompt } from '../api/client'
+import { topicsApi, customSitesApi, CustomSite, GeneratedTopicFromPrompt } from '../api/client'
 
 const PRESET_COLORS = [
   '#3B82F6', // Blue
