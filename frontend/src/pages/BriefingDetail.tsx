@@ -360,7 +360,7 @@ export default function BriefingDetail() {
     }
 
     // Check on scroll with debouncing
-    let scrollTimeout: NodeJS.Timeout
+    let scrollTimeout: ReturnType<typeof setTimeout>
     const handleScroll = () => {
       if (!isAutoScrollingRef.current) {
         clearTimeout(scrollTimeout)
