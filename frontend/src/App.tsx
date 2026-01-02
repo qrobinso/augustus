@@ -7,8 +7,10 @@ import Dashboard from './pages/Dashboard'
 import BriefingDetail from './pages/BriefingDetail'
 import Topics from './pages/Topics'
 import CreateTopic from './pages/CreateTopic'
+import EditSite from './pages/EditSite'
 import Casts from './pages/Casts'
 import CreateCast from './pages/CreateCast'
+import CreateSchedule from './pages/CreateSchedule'
 import ManagePersonalities from './pages/ManagePersonalities'
 import Settings from './pages/Settings'
 import About from './pages/About'
@@ -53,9 +55,14 @@ function App() {
           <Route path="briefing/:id" element={<BriefingDetail />} />
           <Route path="topics" element={<Topics />} />
           <Route path="topics/create" element={<CreateTopic />} />
+          <Route path="topics/:id/edit" element={<CreateTopic />} />
+          <Route path="sites/:id/edit" element={<EditSite />} />
           <Route path="casts" element={<Casts />} />
           <Route path="casts/create" element={<CreateCast />} />
+          <Route path="casts/:id/edit" element={<CreateCast />} />
           <Route path="casts/personalities" element={<ManagePersonalities />} />
+          <Route path="schedules/create" element={<CreateSchedule />} />
+          <Route path="schedules/:id/edit" element={<CreateSchedule />} />
           <Route path="settings" element={<Settings />} />
           <Route path="about" element={<About />} />
         </Route>

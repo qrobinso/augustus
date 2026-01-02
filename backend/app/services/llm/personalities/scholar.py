@@ -46,3 +46,4 @@ class Scholar(Personality):
 
 
 
+

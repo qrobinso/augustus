@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { 
@@ -12,22 +11,14 @@ import {
 } from 'lucide-react'
 import clsx from 'clsx'
 import { castsApi, Cast } from '../api/client'
-import CastForm from '../components/CastForm'
 
 export default function Casts() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const [showForm, setShowForm] = useState(false)
-  const [editingCast, setEditingCast] = useState<Cast | null>(null)
   
   const { data, isLoading, error } = useQuery({
     queryKey: ['casts'],
     queryFn: () => castsApi.list(),
-  })
-  
-  const { data: personalityOptions = [], isLoading: isLoadingPersonalities } = useQuery({
-    queryKey: ['personalities'],
-    queryFn: () => castsApi.getPersonalities(),
   })
   
   const deleteMutation = useMutation({
@@ -74,13 +65,7 @@ export default function Casts() {
   }
   
   const handleEdit = (cast: Cast) => {
-    setEditingCast(cast)
-    setShowForm(true)
-  }
-  
-  const handleFormClose = () => {
-    setShowForm(false)
-    setEditingCast(null)
+    navigate(`/casts/${cast.id}/edit`, { state: { from: '/casts' } })
   }
   
   if (isLoading) {
@@ -121,15 +106,6 @@ export default function Casts() {
           Create Cast
         </button>
       </div>
-      
-      {showForm && (
-        <CastForm
-          cast={editingCast || undefined}
-          onClose={handleFormClose}
-          personalityOptions={personalityOptions}
-          isLoadingPersonalities={isLoadingPersonalities}
-        />
-      )}
       
       {casts.length === 0 ? (
         <div className="card text-center py-10 sm:py-12">

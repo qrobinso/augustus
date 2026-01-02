@@ -131,7 +131,7 @@ class CastService:
             return default_cast
         
         # Create default cast with standard voices
-        # Gemini voices: Zephyr and Sadachbia - these are good defaults
+        # Gemini voices: Kore and Puck - these are good defaults
         cast = Cast(
             id=str(uuid.uuid4()),
             user_id=user_id,
@@ -146,7 +146,7 @@ class CastService:
             id=str(uuid.uuid4()),
             cast_id=cast.id,
             name="Alex",
-            voice_id="Zephyr",  # Gemini voice
+            voice_id="Kore",  # Gemini voice
             personality="Casual",
             order=0,
         )
@@ -154,7 +154,7 @@ class CastService:
             id=str(uuid.uuid4()),
             cast_id=cast.id,
             name="Sam",
-            voice_id="Sadachbia",  # Gemini voice
+            voice_id="Puck",  # Gemini voice
             personality="Analytical",
             order=1,
         )
@@ -322,7 +322,7 @@ class CastService:
             id=str(uuid.uuid4()),
             cast_id=default_cast.id,
             name="Alex",
-            voice_id="Zephyr",  # Gemini voice
+            voice_id="Kore",  # Gemini voice
             personality="Casual",
             order=0,
         )
@@ -330,7 +330,7 @@ class CastService:
             id=str(uuid.uuid4()),
             cast_id=default_cast.id,
             name="Sam",
-            voice_id="Sadachbia",  # Gemini voice
+            voice_id="Puck",  # Gemini voice
             personality="Analytical",
             order=1,
         )

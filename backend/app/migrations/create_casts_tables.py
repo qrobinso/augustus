@@ -140,8 +140,8 @@ async def migrate():
         user_ids = [row[0] for row in result.fetchall()]
         
         # Use Gemini voices as defaults
-        voice_host1 = "Zephyr"
-        voice_host2 = "Sadachbia"
+        voice_host1 = "Kore"
+        voice_host2 = "Puck"
         
         for user_id in user_ids:
             # Check if user already has a default cast
