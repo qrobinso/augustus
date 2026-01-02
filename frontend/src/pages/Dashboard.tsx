@@ -572,6 +572,36 @@ export default function Dashboard() {
     )
   }
 
+  // Helper function to extract summary from briefing extra_data
+  const getBriefingSummary = (briefing: Briefing): string => {
+    // First try to use the extracted summary
+    if (briefing.extra_data?.story_analysis) {
+      return briefing.extra_data.story_analysis
+    }
+    
+    // If not available, try to parse story_analysis_raw as JSON
+    if (briefing.extra_data?.story_analysis_raw) {
+      try {
+        const raw = briefing.extra_data.story_analysis_raw.trim()
+        // Remove markdown code blocks if present
+        let jsonStr = raw
+        if (raw.startsWith('```')) {
+          const lines = raw.split('\n')
+          jsonStr = lines.slice(1, -1).join('\n').trim()
+        }
+        const parsed = JSON.parse(jsonStr)
+        if (parsed.summary && typeof parsed.summary === 'string') {
+          return parsed.summary
+        }
+      } catch (e) {
+        // If parsing fails, return empty string
+        return ''
+      }
+    }
+    
+    return ''
+  }
+
   // Helper function to render a briefing card
   const renderBriefingCard = (briefing: Briefing, isLatest: boolean, isCurrentlyPlaying: boolean, briefingTopics: typeof topics) => {
     if (isLatest) {
@@ -648,7 +678,7 @@ export default function Dashboard() {
                 ))}
               </div>
               
-              <h2 className="text-4xl sm:text-6xl font-display font-black text-white leading-[0.85] tracking-tighter group-hover:text-accent transition-colors">
+              <h2 className="text-3xl sm:text-5xl font-display font-black text-white leading-[0.85] tracking-tighter group-hover:text-accent transition-colors">
                 {briefing.title}
               </h2>
               
@@ -674,7 +704,7 @@ export default function Dashboard() {
             </div>
 
             {/* Bottom: Date • Duration • Summary */}
-            {briefing.status === 'completed' && briefing.extra_data?.story_analysis_raw ? (
+            {briefing.status === 'completed' && (briefing.extra_data?.story_analysis || briefing.extra_data?.story_analysis_raw) ? (
               <div className="mt-auto flex flex-col sm:flex-row sm:items-end justify-between gap-6 sm:gap-8">
                 <div className="flex-1">
                   <p className="text-base sm:text-lg text-augustus-300 leading-relaxed">
@@ -683,7 +713,7 @@ export default function Dashboard() {
                     </span>{' '}
                     <span className="text-augustus-200">
                       {(() => {
-                        const summary = (briefing.extra_data?.story_analysis_raw as string) || ''
+                        const summary = getBriefingSummary(briefing)
                         const maxLength = 300
                         return summary.length > maxLength ? summary.substring(0, maxLength).trim() + '...' : summary
                       })()}
@@ -817,13 +847,13 @@ export default function Dashboard() {
           {/* Title */}
           <h3 className={clsx(
             'font-semibold text-white break-words group-hover:text-accent transition-colors mb-2',
-            isLatest ? 'text-lg sm:text-2xl' : 'text-lg sm:text-xl'
+            isLatest ? 'text-base sm:text-xl' : 'text-base sm:text-lg'
           )}>
             {briefing.title}
           </h3>
           
           {/* Date • Duration • Summary preview format */}
-          {briefing.status === 'completed' && briefing.extra_data?.story_analysis_raw ? (
+          {briefing.status === 'completed' && (briefing.extra_data?.story_analysis || briefing.extra_data?.story_analysis_raw) ? (
             <div className="space-y-1">
               <p className={clsx(
                 'text-augustus-300 leading-relaxed',
@@ -834,7 +864,7 @@ export default function Dashboard() {
                 </span>{' '}
                 <span className="text-augustus-200">
                   {(() => {
-                    const summary = (briefing.extra_data?.story_analysis_raw as string) || ''
+                    const summary = getBriefingSummary(briefing)
                     const maxLength = isLatest ? 300 : 200
                     return summary.length > maxLength ? summary.substring(0, maxLength).trim() + '...' : summary
                   })()}

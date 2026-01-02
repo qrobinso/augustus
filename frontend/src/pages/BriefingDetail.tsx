@@ -29,7 +29,7 @@ import {
   Navigation2
 } from 'lucide-react'
 import clsx from 'clsx'
-import { briefingsApi, settingsApi, castsApi, scheduledBriefingsApi, topicsApi, SegmentTiming } from '../api/client'
+import { briefingsApi, settingsApi, castsApi, scheduledBriefingsApi, topicsApi, SegmentTiming, Briefing } from '../api/client'
 import { useStore } from '../store/useStore'
 import { formatFullDate } from '../utils/timezone'
 import { audioManager } from '../utils/audioManager'
@@ -128,6 +128,36 @@ export default function BriefingDetail() {
     },
   })
   
+  // Helper function to extract summary from briefing extra_data
+  const getBriefingSummary = (briefing: Briefing): string => {
+    // First try to use the extracted summary
+    if (briefing.extra_data?.story_analysis) {
+      return briefing.extra_data.story_analysis
+    }
+    
+    // If not available, try to parse story_analysis_raw as JSON
+    if (briefing.extra_data?.story_analysis_raw) {
+      try {
+        const raw = briefing.extra_data.story_analysis_raw.trim()
+        // Remove markdown code blocks if present
+        let jsonStr = raw
+        if (raw.startsWith('```')) {
+          const lines = raw.split('\n')
+          jsonStr = lines.slice(1, -1).join('\n').trim()
+        }
+        const parsed = JSON.parse(jsonStr)
+        if (parsed.summary && typeof parsed.summary === 'string') {
+          return parsed.summary
+        }
+      } catch (e) {
+        // If parsing fails, return empty string
+        return ''
+      }
+    }
+    
+    return ''
+  }
+
   // Mutation for creating schedule from briefing
   const createScheduleMutation = useMutation({
     mutationFn: (options: {
@@ -890,7 +920,7 @@ export default function BriefingDetail() {
                 )
               })()}
             
-            <h1 className="text-xl sm:text-2xl font-display font-semibold text-white mb-2">
+            <h1 className="text-lg sm:text-xl font-display font-black text-white leading-[0.85] tracking-tighter mb-2">
               {briefing.title}
             </h1>
             
@@ -936,9 +966,9 @@ export default function BriefingDetail() {
             </div>
             
             {/* Summary */}
-            {briefing.status === 'completed' && briefing.extra_data?.story_analysis_raw && (
+            {briefing.status === 'completed' && (briefing.extra_data?.story_analysis || briefing.extra_data?.story_analysis_raw) && (
               <p className="text-sm sm:text-base text-augustus-300 leading-relaxed mt-3 sm:mt-4">
-                {briefing.extra_data.story_analysis_raw as string}
+                {getBriefingSummary(briefing)}
               </p>
             )}
             
