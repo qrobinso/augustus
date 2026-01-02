@@ -768,6 +768,22 @@ export default function Dashboard() {
           isLatest && 'p-6 sm:p-8'
         )}
       >
+         {/* Delete Button - show for errors */}
+         {briefing.error_message && (
+           <button
+             onClick={(e) => {
+               e.stopPropagation()
+               if (confirm('Are you sure you want to delete this briefing?')) {
+                 deleteMutation.mutate(briefing.id)
+               }
+             }}
+             className="absolute top-4 right-4 btn btn-ghost p-2 text-augustus-500 hover:text-red-400 flex-shrink-0 z-10"
+             title="Delete"
+           >
+             <Trash2 className="w-4 h-4 sm:w-5 sm:h-5" />
+           </button>
+         )}
+         
          <div className={clsx(
            'flex flex-col',
            briefing.status === 'completed' && 'pl-14 sm:pl-16'
