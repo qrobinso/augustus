@@ -38,7 +38,6 @@ export default function BriefingDetail() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const queryClient = useQueryClient()
-  const audioRef = useRef<HTMLAudioElement | null>(null)
   const segmentRefs = useRef<Map<number, HTMLDivElement>>(new Map())
   
   const currentAudio = useStore((s) => s.currentAudio)
@@ -886,9 +885,9 @@ export default function BriefingDetail() {
             </div>
             
             {/* Summary */}
-            {briefing.status === 'completed' && briefing.extra_data?.story_analysis && (
+            {briefing.status === 'completed' && briefing.extra_data?.story_analysis_raw && (
               <p className="text-sm sm:text-base text-augustus-300 leading-relaxed mt-3 sm:mt-4">
-                {briefing.extra_data.story_analysis as string}
+                {briefing.extra_data.story_analysis_raw as string}
               </p>
             )}
             
