@@ -13,12 +13,126 @@ from app.models.topic import Topic
 from app.database import async_session_maker
 
 
+def _is_docker_or_virtual_ip(ip: str) -> bool:
+    """Check if an IP address belongs to a Docker or virtual network interface.
+    
+    Args:
+        ip: IP address to check
+        
+    Returns:
+        True if the IP is from a Docker/virtual network, False otherwise
+    """
+    if not ip:
+        return True
+    
+    # Docker default bridge network uses 172.17.0.0/16
+    # Docker custom networks use 172.18.0.0/16 - 172.31.0.0/16
+    # Also filter out other common virtual/container network ranges
+    parts = ip.split('.')
+    if len(parts) != 4:
+        return True
+    
+    try:
+        first_octet = int(parts[0])
+        second_octet = int(parts[1])
+        
+        # Docker bridge networks: 172.17.x.x - 172.31.x.x
+        if first_octet == 172 and 17 <= second_octet <= 31:
+            return True
+        
+        # Localhost
+        if first_octet == 127:
+            return True
+            
+        # Link-local addresses: 169.254.x.x
+        if first_octet == 169 and second_octet == 254:
+            return True
+            
+    except ValueError:
+        return True
+    
+    return False
+
+
+def _get_linux_network_ip() -> Optional[str]:
+    """Get network IP on Linux by parsing ip addr output.
+    
+    Returns:
+        Network IP address or None if not found
+    """
+    import subprocess
+    try:
+        # Run 'ip addr' to get all network interfaces
+        result = subprocess.run(['ip', 'addr'], capture_output=True, text=True, timeout=5)
+        if result.returncode != 0:
+            return None
+        
+        # Parse output to find IPv4 addresses
+        # Look for lines like: "inet 192.168.1.100/24 brd 192.168.1.255 scope global eth0"
+        import re
+        
+        # Find all inet addresses with their interface info
+        # Format: inet <ip>/<mask> ... scope <scope> <interface>
+        pattern = r'inet\s+(\d+\.\d+\.\d+\.\d+)/\d+.*?scope\s+(\w+)\s+(\w+)'
+        matches = re.findall(pattern, result.stdout)
+        
+        # Filter and prioritize addresses
+        # Priority: 192.168.x.x > 10.x.x.x > other private ranges
+        priority_192 = []  # 192.168.x.x addresses (highest priority)
+        priority_10 = []   # 10.x.x.x addresses
+        priority_other = []  # Other valid addresses
+        
+        for ip, scope, interface in matches:
+            # Skip loopback and docker/virtual interfaces
+            if interface.startswith('lo'):
+                continue
+            if interface.startswith('docker') or interface.startswith('br-') or interface.startswith('veth'):
+                continue
+            if _is_docker_or_virtual_ip(ip):
+                continue
+            
+            # Only consider 'global' scope addresses (routable)
+            if scope != 'global':
+                continue
+            
+            # Categorize by network range
+            if ip.startswith('192.168.'):
+                # Prioritize physical interface names within 192.168 range
+                if interface.startswith(('eth', 'en', 'wlan', 'wl')):
+                    priority_192.insert(0, ip)
+                else:
+                    priority_192.append(ip)
+            elif ip.startswith('10.'):
+                if interface.startswith(('eth', 'en', 'wlan', 'wl')):
+                    priority_10.insert(0, ip)
+                else:
+                    priority_10.append(ip)
+            else:
+                if interface.startswith(('eth', 'en', 'wlan', 'wl')):
+                    priority_other.insert(0, ip)
+                else:
+                    priority_other.append(ip)
+        
+        # Combine in priority order: 192.168.x.x first, then 10.x.x.x, then others
+        candidates = priority_192 + priority_10 + priority_other
+        
+        if candidates:
+            return candidates[0]
+            
+    except Exception:
+        pass
+    
+    return None
+
+
 def get_network_ip() -> Optional[str]:
     """Get the machine's network IP address for external access.
     
     Returns:
         Network IP address (e.g., '192.168.1.100') or None if not found
     """
+    # First try the socket method - fastest and usually correct
+    socket_ip = None
     try:
         # Connect to a remote address to determine the local network IP
         # This doesn't actually send data, just determines which interface would be used
@@ -26,20 +140,39 @@ def get_network_ip() -> Optional[str]:
         try:
             # Connect to a public DNS server (doesn't actually connect)
             s.connect(('8.8.8.8', 80))
-            ip = s.getsockname()[0]
-            return ip
+            socket_ip = s.getsockname()[0]
         finally:
             s.close()
     except Exception:
-        # Fallback: try to get IP from hostname
-        try:
-            hostname = socket.gethostname()
-            ip = socket.gethostbyname(hostname)
-            # Filter out localhost
-            if ip and ip != '127.0.0.1':
-                return ip
-        except Exception:
-            pass
+        pass
+    
+    # Check if the socket IP is a Docker/virtual IP
+    if socket_ip and not _is_docker_or_virtual_ip(socket_ip):
+        return socket_ip
+    
+    # Socket returned a Docker IP or failed - try Linux-specific method
+    import platform
+    if platform.system() == 'Linux':
+        linux_ip = _get_linux_network_ip()
+        if linux_ip:
+            print(f"[Email] Detected Docker/virtual IP ({socket_ip}), using real network IP: {linux_ip}")
+            return linux_ip
+    
+    # Fallback: try to get IP from hostname
+    try:
+        hostname = socket.gethostname()
+        ip = socket.gethostbyname(hostname)
+        # Filter out localhost and Docker IPs
+        if ip and not _is_docker_or_virtual_ip(ip):
+            return ip
+    except Exception:
+        pass
+    
+    # Last resort: return socket_ip even if it's Docker (better than nothing)
+    if socket_ip:
+        print(f"[Email] WARNING: Could not detect non-Docker IP, using {socket_ip}")
+        return socket_ip
+    
     return None
 
 

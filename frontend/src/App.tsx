@@ -3,7 +3,10 @@ import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-
 import { useQuery } from '@tanstack/react-query'
 import { settingsApi } from './api/client'
 import Layout from './components/Layout'
-import Dashboard from './pages/Dashboard'
+import DashboardLayout from './pages/DashboardLayout'
+import DashboardBriefs from './pages/DashboardBriefs'
+import DashboardGenerate from './pages/DashboardGenerate'
+import DashboardSchedules from './pages/DashboardSchedules'
 import BriefingDetail from './pages/BriefingDetail'
 import Topics from './pages/Topics'
 import CreateTopic from './pages/CreateTopic'
@@ -51,7 +54,12 @@ function App() {
         {/* Main app with layout */}
         <Route path="/" element={<Layout />}>
           <Route index element={<Navigate to="/dashboard" replace />} />
-          <Route path="dashboard" element={<Dashboard />} />
+          <Route path="dashboard" element={<DashboardLayout />}>
+            <Route index element={<Navigate to="/dashboard/briefs" replace />} />
+            <Route path="briefs" element={<DashboardBriefs />} />
+            <Route path="generate" element={<DashboardGenerate />} />
+            <Route path="schedules" element={<DashboardSchedules />} />
+          </Route>
           <Route path="briefing/:id" element={<BriefingDetail />} />
           <Route path="topics" element={<Topics />} />
           <Route path="topics/create" element={<CreateTopic />} />

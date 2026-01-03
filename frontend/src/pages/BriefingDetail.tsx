@@ -25,11 +25,10 @@ import {
   Heart,
   Trash2,
   CalendarClock,
-  Download,
-  Navigation2
+  Download
 } from 'lucide-react'
 import clsx from 'clsx'
-import { briefingsApi, settingsApi, castsApi, scheduledBriefingsApi, topicsApi, SegmentTiming, Briefing } from '../api/client'
+import { briefingsApi, settingsApi, castsApi, scheduledBriefingsApi, topicsApi, SegmentTiming } from '../api/client'
 import { useStore } from '../store/useStore'
 import { formatFullDate } from '../utils/timezone'
 import { audioManager } from '../utils/audioManager'
@@ -39,13 +38,12 @@ export default function BriefingDetail() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const queryClient = useQueryClient()
+  const audioRef = useRef<HTMLAudioElement | null>(null)
   const segmentRefs = useRef<Map<number, HTMLDivElement>>(new Map())
-  const transcriptContainerRef = useRef<HTMLDivElement | null>(null)
-  const isAutoScrollingRef = useRef(false)
-  const shouldAutoScrollRef = useRef(true)
   
   const currentAudio = useStore((s) => s.currentAudio)
   const isPlaying = useStore((s) => s.isPlaying)
+  const audioPlayerMinimized = useStore((s) => s.audioPlayerMinimized)
   const setCurrentAudio = useStore((s) => s.setCurrentAudio)
   const setIsPlaying = useStore((s) => s.setIsPlaying)
   const playAudio = useStore((s) => s.playAudio)
@@ -58,7 +56,6 @@ export default function BriefingDetail() {
   const [nerdStatsExpanded, setNerdStatsExpanded] = useState(false)
   const [audioFileSize, setAudioFileSize] = useState<number | null>(null)
   const [showCreateScheduleModal, setShowCreateScheduleModal] = useState(false)
-  const [showScrollToTranscript, setShowScrollToTranscript] = useState(false)
   
   const { data: briefing, isLoading, error } = useQuery({
     queryKey: ['briefing', id],
@@ -72,7 +69,8 @@ export default function BriefingDetail() {
     queryFn: () => settingsApi.get(),
   })
   
-  const timezone = settings?.timezone || 'UTC'
+  // Use user's timezone if available, fallback to UTC only if not set
+  const timezone = (settings?.timezone && settings.timezone.trim()) || Intl.DateTimeFormat().resolvedOptions().timeZone
   
   // Fetch topics for schedule name
   const { data: topicsData } = useQuery({
@@ -128,36 +126,6 @@ export default function BriefingDetail() {
     },
   })
   
-  // Helper function to extract summary from briefing extra_data
-  const getBriefingSummary = (briefing: Briefing): string => {
-    // First try to use the extracted summary
-    if (briefing.extra_data?.story_analysis) {
-      return briefing.extra_data.story_analysis
-    }
-    
-    // If not available, try to parse story_analysis_raw as JSON
-    if (briefing.extra_data?.story_analysis_raw) {
-      try {
-        const raw = briefing.extra_data.story_analysis_raw.trim()
-        // Remove markdown code blocks if present
-        let jsonStr = raw
-        if (raw.startsWith('```')) {
-          const lines = raw.split('\n')
-          jsonStr = lines.slice(1, -1).join('\n').trim()
-        }
-        const parsed = JSON.parse(jsonStr)
-        if (parsed.summary && typeof parsed.summary === 'string') {
-          return parsed.summary
-        }
-      } catch (e) {
-        // If parsing fails, return empty string
-        return ''
-      }
-    }
-    
-    return ''
-  }
-
   // Mutation for creating schedule from briefing
   const createScheduleMutation = useMutation({
     mutationFn: (options: {
@@ -324,115 +292,51 @@ export default function BriefingDetail() {
     }
   }, [isThisBriefingLoaded, currentAudio?.id, id, findActiveSegment])
   
-  // Auto-scroll to active segment (only if shouldAutoScrollRef is true)
+  // Auto-scroll to active segment with dynamic offset based on audio player state
   useEffect(() => {
-    if (activeSegmentIndex !== null && isCurrentlyPlaying && shouldAutoScrollRef.current) {
-      const segmentEl = segmentRefs.current.get(activeSegmentIndex)
-      if (segmentEl) {
-        isAutoScrollingRef.current = true
-        segmentEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
-        // Reset flag after scroll completes
-        setTimeout(() => {
-          isAutoScrollingRef.current = false
-        }, 500)
-      }
-    }
-  }, [activeSegmentIndex, isCurrentlyPlaying])
-
-  // Check if user has scrolled away from the active segment
-  useEffect(() => {
-    if (!isCurrentlyPlaying || activeSegmentIndex === null) {
-      setShowScrollToTranscript(false)
-      shouldAutoScrollRef.current = true
-      return
-    }
-
-    const checkScrollPosition = () => {
-      // Skip if we're currently auto-scrolling
-      if (isAutoScrollingRef.current) {
-        return
-      }
-
-      const segmentEl = segmentRefs.current.get(activeSegmentIndex)
-      if (!segmentEl) {
-        setShowScrollToTranscript(false)
-        shouldAutoScrollRef.current = true
-        return
-      }
-
-      const segmentRect = segmentEl.getBoundingClientRect()
-      const viewportHeight = window.innerHeight
-      const viewportCenter = viewportHeight / 2
+    if (activeSegmentIndex !== null && isCurrentlyPlaying) {
+      // Small delay to ensure DOM has updated after player state changes
+      const timeoutId = setTimeout(() => {
+        const segmentEl = segmentRefs.current.get(activeSegmentIndex)
+        if (segmentEl) {
+          // Calculate audio player height based on state
+          // When minimized: ~100-120px, when full: ~200-250px, when off: 0px
+          let playerHeight = 0
+          if (currentAudio) {
+            // Estimate heights based on typical player sizes
+            // Minimized player is roughly 100-120px, full player is 200-250px
+            playerHeight = audioPlayerMinimized ? 120 : 250
+          }
+          
+          // Get the element's position
+          const rect = segmentEl.getBoundingClientRect()
+          const viewportHeight = window.innerHeight
+          
+          // Calculate the available viewport height (excluding player)
+          const availableHeight = viewportHeight - playerHeight - 20 // 20px padding
+          
+          // Calculate desired position: center of available space
+          const desiredTop = (availableHeight / 2) - (rect.height / 2)
+          
+          // Calculate current position relative to viewport
+          const currentTop = rect.top
+          
+          // Calculate scroll offset needed
+          const scrollOffset = currentTop - desiredTop
+          
+          // Only scroll if the segment would be covered by the player or needs centering
+          if (Math.abs(scrollOffset) > 10 || rect.bottom > availableHeight) {
+            window.scrollBy({
+              top: scrollOffset,
+              behavior: 'smooth'
+            })
+          }
+        }
+      }, 50) // Small delay to allow DOM updates
       
-      // Check if the active segment is visible in the viewport
-      const isVisible = 
-        segmentRect.top >= 0 &&
-        segmentRect.bottom <= viewportHeight &&
-        segmentRect.left >= 0 &&
-        segmentRect.right <= window.innerWidth
-
-      // Also check if it's reasonably close to the viewport center (within 250px)
-      const segmentCenter = segmentRect.top + segmentRect.height / 2
-      const distanceFromCenter = Math.abs(segmentCenter - viewportCenter)
-      const isNearCenter = distanceFromCenter < 250
-
-      const isScrolledAway = !isVisible && !isNearCenter
-      
-      if (isScrolledAway) {
-        // User has scrolled away - stop auto-scrolling and show pill
-        shouldAutoScrollRef.current = false
-        setShowScrollToTranscript(true)
-      } else {
-        // User is near the active segment - resume auto-scrolling and hide pill
-        shouldAutoScrollRef.current = true
-        setShowScrollToTranscript(false)
-      }
+      return () => clearTimeout(timeoutId)
     }
-
-    // Check on scroll with debouncing
-    let scrollTimeout: ReturnType<typeof setTimeout>
-    const handleScroll = () => {
-      if (!isAutoScrollingRef.current) {
-        clearTimeout(scrollTimeout)
-        scrollTimeout = setTimeout(checkScrollPosition, 100)
-      }
-    }
-
-    // Check when active segment changes
-    const checkInterval = setInterval(() => {
-      if (!isAutoScrollingRef.current) {
-        checkScrollPosition()
-      }
-    }, 500)
-
-    window.addEventListener('scroll', handleScroll, { passive: true })
-    
-    // Initial check
-    checkScrollPosition()
-    
-    return () => {
-      clearTimeout(scrollTimeout)
-      clearInterval(checkInterval)
-      window.removeEventListener('scroll', handleScroll)
-    }
-  }, [activeSegmentIndex, isCurrentlyPlaying])
-
-  // Handle clicking the scroll-to-transcript pill
-  const handleScrollToTranscript = () => {
-    if (activeSegmentIndex !== null) {
-      const segmentEl = segmentRefs.current.get(activeSegmentIndex)
-      if (segmentEl) {
-        // Resume auto-scrolling
-        shouldAutoScrollRef.current = true
-        isAutoScrollingRef.current = true
-        segmentEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
-        setTimeout(() => {
-          isAutoScrollingRef.current = false
-          setShowScrollToTranscript(false)
-        }, 500)
-      }
-    }
-  }
+  }, [activeSegmentIndex, isCurrentlyPlaying, currentAudio, audioPlayerMinimized])
   
   const handlePlayPause = () => {
     if (!briefing?.audio_url) return
@@ -462,13 +366,15 @@ export default function BriefingDetail() {
     if (audioUrl && briefing.status === 'completed' && !hasAutoPlayed && id) {
       const shouldAutoplay = searchParams.get('autoplay') === 'true'
       if (shouldAutoplay) {
-        // Small delay to ensure audio element is ready
+        // Small delay to ensure component is fully mounted
         const timer = setTimeout(() => {
           if (currentAudio?.id === id) {
-            // Toggle play/pause for current audio
-            setIsPlaying(!isPlaying)
+            // Already loaded, just toggle play
+            if (!isPlaying) {
+              togglePlayPause()
+            }
           } else {
-            // Set up audio (may not auto-play on mobile without direct user interaction)
+            // Set up audio state first
             setCurrentAudio({
               id: briefing.id,
               type: 'briefing',
@@ -478,7 +384,21 @@ export default function BriefingDetail() {
               chapters: briefing.chapters,
               initialPosition: briefing.playback_position || undefined,
             })
-            setIsPlaying(true)
+            
+            // Actually load and play the audio using audioManager
+            // Note: This may fail on mobile browsers due to autoplay restrictions
+            audioManager.setSourceAndPlay(audioUrl, true)
+              .then(() => {
+                setIsPlaying(true)
+                // Seek to saved position if available
+                if (briefing.playback_position && briefing.playback_position > 0) {
+                  audioManager.seek(briefing.playback_position)
+                }
+              })
+              .catch((error) => {
+                console.warn('[BriefingDetail] Autoplay failed (likely mobile browser restriction):', error)
+                setIsPlaying(false)
+              })
           }
           setHasAutoPlayed(true)
           // Remove autoplay parameter from URL without reload
@@ -487,7 +407,7 @@ export default function BriefingDetail() {
         return () => clearTimeout(timer)
       }
     }
-  }, [briefing, searchParams, hasAutoPlayed, id, navigate, currentAudio, isPlaying, setCurrentAudio, setIsPlaying])
+  }, [briefing, searchParams, hasAutoPlayed, id, navigate, currentAudio, isPlaying, setCurrentAudio, setIsPlaying, togglePlayPause])
   
   const handleSeekToSegment = (startSeconds: number) => {
     // First, ensure the audio is loaded
@@ -920,7 +840,7 @@ export default function BriefingDetail() {
                 )
               })()}
             
-            <h1 className="text-lg sm:text-xl font-display font-black text-white leading-[0.85] tracking-tighter mb-2">
+            <h1 className="text-xl sm:text-2xl font-display font-semibold text-white mb-2">
               {briefing.title}
             </h1>
             
@@ -966,9 +886,9 @@ export default function BriefingDetail() {
             </div>
             
             {/* Summary */}
-            {briefing.status === 'completed' && (briefing.extra_data?.story_analysis || briefing.extra_data?.story_analysis_raw) && (
+            {briefing.status === 'completed' && briefing.extra_data?.story_analysis && (
               <p className="text-sm sm:text-base text-augustus-300 leading-relaxed mt-3 sm:mt-4">
-                {getBriefingSummary(briefing)}
+                {briefing.extra_data.story_analysis as string}
               </p>
             )}
             
@@ -1067,7 +987,7 @@ export default function BriefingDetail() {
       
       {/* Transcript */}
       {(briefing.transcript || segmentTimings.length > 0) && (
-        <div className="card" ref={transcriptContainerRef}>
+        <div className="card">
           <h2 className="text-base sm:text-lg font-semibold text-white mb-3 sm:mb-4 flex items-center gap-2">
             <FileText className="w-5 h-5 text-accent" />
             Transcript
@@ -1082,27 +1002,6 @@ export default function BriefingDetail() {
             {formatTranscript()}
           </div>
         </div>
-      )}
-
-      {/* Scroll to Transcript Pill - positioned above audio player */}
-      {showScrollToTranscript && isCurrentlyPlaying && (
-        <button
-          onClick={handleScrollToTranscript}
-          className="fixed left-1/2 transform -translate-x-1/2 z-50 
-                     bg-accent hover:bg-accent-600 text-white 
-                     px-4 py-2 rounded-full shadow-lg 
-                     flex items-center gap-2 
-                     transition-all duration-300 
-                     hover:scale-105 active:scale-95
-                     bottom-44 md:bottom-36"
-          style={{
-            // Add safe area inset for devices with home indicator
-            marginBottom: 'env(safe-area-inset-bottom, 0px)'
-          }}
-        >
-          <Navigation2 className="w-4 h-4" />
-          <span className="text-sm font-medium">Follow Transcript</span>
-        </button>
       )}
       
       {/* Sources */}
@@ -1234,13 +1133,13 @@ export default function BriefingDetail() {
                         <div className="flex justify-between">
                           <span className="text-augustus-400">Created:</span>
                           <span className="text-augustus-300 font-mono text-xs">
-                            {new Date(briefing.created_at).toLocaleString()}
+                            {new Intl.DateTimeFormat('en-US', { timeZone: timezone, dateStyle: 'short', timeStyle: 'medium' }).format(new Date(briefing.created_at))}
                           </span>
                         </div>
                         <div className="flex justify-between">
                           <span className="text-augustus-400">Generated:</span>
                           <span className="text-augustus-300 font-mono text-xs">
-                            {new Date(briefing.generated_at).toLocaleString()}
+                            {new Intl.DateTimeFormat('en-US', { timeZone: timezone, dateStyle: 'short', timeStyle: 'medium' }).format(new Date(briefing.generated_at))}
                           </span>
                         </div>
                       </div>

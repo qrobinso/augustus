@@ -57,7 +57,6 @@ export interface BriefingExtraData {
   segment_timings?: SegmentTiming[]
   progress?: BriefingProgress | null
   cast_member_names?: Record<string, string>
-  story_analysis?: string
   story_analysis_raw?: string
   facts_analysis_raw?: string
   model?: string

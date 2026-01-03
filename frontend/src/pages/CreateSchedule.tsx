@@ -141,7 +141,7 @@ export default function CreateSchedule() {
     mutationFn: (payload: any) => scheduledBriefingsApi.create(payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['scheduled-briefings'] })
-      navigate('/dashboard?tab=schedules')
+      navigate('/dashboard/schedules')
     },
     onError: (error: any) => {
       alert(`Failed to create schedule: ${error.message || 'Unknown error'}`)
@@ -153,7 +153,7 @@ export default function CreateSchedule() {
       scheduledBriefingsApi.update(id, payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['scheduled-briefings'] })
-      navigate('/dashboard?tab=schedules')
+      navigate('/dashboard/schedules')
     },
     onError: (error: any) => {
       alert(`Failed to update schedule: ${error.message || 'Unknown error'}`)
@@ -484,5 +484,7 @@ export default function CreateSchedule() {
     </div>
   )
 }
+
+
 
 

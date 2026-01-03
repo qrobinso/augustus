@@ -21,10 +21,12 @@ interface AudioState {
 }
 
 interface AppState extends AudioState {
+  audioPlayerMinimized: boolean
   setCurrentAudio: (audio: AudioState['currentAudio']) => void
   setIsPlaying: (playing: boolean) => void
   setCurrentTime: (time: number) => void
   setDuration: (duration: number) => void
+  setAudioPlayerMinimized: (minimized: boolean) => void
   clearAudio: () => void
   /**
    * Play audio synchronously - MUST be called from user interaction handler.
@@ -44,6 +46,7 @@ export const useStore = create<AppState>()((set, get) => ({
   isPlaying: false,
   currentTime: 0,
   duration: 0,
+  audioPlayerMinimized: false,
   
   setCurrentAudio: (audio) => set({ 
     currentAudio: audio, 
@@ -52,6 +55,7 @@ export const useStore = create<AppState>()((set, get) => ({
   setIsPlaying: (playing) => set({ isPlaying: playing }),
   setCurrentTime: (time) => set({ currentTime: time }),
   setDuration: (duration) => set({ duration }),
+  setAudioPlayerMinimized: (minimized) => set({ audioPlayerMinimized: minimized }),
   clearAudio: () => {
     audioManager.pause()
     set({ 

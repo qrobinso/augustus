@@ -49,6 +49,7 @@ export default function AudioPlayer() {
     setIsPlaying,
     setCurrentTime,
     setDuration,
+    setAudioPlayerMinimized,
     clearAudio,
     togglePlayPause,
   } = useStore()
@@ -177,10 +178,11 @@ export default function AudioPlayer() {
     }
   }, [currentAudio, savePositionMutation])
   
-  // Save minimized state to localStorage
+  // Save minimized state to localStorage and sync to store
   useEffect(() => {
     localStorage.setItem('audioPlayerMinimized', JSON.stringify(isMinimized))
-  }, [isMinimized])
+    setAudioPlayerMinimized(isMinimized)
+  }, [isMinimized, setAudioPlayerMinimized])
   
   // Subscribe to audio manager events
   useEffect(() => {
