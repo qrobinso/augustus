@@ -884,12 +884,6 @@ export default function BriefingDetail() {
               )}
             </div>
             
-            {/* Summary */}
-            {briefing.status === 'completed' && briefing.extra_data?.story_analysis_raw && (
-              <p className="text-sm sm:text-base text-augustus-300 leading-relaxed mt-3 sm:mt-4">
-                {briefing.extra_data.story_analysis_raw as string}
-              </p>
-            )}
             
             {briefing.error_message && (
               <p className="text-sm text-red-400 mt-2">{briefing.error_message}</p>
