@@ -4,6 +4,8 @@ from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, Field
 
+from app.schemas.base import UTCDatetime, UTCDatetimeOptional
+
 
 class CustomSiteCreate(BaseModel):
     """Schema for creating a custom site."""
@@ -43,9 +45,9 @@ class CustomSiteResponse(BaseModel):
     topic_name: Optional[str] = None  # Populated from relationship
     topic_color: Optional[str] = None  # Populated from relationship
     is_active: bool
-    last_fetched: Optional[datetime] = None
+    last_fetched: UTCDatetimeOptional = None
     last_error: Optional[str] = None
-    created_at: datetime
+    created_at: UTCDatetime
     
     model_config = {
         "from_attributes": True,

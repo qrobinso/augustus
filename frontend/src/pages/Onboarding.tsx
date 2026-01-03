@@ -1014,12 +1014,14 @@ function TopicsStep({
   onUpdate,
   onNext,
   onBack,
+  onSkip,
 }: {
   selectedTopics: TopicSelection[]
   customPrompt: string
   onUpdate: (topics: TopicSelection[], prompt: string) => void
   onNext: () => void
   onBack: () => void
+  onSkip: () => void
 }) {
   const [isGeneratingCustom, setIsGeneratingCustom] = useState(false)
   
@@ -1075,6 +1077,16 @@ function TopicsStep({
 
   return (
     <div className="w-full max-w-2xl space-y-6">
+      {/* Skip link at top */}
+      <div className="flex justify-end">
+        <button
+          onClick={onSkip}
+          className="text-sm text-augustus-400 hover:text-augustus-300 transition-colors"
+        >
+          Skip for now
+        </button>
+      </div>
+
       <div className="text-center mb-6">
         <Tag className="w-12 h-12 text-accent mx-auto mb-4" />
         <h2 className="text-2xl font-display font-bold text-white mb-2">
@@ -1884,6 +1896,7 @@ export default function Onboarding() {
             onUpdate={(topics, prompt) => updateData({ selectedTopics: topics, customTopicPrompt: prompt })}
             onNext={nextStep}
             onBack={prevStep}
+            onSkip={handleSkip}
           />
         )
       case 'confirm':

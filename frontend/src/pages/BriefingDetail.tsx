@@ -893,6 +893,31 @@ export default function BriefingDetail() {
         </div>
       </div>
       
+      {/* Action Bar for failed briefings - just delete */}
+      {briefing.status === 'failed' && (
+        <div className="card mb-4 sm:mb-6">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+            <button
+              onClick={() => {
+                if (confirm('Are you sure you want to delete this failed briefing?')) {
+                  deleteMutation.mutate()
+                }
+              }}
+              disabled={deleteMutation.isPending}
+              className="btn btn-ghost flex items-center gap-2 text-sm text-red-400 hover:text-red-300"
+              title="Delete briefing"
+            >
+              {deleteMutation.isPending ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Trash2 className="w-4 h-4" />
+              )}
+              <span>Delete Failed Briefing</span>
+            </button>
+          </div>
+        </div>
+      )}
+      
       {/* Action Bar */}
       {briefing.status === 'completed' && (briefing.transcript || segmentTimings.length > 0 || briefing.audio_url) && (
         <div className="card mb-4 sm:mb-6">

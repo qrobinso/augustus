@@ -4,6 +4,8 @@ from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, EmailStr
 
+from app.schemas.base import UTCDatetime
+
 
 class UserBase(BaseModel):
     """Base user schema."""
@@ -27,8 +29,8 @@ class UserResponse(UserBase):
     """Schema for user response."""
     id: str
     preferences: dict
-    created_at: datetime
-    updated_at: datetime
+    created_at: UTCDatetime
+    updated_at: UTCDatetime
     
     class Config:
         from_attributes = True

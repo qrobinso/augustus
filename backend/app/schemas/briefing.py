@@ -4,6 +4,8 @@ from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, Field, model_validator
 
+from app.schemas.base import UTCDatetime, UTCDatetimeOptional
+
 
 class ChapterSchema(BaseModel):
     """Schema for podcast chapters."""
@@ -61,10 +63,10 @@ class BriefingResponse(BriefingBase):
     sources: list = []
     status: str
     error_message: Optional[str] = None
-    generated_at: Optional[datetime] = None
-    created_at: datetime
+    generated_at: UTCDatetimeOptional = None
+    created_at: UTCDatetime
     listened: bool = False
-    listened_at: Optional[datetime] = None
+    listened_at: UTCDatetimeOptional = None
     playback_position: Optional[float] = None
     favorite: bool = False
     chapters: list[ChapterSchema] = Field(default_factory=list)

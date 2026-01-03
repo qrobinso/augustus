@@ -326,7 +326,7 @@ export default function Topics() {
             
             <button
               onClick={() => navigate('/topics/create', { state: { from: '/topics' } })}
-              className="text-sm text-augustus-400 hover:text-accent transition-colors text-center self-center"
+              className="text-sm text-augustus-400 hover:text-accent transition-colors text-left self-start"
             >
               Manually Add Topic
             </button>

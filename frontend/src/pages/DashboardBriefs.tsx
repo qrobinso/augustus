@@ -528,6 +528,22 @@ export default function DashboardBriefs() {
              )}
            </button>
          )}
+         
+         {/* Delete button for failed briefings */}
+         {briefing.status === 'failed' && (
+           <button
+             onClick={(e) => {
+               e.stopPropagation()
+               if (confirm('Are you sure you want to delete this failed briefing?')) {
+                 deleteMutation.mutate(briefing.id)
+               }
+             }}
+             className="absolute top-4 left-4 w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center flex-shrink-0 transition-all z-10 bg-red-500/20 hover:bg-red-500/40 text-red-400 hover:text-red-300 backdrop-blur-sm"
+             title="Delete failed briefing"
+           >
+             <Trash2 className="w-5 h-5 sm:w-6 sm:h-6" />
+           </button>
+         )}
       </div>
     )
   }

@@ -4,6 +4,8 @@ from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.schemas.base import UTCDatetime, UTCDatetimeOptional
+
 
 class ScheduledBriefingCreate(BaseModel):
     """Schema for creating a scheduled briefing."""
@@ -133,9 +135,9 @@ class ScheduledBriefingResponse(BaseModel):
     max_duration_minutes: int
     resend_api_key: Optional[str] = None
     cast_id: Optional[str] = None
-    last_generated_at: Optional[datetime] = None
-    created_at: datetime
-    updated_at: datetime
+    last_generated_at: UTCDatetimeOptional = None
+    created_at: UTCDatetime
+    updated_at: UTCDatetime
     
     model_config = {
         "from_attributes": True,

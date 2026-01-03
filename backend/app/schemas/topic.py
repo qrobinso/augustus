@@ -4,6 +4,8 @@ from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, Field
 
+from app.schemas.base import UTCDatetime
+
 
 class TopicCreate(BaseModel):
     """Schema for creating a topic."""
@@ -63,7 +65,7 @@ class TopicResponse(BaseModel):
     is_active: bool
     use_newsapi: bool
     enable_site_generation: bool
-    created_at: datetime
+    created_at: UTCDatetime
     site_count: int = 0  # Count of linked custom sites
     
     model_config = {

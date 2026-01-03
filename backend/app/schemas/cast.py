@@ -4,6 +4,8 @@ from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, Field
 
+from app.schemas.base import UTCDatetime
+
 
 class CastMemberBase(BaseModel):
     """Base cast member schema."""
@@ -17,7 +19,7 @@ class CastMemberResponse(CastMemberBase):
     """Cast member response schema."""
     id: str
     cast_id: str
-    created_at: datetime
+    created_at: UTCDatetime
     
     model_config = {
         "from_attributes": True,
@@ -60,8 +62,8 @@ class CastResponse(CastBase):
     user_id: str
     is_default: bool
     members: list[CastMemberResponse]
-    created_at: datetime
-    updated_at: datetime
+    created_at: UTCDatetime
+    updated_at: UTCDatetime
     
     model_config = {
         "from_attributes": True,
