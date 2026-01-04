@@ -25,7 +25,8 @@ import {
   Heart,
   Trash2,
   CalendarClock,
-  Download
+  Download,
+  Move
 } from 'lucide-react'
 import clsx from 'clsx'
 import { briefingsApi, settingsApi, castsApi, scheduledBriefingsApi, topicsApi, SegmentTiming } from '../api/client'
@@ -55,6 +56,16 @@ export default function BriefingDetail() {
   const [nerdStatsExpanded, setNerdStatsExpanded] = useState(false)
   const [audioFileSize, setAudioFileSize] = useState<number | null>(null)
   const [showCreateScheduleModal, setShowCreateScheduleModal] = useState(false)
+  // Follow transcript state - persisted to localStorage
+  const [followTranscript, setFollowTranscript] = useState(() => {
+    const saved = localStorage.getItem('followTranscript')
+    return saved !== null ? JSON.parse(saved) : true
+  })
+  
+  // Persist follow transcript preference
+  useEffect(() => {
+    localStorage.setItem('followTranscript', JSON.stringify(followTranscript))
+  }, [followTranscript])
   
   const { data: briefing, isLoading, error } = useQuery({
     queryKey: ['briefing', id],
@@ -293,7 +304,7 @@ export default function BriefingDetail() {
   
   // Auto-scroll to active segment with dynamic offset based on audio player state
   useEffect(() => {
-    if (activeSegmentIndex !== null && isCurrentlyPlaying) {
+    if (activeSegmentIndex !== null && isCurrentlyPlaying && followTranscript) {
       // Small delay to ensure DOM has updated after player state changes
       const timeoutId = setTimeout(() => {
         const segmentEl = segmentRefs.current.get(activeSegmentIndex)
@@ -335,7 +346,7 @@ export default function BriefingDetail() {
       
       return () => clearTimeout(timeoutId)
     }
-  }, [activeSegmentIndex, isCurrentlyPlaying, currentAudio, audioPlayerMinimized])
+  }, [activeSegmentIndex, isCurrentlyPlaying, currentAudio, audioPlayerMinimized, followTranscript])
   
   const handlePlayPause = () => {
     if (!briefing?.audio_url) return
@@ -800,7 +811,9 @@ export default function BriefingDetail() {
                 : 'bg-augustus-800 text-augustus-500'
             )}
           >
-            {briefing.status === 'generating' || briefing.status === 'pending' ? (
+            {briefing.status === 'queued' ? (
+              <Clock className="w-7 h-7 sm:w-8 sm:h-8 text-blue-400" />
+            ) : briefing.status === 'generating' || briefing.status === 'pending' ? (
               <Loader2 className="w-7 h-7 sm:w-8 sm:h-8 animate-spin" />
             ) : briefing.status === 'failed' ? (
               <AlertCircle className="w-7 h-7 sm:w-8 sm:h-8 text-red-500" />
@@ -857,6 +870,7 @@ export default function BriefingDetail() {
                 briefing.status === 'completed' && 'bg-green-500/20 text-green-400',
                 briefing.status === 'generating' && 'bg-yellow-500/20 text-yellow-400',
                 briefing.status === 'pending' && 'bg-augustus-700 text-augustus-400',
+                briefing.status === 'queued' && 'bg-blue-500/20 text-blue-400',
                 briefing.status === 'failed' && 'bg-red-500/20 text-red-400',
               )}>
                 {briefing.status}
@@ -893,13 +907,16 @@ export default function BriefingDetail() {
         </div>
       </div>
       
-      {/* Action Bar for failed briefings - just delete */}
-      {briefing.status === 'failed' && (
+      {/* Action Bar for failed, cancelled, or errored briefings - just delete */}
+      {(briefing.status === 'failed' || briefing.status === 'cancelled' || briefing.error_message) && (
         <div className="card mb-4 sm:mb-6">
           <div className="flex flex-wrap items-center gap-2 sm:gap-3">
             <button
               onClick={() => {
-                if (confirm('Are you sure you want to delete this failed briefing?')) {
+                const statusText = briefing.status === 'cancelled' ? 'cancelled' : 
+                                 briefing.status === 'failed' ? 'failed' : 
+                                 briefing.error_message ? 'errored' : 'briefing'
+                if (confirm(`Are you sure you want to delete this ${statusText} briefing?`)) {
                   deleteMutation.mutate()
                 }
               }}
@@ -912,7 +929,7 @@ export default function BriefingDetail() {
               ) : (
                 <Trash2 className="w-4 h-4" />
               )}
-              <span>Delete Failed Briefing</span>
+              <span>Delete Briefing</span>
             </button>
           </div>
         </div>
@@ -1006,15 +1023,30 @@ export default function BriefingDetail() {
       {/* Transcript */}
       {(briefing.transcript || segmentTimings.length > 0) && (
         <div className="card">
-          <h2 className="text-base sm:text-lg font-semibold text-white mb-3 sm:mb-4 flex items-center gap-2">
-            <FileText className="w-5 h-5 text-accent" />
-            Transcript
+          <div className="flex items-center justify-between mb-3 sm:mb-4">
+            <h2 className="text-base sm:text-lg font-semibold text-white flex items-center gap-2">
+              <FileText className="w-5 h-5 text-accent" />
+              Transcript
+              {segmentTimings.length > 0 && (
+                <span className="text-xs font-normal text-augustus-400 ml-1 sm:ml-2">
+                  (tap to jump)
+                </span>
+              )}
+            </h2>
             {segmentTimings.length > 0 && (
-              <span className="text-xs font-normal text-augustus-400 ml-1 sm:ml-2">
-                (tap to jump)
-              </span>
+              <button
+                onClick={() => setFollowTranscript(!followTranscript)}
+                className={clsx(
+                  'btn btn-ghost flex items-center gap-2 text-sm',
+                  followTranscript ? 'text-accent' : 'text-augustus-400 hover:text-augustus-300'
+                )}
+                title={followTranscript ? 'Disable auto-scroll' : 'Enable auto-scroll'}
+              >
+                <Move className={clsx('w-4 h-4', followTranscript && 'fill-current')} />
+                <span className="hidden sm:inline">Follow</span>
+              </button>
             )}
-          </h2>
+          </div>
           
           <div className="prose prose-invert max-w-none">
             {formatTranscript()}

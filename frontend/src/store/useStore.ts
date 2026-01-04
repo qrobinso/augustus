@@ -1,5 +1,17 @@
 import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
 import { audioManager } from '../utils/audioManager'
+
+// Re-export Profile type from api client for consistency
+export type { Profile } from '../api/client'
+import type { Profile } from '../api/client'
+
+interface ProfileState {
+  currentProfile: Profile | null
+  profiles: Profile[]
+  setCurrentProfile: (profile: Profile | null) => void
+  setProfiles: (profiles: Profile[]) => void
+}
 
 interface AudioState {
   currentAudio: {
@@ -20,7 +32,7 @@ interface AudioState {
   duration: number
 }
 
-interface AppState extends AudioState {
+interface AppState extends AudioState, ProfileState {
   audioPlayerMinimized: boolean
   setCurrentAudio: (audio: AudioState['currentAudio']) => void
   setIsPlaying: (playing: boolean) => void
@@ -40,13 +52,21 @@ interface AppState extends AudioState {
   togglePlayPause: () => void
 }
 
-export const useStore = create<AppState>()((set, get) => ({
-  // Audio state
-  currentAudio: null,
-  isPlaying: false,
-  currentTime: 0,
-  duration: 0,
-  audioPlayerMinimized: false,
+export const useStore = create<AppState>()(
+  persist(
+    (set, get) => ({
+      // Profile state
+      currentProfile: null,
+      profiles: [],
+      setCurrentProfile: (profile) => set({ currentProfile: profile }),
+      setProfiles: (profiles) => set({ profiles }),
+      
+      // Audio state
+      currentAudio: null,
+      isPlaying: false,
+      currentTime: 0,
+      duration: 0,
+      audioPlayerMinimized: false,
   
   setCurrentAudio: (audio) => set({ 
     currentAudio: audio, 
@@ -111,4 +131,12 @@ export const useStore = create<AppState>()((set, get) => ({
         })
     }
   },
-}))
+    }),
+    {
+      name: 'augustus-profile-storage',
+      partialize: (state) => ({
+        currentProfile: state.currentProfile,
+      }),
+    }
+  )
+)

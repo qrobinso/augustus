@@ -141,7 +141,7 @@ async def migrate():
         
         # Use Gemini voices as defaults
         voice_host1 = "Kore"
-        voice_host2 = "Puck"
+        voice_host2 = "Sadachbia"
         
         for user_id in user_ids:
             # Check if user already has a default cast
@@ -191,7 +191,7 @@ async def migrate():
                 """), {
                     "id": sam_id,
                     "cast_id": cast_id,
-                    "name": "Sam",
+                    "name": "Sebastian",
                     "voice_id": voice_host2,
                     "personality": "Analytical",
                     "order": 1,

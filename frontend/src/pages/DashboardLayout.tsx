@@ -1,9 +1,19 @@
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import clsx from 'clsx'
+import { useStore } from '../store/useStore'
 
 export default function DashboardLayout() {
   const navigate = useNavigate()
   const location = useLocation()
+  const currentProfile = useStore((s) => s.currentProfile)
+  
+  // Get time-based greeting
+  const getGreeting = () => {
+    const hour = new Date().getHours()
+    if (hour < 12) return 'Good morning'
+    if (hour < 17) return 'Good afternoon'
+    return 'Good evening'
+  }
   
   // Determine active tab from URL
   const getActiveTab = () => {
@@ -19,7 +29,13 @@ export default function DashboardLayout() {
       {/* Header */}
       <div className="mb-6 sm:mb-8">
         <h1 className="text-2xl sm:text-3xl font-display font-semibold text-white mb-1 sm:mb-2">
-          Dashboard
+          {currentProfile ? (
+            <>
+              {getGreeting()}, {currentProfile.name}
+            </>
+          ) : (
+            'Dashboard'
+          )}
         </h1>
         <p className="text-sm sm:text-base text-augustus-400">
           AI-generated audio briefings from your news feeds

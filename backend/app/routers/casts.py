@@ -6,7 +6,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.user import User
+from app.models.profile import Profile
 from app.routers.auth import get_current_user
+from app.routers.profiles import get_current_profile
 from app.schemas.cast import (
     CastCreate,
     CastUpdate,
@@ -32,12 +34,13 @@ router = APIRouter()
 async def create_cast(
     cast_data: CastCreate,
     user: User = Depends(get_current_user),
+    profile: Profile = Depends(get_current_profile),
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new cast."""
     service = CastService(db)
     try:
-        cast = await service.create_cast(user.id, cast_data)
+        cast = await service.create_cast(user.id, cast_data, profile_id=profile.id)
         return CastResponse.model_validate(cast)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
@@ -46,11 +49,12 @@ async def create_cast(
 @router.get("", response_model=CastListResponse)
 async def list_casts(
     user: User = Depends(get_current_user),
+    profile: Profile = Depends(get_current_profile),
     db: AsyncSession = Depends(get_db),
 ):
-    """List all casts for the current user."""
+    """List all casts for the current profile."""
     service = CastService(db)
-    casts = await service.get_user_casts(user.id)
+    casts = await service.get_user_casts(user.id, profile_id=profile.id)
     return CastListResponse(casts=[CastResponse.model_validate(c) for c in casts])
 
 
@@ -151,11 +155,12 @@ async def list_personalities(
 async def get_cast(
     cast_id: str,
     user: User = Depends(get_current_user),
+    profile: Profile = Depends(get_current_profile),
     db: AsyncSession = Depends(get_db),
 ):
     """Get a cast by ID."""
     service = CastService(db)
-    cast = await service.get_cast(cast_id, user.id)
+    cast = await service.get_cast(cast_id, user.id, profile_id=profile.id)
     if not cast:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cast not found")
     return CastResponse.model_validate(cast)
@@ -166,12 +171,13 @@ async def update_cast(
     cast_id: str,
     cast_data: CastUpdate,
     user: User = Depends(get_current_user),
+    profile: Profile = Depends(get_current_profile),
     db: AsyncSession = Depends(get_db),
 ):
     """Update a cast."""
     service = CastService(db)
     try:
-        cast = await service.update_cast(cast_id, user.id, cast_data)
+        cast = await service.update_cast(cast_id, user.id, cast_data, profile_id=profile.id)
         if not cast:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cast not found")
         return CastResponse.model_validate(cast)
@@ -183,12 +189,13 @@ async def update_cast(
 async def delete_cast(
     cast_id: str,
     user: User = Depends(get_current_user),
+    profile: Profile = Depends(get_current_profile),
     db: AsyncSession = Depends(get_db),
 ):
     """Delete a cast."""
     service = CastService(db)
     try:
-        deleted = await service.delete_cast(cast_id, user.id)
+        deleted = await service.delete_cast(cast_id, user.id, profile_id=profile.id)
         if not deleted:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cast not found")
     except ValueError as e:
@@ -199,11 +206,12 @@ async def delete_cast(
 async def set_default_cast(
     cast_id: str,
     user: User = Depends(get_current_user),
+    profile: Profile = Depends(get_current_profile),
     db: AsyncSession = Depends(get_db),
 ):
-    """Set a cast as the default for the user."""
+    """Set a cast as the default for the profile."""
     service = CastService(db)
-    cast = await service.set_default_cast(cast_id, user.id)
+    cast = await service.set_default_cast(cast_id, user.id, profile_id=profile.id)
     if not cast:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cast not found")
     return CastResponse.model_validate(cast)
@@ -212,11 +220,12 @@ async def set_default_cast(
 @router.post("/default/restore", response_model=CastResponse)
 async def restore_default_cast(
     user: User = Depends(get_current_user),
+    profile: Profile = Depends(get_current_profile),
     db: AsyncSession = Depends(get_db),
 ):
     """Restore the default cast to its original values (Augustus Daily with Zephyr/Sadachbia voices)."""
     service = CastService(db)
-    cast = await service.restore_default_cast(user.id)
+    cast = await service.restore_default_cast(user.id, profile_id=profile.id)
     return CastResponse.model_validate(cast)
 
 

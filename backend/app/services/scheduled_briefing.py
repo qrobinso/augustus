@@ -34,6 +34,7 @@ class ScheduledBriefingService:
         schedule_time: str,
         schedule_days: List[int],
         notification_methods: List[str],
+        profile_id: Optional[str] = None,
         email_recipients: List[str] = None,
         webhook_url: Optional[str] = None,
         is_active: bool = True,
@@ -44,6 +45,7 @@ class ScheduledBriefingService:
         scheduled_briefing = ScheduledBriefing(
             id=str(uuid.uuid4()),
             user_id=user_id,
+            profile_id=profile_id,
             name=name,
             topic_ids=topic_ids or [],
             schedule_time=schedule_time,
@@ -72,20 +74,23 @@ class ScheduledBriefingService:
     async def list_scheduled_briefings(
         self,
         user_id: str,
+        profile_id: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[List[ScheduledBriefing], int]:
-        """List scheduled briefings for a user."""
+        """List scheduled briefings for a user/profile."""
+        # Build query with optional profile filter
+        base_query = select(ScheduledBriefing).where(ScheduledBriefing.user_id == user_id)
+        if profile_id:
+            base_query = base_query.where(ScheduledBriefing.profile_id == profile_id)
+        
         # Get total count
-        count_result = await self.db.execute(
-            select(ScheduledBriefing).where(ScheduledBriefing.user_id == user_id)
-        )
+        count_result = await self.db.execute(base_query)
         total = len(count_result.scalars().all())
         
         # Get paginated results
         result = await self.db.execute(
-            select(ScheduledBriefing)
-            .where(ScheduledBriefing.user_id == user_id)
+            base_query
             .order_by(ScheduledBriefing.created_at.desc())
             .limit(limit)
             .offset(offset)

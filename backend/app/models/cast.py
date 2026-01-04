@@ -2,12 +2,15 @@
 
 import uuid
 from datetime import datetime
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 from sqlalchemy import String, DateTime, ForeignKey, Integer, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+
+if TYPE_CHECKING:
+    from app.models.profile import Profile
 
 
 class Cast(Base):
@@ -24,6 +27,12 @@ class Cast(Base):
         String(36),
         ForeignKey("users.id"),
         nullable=False,
+    )
+    profile_id: Mapped[Optional[str]] = mapped_column(
+        String(36),
+        ForeignKey("profiles.id"),
+        nullable=True,
+        doc="Profile this cast belongs to",
     )
     
     # Cast configuration
@@ -56,6 +65,7 @@ class Cast(Base):
     
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="casts")
+    profile: Mapped[Optional["Profile"]] = relationship("Profile", back_populates="casts")
     members: Mapped[list["CastMember"]] = relationship(
         "CastMember",
         back_populates="cast",

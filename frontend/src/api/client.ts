@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { useStore } from '../store/useStore'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || ''
 
@@ -7,6 +8,15 @@ export const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+})
+
+// Add interceptor to include X-Profile-ID header
+api.interceptors.request.use((config) => {
+  const { currentProfile } = useStore.getState()
+  if (currentProfile?.id) {
+    config.headers['X-Profile-ID'] = currentProfile.id
+  }
+  return config
 })
 
 // Types
@@ -246,6 +256,16 @@ export interface ModelOption {
     completion: number
   }
   description?: string
+}
+
+export interface Profile {
+  id: string
+  user_id: string
+  name: string
+  color: string
+  is_admin: boolean
+  created_at: string
+  updated_at: string
 }
 
 // API functions
@@ -652,5 +672,37 @@ export const authApi = {
   getMe: async () => {
     const { data } = await api.get('/api/auth/me')
     return data
+  },
+}
+
+export const profilesApi = {
+  list: async () => {
+    const { data } = await api.get<{ profiles: Profile[]; total: number }>('/api/profiles')
+    return data
+  },
+  
+  get: async (id: string) => {
+    const { data } = await api.get<Profile>(`/api/profiles/${id}`)
+    return data
+  },
+  
+  create: async (options: {
+    name: string
+    color?: string
+  }) => {
+    const { data } = await api.post<Profile>('/api/profiles', options)
+    return data
+  },
+  
+  update: async (id: string, options: Partial<{
+    name: string
+    color: string
+  }>) => {
+    const { data } = await api.put<Profile>(`/api/profiles/${id}`, options)
+    return data
+  },
+  
+  delete: async (id: string) => {
+    await api.delete(`/api/profiles/${id}`)
   },
 }

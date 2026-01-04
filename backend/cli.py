@@ -713,7 +713,7 @@ async def briefing_full_test(topic: tuple, duration: int, provider: Optional[str
         voice_maps = {
             "piper": {"HOST1": "en_US-lessac-medium", "HOST2": "en_US-amy-medium"},
             "elevenlabs": {"HOST1": "21m00Tcm4TlvDq8ikWAM", "HOST2": "AZnzlk1XvdvUeBnXmlld"},
-            "gemini": {"HOST1": "Kore", "HOST2": "Puck"},
+            "gemini": {"HOST1": "Kore", "HOST2": "Sadachbia"},
         }
         voice_map = voice_maps.get(provider, voice_maps["piper"])
         

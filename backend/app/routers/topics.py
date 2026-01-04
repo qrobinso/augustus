@@ -12,9 +12,11 @@ from sqlalchemy import select, func
 
 from app.database import get_db
 from app.models.user import User
+from app.models.profile import Profile
 from app.models.topic import Topic, slugify, DEFAULT_TOPICS
 from app.models.custom_site import CustomSite
 from app.routers.auth import get_current_user
+from app.routers.profiles import get_current_profile
 from app.schemas.topic import (
     TopicCreate,
     TopicUpdate,
@@ -66,10 +68,13 @@ class GenerateTrendingTopicsResponse(BaseModel):
 router = APIRouter()
 
 
-async def ensure_default_topics(user_id: str, db: AsyncSession) -> None:
-    """Ensure user has default topics if they have none."""
+async def ensure_default_topics(user_id: str, profile_id: str, db: AsyncSession) -> None:
+    """Ensure profile has default topics if they have none."""
     result = await db.execute(
-        select(func.count(Topic.id)).where(Topic.user_id == user_id)
+        select(func.count(Topic.id)).where(
+            Topic.user_id == user_id,
+            Topic.profile_id == profile_id,
+        )
     )
     count = result.scalar()
     
@@ -78,6 +83,7 @@ async def ensure_default_topics(user_id: str, db: AsyncSession) -> None:
             topic = Topic(
                 id=str(uuid.uuid4()),
                 user_id=user_id,
+                profile_id=profile_id,
                 name=topic_data["name"],
                 slug=topic_data["slug"],
                 color=topic_data["color"],
@@ -110,13 +116,17 @@ def _topic_to_response(topic: Topic, site_count: int = 0) -> TopicResponse:
 async def list_topics(
     include_inactive: bool = False,
     user: User = Depends(get_current_user),
+    profile: Profile = Depends(get_current_profile),
     db: AsyncSession = Depends(get_db),
 ):
-    """List all topics for the current user."""
+    """List all topics for the current profile."""
     # Ensure default topics exist
-    await ensure_default_topics(user.id, db)
+    await ensure_default_topics(user.id, profile.id, db)
     
-    query = select(Topic).where(Topic.user_id == user.id)
+    query = select(Topic).where(
+        Topic.user_id == user.id,
+        Topic.profile_id == profile.id,
+    )
     
     if not include_inactive:
         query = query.where(Topic.is_active == True)
@@ -143,15 +153,17 @@ async def list_topics(
 async def create_topic(
     request: TopicCreate,
     user: User = Depends(get_current_user),
+    profile: Profile = Depends(get_current_profile),
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new topic."""
     slug = slugify(request.name)
     
-    # Check for duplicate slug for this user
+    # Check for duplicate slug for this profile
     existing = await db.execute(
         select(Topic).where(
             Topic.user_id == user.id,
+            Topic.profile_id == profile.id,
             Topic.slug == slug,
         )
     )
@@ -164,6 +176,7 @@ async def create_topic(
     topic = Topic(
         id=str(uuid.uuid4()),
         user_id=user.id,
+        profile_id=profile.id,
         name=request.name,
         slug=slug,
         description=request.description,
@@ -273,6 +286,7 @@ Return as JSON only, no other text:
 async def get_topic(
     topic_id: str,
     user: User = Depends(get_current_user),
+    profile: Profile = Depends(get_current_profile),
     db: AsyncSession = Depends(get_db),
 ):
     """Get a specific topic by ID."""
@@ -287,7 +301,7 @@ async def get_topic(
             detail="Topic not found",
         )
     
-    if topic.user_id != user.id:
+    if topic.user_id != user.id or topic.profile_id != profile.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied",
@@ -307,6 +321,7 @@ async def update_topic(
     topic_id: str,
     request: TopicUpdate,
     user: User = Depends(get_current_user),
+    profile: Profile = Depends(get_current_profile),
     db: AsyncSession = Depends(get_db),
 ):
     """Update a topic."""
@@ -321,7 +336,7 @@ async def update_topic(
             detail="Topic not found",
         )
     
-    if topic.user_id != user.id:
+    if topic.user_id != user.id or topic.profile_id != profile.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied",
@@ -334,6 +349,7 @@ async def update_topic(
         existing = await db.execute(
             select(Topic).where(
                 Topic.user_id == user.id,
+                Topic.profile_id == profile.id,
                 Topic.slug == new_slug,
                 Topic.id != topic_id,
             )
@@ -373,6 +389,7 @@ async def update_topic(
 async def delete_topic(
     topic_id: str,
     user: User = Depends(get_current_user),
+    profile: Profile = Depends(get_current_profile),
     db: AsyncSession = Depends(get_db),
 ):
     """Delete a topic. Custom sites linked to this topic will also be deleted."""
@@ -387,7 +404,7 @@ async def delete_topic(
             detail="Topic not found",
         )
     
-    if topic.user_id != user.id:
+    if topic.user_id != user.id or topic.profile_id != profile.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied",
@@ -474,10 +491,11 @@ async def generate_sites(
     topic_id: str,
     count: int = Query(default=10, ge=1, le=20),
     user: User = Depends(get_current_user),
+    profile: Profile = Depends(get_current_profile),
     db: AsyncSession = Depends(get_db),
 ):
     """Generate site suggestions for a topic using AI."""
-    # Verify topic exists and belongs to user
+    # Verify topic exists and belongs to profile
     result = await db.execute(
         select(Topic).where(Topic.id == topic_id)
     )
@@ -489,7 +507,7 @@ async def generate_sites(
             detail="Topic not found",
         )
     
-    if topic.user_id != user.id:
+    if topic.user_id != user.id or topic.profile_id != profile.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied",

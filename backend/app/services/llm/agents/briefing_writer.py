@@ -15,20 +15,31 @@ NON_SPEECH_SOUNDS_GUIDE = """
 
 === NON-SPEECH SOUNDS & STYLE MARKUP ===
 
-Use these tags sparingly to add realism and natural pacing:
+Use these tags FREQUENTLY to add realism, natural pacing, and break up the script:
 
 SOUNDS (audible vocalizations): [sigh], [laughing], [uhm]
 STYLE (modifies delivery): [sarcasm], [shouting], [whispering], [extremely fast]
 PAUSES: [short pause] ~250ms, [medium pause] ~500ms, [long pause] ~1s
 
+CRITICAL - USE FREQUENTLY:
+- [uhm] - Use this OFTEN (2-4 times per segment) at natural thinking/transition points to make speech feel more natural and conversational. Examples: "So... [uhm] what I think is...", "That's interesting because [uhm] it shows...", "Well [uhm] the thing is..."
+- [short pause] - Use this FREQUENTLY (3-5 times per segment) to break up sentences and create natural rhythm. Place after commas, before important points, or between thoughts. Examples: "The key point here [short pause] is that...", "So what happened [short pause] was...", "This matters because [short pause] it affects..."
+
 Examples:
 - "That's... [sigh] honestly not surprising."
 - "[laughing] Okay, that's actually pretty clever."
-- "So... [uhm] what happens next?"
+- "So... [uhm] what happens next? [short pause] Well, the thing is..."
 - "[sarcasm] Oh yes, because that worked so well last time."
-- "[whispering] Here's the thing most people don't realize..."
+- "[whispering] Here's the thing most people don't realize... [short pause] It's actually..."
+- "The data shows [uhm] [short pause] that we're seeing a significant shift."
+- "I think [uhm] the important part here [short pause] is understanding why this happened."
 
-Guidelines: Use a few tags per segment max. Place sounds at natural break points. Match tags to the host's personality.
+Guidelines: 
+- Use [uhm] and [short pause] FREQUENTLY throughout each segment (not just a few times) to create natural, conversational pacing
+- Place [uhm] at natural thinking points, transitions, or when a host is formulating a thought
+- Place [short pause] to break up longer sentences, emphasize points, or create natural rhythm
+- Use other sounds (sigh, laughing, etc.) sparingly and match them to the host's personality
+- The goal is to make the dialogue feel like a real conversation, not a script being read
 """
 
 # Conversational dynamics for natural multi-host dialogue
@@ -440,7 +451,9 @@ CRITICAL OUTPUT RULES:
 - FIRST: Output a short, glanceable podcast title (max 60 characters) that includes the key topics. Format: TITLE: [title here]
 - THEN: Output ONLY spoken dialogue - what the hosts actually say out loud
 - INCLUDE chapter markers to break up the content into logical sections. Format: [CHAPTER: Short Title Here] where the title is no more than 5 words. Place chapter markers at natural transition points between major topics or stories. Each chapter should represent a distinct story or topic being discussed.
-- DO NOT include stage directions, sound effects, or production notes like [MUSIC], [PAUSE], [INTRO], [OUTRO], etc.
+- BEFORE EACH CHAPTER MARKER: Add a natural transition phrase or sentence that signals a topic change, followed by a medium pause. Examples: "Alright, let's shift gears here...", "Moving on to something completely different...", "Now, switching topics entirely...", "Let's talk about something else now...", "Okay, completely different subject...", "Now, onto a different story...", "Let's pivot to another topic...", "Switching gears completely...", "Alright, moving on...", "Now for something different...". Then add [medium pause] before the chapter marker to create a clear break.
+- TRANSITIONS: Use varied, natural transition phrases before chapters. Don't repeat the same transition. Make it feel like hosts are naturally moving between topics in conversation.
+- DO NOT include stage directions, sound effects, or production notes like [MUSIC], [INTRO], [OUTRO], etc. (except [medium pause] which is allowed before chapter markers)
 - DO NOT include asterisks or brackets with instructions like *laughs*, *sighs*, [clears throat]
 - DO NOT include timestamps or other section headers
 
@@ -621,7 +634,8 @@ Requirements:
 6. DEPTH: Go beyond surface-level reporting - help listeners truly understand the stories
 7. CONNECTIONS: Draw connections between different stories when relevant
 8. BALANCE: Present multiple viewpoints on controversial topics
-9. WRAP-UP: At the end, work backwards to summarize what topics were discussed. Recap the key stories and takeaways, reinforcing what listeners learned.
+9. CHAPTER TRANSITIONS: Before each new chapter marker, add a natural transition phrase that signals a topic change (e.g., "Alright, let's shift gears here...", "Moving on to something completely different...", "Now, switching topics entirely...", "Let's talk about something else now..."). Vary these transitions - don't repeat the same phrase. Immediately after the transition phrase, add [medium pause] to create a clear break before the chapter marker.
+10. WRAP-UP: At the end, work backwards to summarize what topics were discussed. Recap the key stories and takeaways, reinforcing what listeners learned.
 
 CRITICAL LANGUAGE GUIDELINES:
 - Use clear, direct language - avoid fluffy filler words and unnecessary embellishment
@@ -641,12 +655,20 @@ Example:
 TITLE: Tech & Business Update - Jan 15
 HOST1: Good morning! Welcome back to the show.
 HOST2: Good to be here.
+Alright, let's dive into the tech news. [medium pause]
 [CHAPTER: Tech News]
 HOST1: First up, [Company] just announced [specific detail]...
+HOST2: That's interesting because...
+[After discussing tech news, transition to next chapter]
+HOST1: Moving on to something completely different now. [medium pause]
+[CHAPTER: Business Update]
+HOST2: So in business news today...
 
 REMEMBER: 
 - The title should be short, glanceable, and include key topics
-- Output ONLY the title line and spoken dialogue - no stage directions, no music cues, no brackets with instructions
+- Add natural transition phrases before each chapter marker, followed by [medium pause]
+- Use varied transition phrases - don't repeat the same one
+- Output ONLY the title line and spoken dialogue - no stage directions, no music cues (except [medium pause] before chapters)
 - Start directly with the TITLE line, then the first host speaking
 
 Generate the podcast script now:"""

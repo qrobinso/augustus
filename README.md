@@ -45,6 +45,13 @@ Augustus transforms your personalized content—news feeds, topics, and queries�
   - Set default cast for all content
   - Restore default cast configuration
 
+- 👥 **Profiles** - Multi-profile support for households
+  - Create separate profiles with their own data
+  - Netflix-style profile switcher
+  - Each profile has independent briefings, topics, schedules, and casts
+  - Admin profile for account management
+  - Personalized greetings on dashboard
+
 ### Audio & Playback
 
 - 🎵 **Advanced Audio Player**
@@ -259,6 +266,23 @@ The `docker-compose.yml` file is configured for production deployment. Here's wh
 - **Resource Limits**: Add resource limits to docker-compose.yml if needed
 - **Security**: Ensure `.env` file is not committed to version control
 
+### Database Migrations
+
+When upgrading Augustus, you may need to run database migrations for new features:
+
+```bash
+# Run migrations (from backend directory or in Docker container)
+cd backend
+python -m app.migrations.add_profiles_table
+```
+
+For Docker deployments:
+```bash
+docker exec augustus-backend python -m app.migrations.add_profiles_table
+```
+
+Migrations are idempotent and safe to run multiple times.
+
 ## Configuration
 
 ### Required Settings
@@ -424,6 +448,15 @@ Augustus provides a comprehensive platform for creating personalized audio conte
 | `/api/casts/{id}/set-default` | POST | Set as default cast |
 | `/api/casts/default/restore` | POST | Restore default cast |
 
+### Profiles
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/profiles` | GET | List all profiles |
+| `/api/profiles` | POST | Create new profile |
+| `/api/profiles/{id}` | GET | Get profile details |
+| `/api/profiles/{id}` | PUT | Update profile |
+| `/api/profiles/{id}` | DELETE | Delete profile (non-admin only) |
+
 ### Settings
 | Endpoint | Method | Description |
 |----------|--------|-------------|
@@ -535,6 +568,7 @@ The Augustus web dashboard provides a modern, responsive interface for managing 
   - Duration and complexity settings
   - Timezone and personalization
   - Integration settings
+  - **Profiles tab** - Manage user profiles for the household
 
 ### Mobile Experience
 

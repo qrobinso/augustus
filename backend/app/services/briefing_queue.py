@@ -1,4 +1,4 @@
-"""Queue service for managing scheduled briefing generation queue."""
+"""Queue service for managing briefing generation queue."""
 
 import asyncio
 from typing import Optional
@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 
 @dataclass
-class QueuedBriefing:
+class QueuedScheduledBriefing:
     """Represents a scheduled briefing waiting to be generated."""
     schedule_id: str
     user_id: str
@@ -19,9 +19,11 @@ class BriefingQueue:
     """In-memory queue for scheduled briefings."""
     
     def __init__(self):
-        self._queue: list[QueuedBriefing] = []
+        self._queue: list[QueuedScheduledBriefing] = []
         self._processing = False
         self._lock = asyncio.Lock()
+        # Global flag to track if any briefing (on-demand or scheduled) is being generated
+        self._global_generating = False
     
     async def enqueue(
         self,
@@ -42,7 +44,7 @@ class BriefingQueue:
                 print(f"[BriefingQueue] Schedule {schedule_id} already in queue, skipping")
                 return
             
-            queued = QueuedBriefing(
+            queued = QueuedScheduledBriefing(
                 schedule_id=schedule_id,
                 user_id=user_id,
                 queued_at=datetime.utcnow(),
@@ -51,7 +53,7 @@ class BriefingQueue:
             self._queue.append(queued)
             print(f"[BriefingQueue] Enqueued schedule {schedule_id} (queue size: {len(self._queue)})")
     
-    async def dequeue(self) -> Optional[QueuedBriefing]:
+    async def dequeue(self) -> Optional[QueuedScheduledBriefing]:
         """Get the next briefing from the queue.
         
         Returns:
@@ -62,7 +64,7 @@ class BriefingQueue:
                 return self._queue.pop(0)
             return None
     
-    async def peek(self) -> Optional[QueuedBriefing]:
+    async def peek(self) -> Optional[QueuedScheduledBriefing]:
         """Peek at the next briefing without removing it.
         
         Returns:
@@ -96,13 +98,23 @@ class BriefingQueue:
             return len(self._queue)
     
     async def is_processing(self) -> bool:
-        """Check if queue is currently processing."""
+        """Check if scheduled queue is currently processing."""
         return self._processing
     
     async def set_processing(self, value: bool):
-        """Set the processing flag."""
+        """Set the processing flag for scheduled briefings."""
         async with self._lock:
             self._processing = value
+    
+    async def is_global_generating(self) -> bool:
+        """Check if any briefing (on-demand or scheduled) is currently being generated."""
+        return self._global_generating
+    
+    async def set_global_generating(self, value: bool):
+        """Set the global generating flag."""
+        async with self._lock:
+            self._global_generating = value
+            print(f"[BriefingQueue] Global generating set to {value}")
     
     async def clear(self):
         """Clear the entire queue."""
@@ -113,16 +125,3 @@ class BriefingQueue:
 
 # Global queue instance
 briefing_queue = BriefingQueue()
-
-
-
-
-
-
-
-
-
-
-
-
-

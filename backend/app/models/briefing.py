@@ -2,12 +2,15 @@
 
 import uuid
 from datetime import datetime
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 from sqlalchemy import String, DateTime, Text, JSON, ForeignKey, Integer, Float, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+
+if TYPE_CHECKING:
+    from app.models.profile import Profile
 
 
 class Briefing(Base):
@@ -24,6 +27,12 @@ class Briefing(Base):
         String(36),
         ForeignKey("users.id"),
         nullable=False,
+    )
+    profile_id: Mapped[Optional[str]] = mapped_column(
+        String(36),
+        ForeignKey("profiles.id"),
+        nullable=True,
+        doc="Profile this briefing belongs to",
     )
     
     # Content
@@ -50,7 +59,7 @@ class Briefing(Base):
     status: Mapped[str] = mapped_column(
         String(50),
         default="pending",
-        doc="Status: pending, generating, completed, failed",
+        doc="Status: pending, generating, queued, completed, failed, cancelled",
     )
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     
@@ -96,6 +105,7 @@ class Briefing(Base):
     
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="briefings")
+    profile: Mapped[Optional["Profile"]] = relationship("Profile", back_populates="briefings")
     cast: Mapped[Optional["Cast"]] = relationship("Cast", foreign_keys=[cast_id])
     
     def __repr__(self) -> str:

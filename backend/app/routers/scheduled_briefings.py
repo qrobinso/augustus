@@ -6,7 +6,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.database import get_db
 from app.models.user import User
+from app.models.profile import Profile
 from app.routers.auth import get_current_user
+from app.routers.profiles import get_current_profile
 from app.schemas.scheduled_briefing import (
     ScheduledBriefingCreate,
     ScheduledBriefingUpdate,
@@ -23,12 +25,13 @@ async def list_scheduled_briefings(
     limit: int = 50,
     offset: int = 0,
     user: User = Depends(get_current_user),
+    profile: Profile = Depends(get_current_profile),
     db: AsyncSession = Depends(get_db),
 ):
-    """List all scheduled briefings for the current user."""
+    """List all scheduled briefings for the current profile."""
     service = ScheduledBriefingService(db)
     scheduled_briefings, total = await service.list_scheduled_briefings(
-        user.id, limit, offset
+        user.id, profile_id=profile.id, limit=limit, offset=offset
     )
     
     return ScheduledBriefingListResponse(
@@ -43,6 +46,7 @@ async def list_scheduled_briefings(
 async def create_scheduled_briefing(
     request: ScheduledBriefingCreate,
     user: User = Depends(get_current_user),
+    profile: Profile = Depends(get_current_profile),
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new scheduled briefing."""
@@ -50,6 +54,7 @@ async def create_scheduled_briefing(
     
     scheduled_briefing = await service.create_scheduled_briefing(
         user_id=user.id,
+        profile_id=profile.id,
         name=request.name,
         topic_ids=request.topic_ids,
         schedule_time=request.schedule_time,
@@ -69,6 +74,7 @@ async def create_scheduled_briefing(
 async def get_scheduled_briefing(
     schedule_id: str,
     user: User = Depends(get_current_user),
+    profile: Profile = Depends(get_current_profile),
     db: AsyncSession = Depends(get_db),
 ):
     """Get a specific scheduled briefing by ID."""
@@ -81,7 +87,7 @@ async def get_scheduled_briefing(
             detail="Scheduled briefing not found",
         )
     
-    if scheduled_briefing.user_id != user.id:
+    if scheduled_briefing.user_id != user.id or scheduled_briefing.profile_id != profile.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied",
@@ -95,6 +101,7 @@ async def update_scheduled_briefing(
     schedule_id: str,
     update: ScheduledBriefingUpdate,
     user: User = Depends(get_current_user),
+    profile: Profile = Depends(get_current_profile),
     db: AsyncSession = Depends(get_db),
 ):
     """Update a scheduled briefing."""
@@ -107,7 +114,7 @@ async def update_scheduled_briefing(
             detail="Scheduled briefing not found",
         )
     
-    if scheduled_briefing.user_id != user.id:
+    if scheduled_briefing.user_id != user.id or scheduled_briefing.profile_id != profile.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied",
@@ -134,6 +141,7 @@ async def update_scheduled_briefing(
 async def delete_scheduled_briefing(
     schedule_id: str,
     user: User = Depends(get_current_user),
+    profile: Profile = Depends(get_current_profile),
     db: AsyncSession = Depends(get_db),
 ):
     """Delete a scheduled briefing."""
@@ -146,7 +154,7 @@ async def delete_scheduled_briefing(
             detail="Scheduled briefing not found",
         )
     
-    if scheduled_briefing.user_id != user.id:
+    if scheduled_briefing.user_id != user.id or scheduled_briefing.profile_id != profile.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied",
@@ -159,6 +167,7 @@ async def delete_scheduled_briefing(
 async def toggle_scheduled_briefing(
     schedule_id: str,
     user: User = Depends(get_current_user),
+    profile: Profile = Depends(get_current_profile),
     db: AsyncSession = Depends(get_db),
 ):
     """Toggle the active status of a scheduled briefing."""
@@ -171,7 +180,7 @@ async def toggle_scheduled_briefing(
             detail="Scheduled briefing not found",
         )
     
-    if scheduled_briefing.user_id != user.id:
+    if scheduled_briefing.user_id != user.id or scheduled_briefing.profile_id != profile.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied",
@@ -192,6 +201,7 @@ async def toggle_scheduled_briefing(
 async def trigger_scheduled_briefing(
     schedule_id: str,
     user: User = Depends(get_current_user),
+    profile: Profile = Depends(get_current_profile),
     db: AsyncSession = Depends(get_db),
 ):
     """Manually trigger a scheduled briefing generation and notifications.
@@ -211,7 +221,7 @@ async def trigger_scheduled_briefing(
             detail="Scheduled briefing not found",
         )
     
-    if scheduled_briefing.user_id != user.id:
+    if scheduled_briefing.user_id != user.id or scheduled_briefing.profile_id != profile.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied",

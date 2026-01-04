@@ -69,17 +69,21 @@ class BriefingService:
     async def create_briefing(
         self,
         user_id: str,
+        profile_id: Optional[str] = None,
         topic_ids: Optional[list[str]] = None,
         max_duration_minutes: int = 10,
         name: Optional[str] = None,
+        initial_status: str = "pending",
     ) -> Briefing:
         """Create a new briefing record.
         
         Args:
             user_id: The user ID creating the briefing
+            profile_id: The profile ID creating the briefing
             topic_ids: List of topic IDs to include in the briefing
             max_duration_minutes: Target duration in minutes
             name: Optional name for the briefing (used for scheduled briefings)
+            initial_status: Initial status for the briefing (pending, queued)
         """
         # Use local time for the title display
         local_date = local_now()
@@ -94,8 +98,9 @@ class BriefingService:
         briefing = Briefing(
             id=str(uuid.uuid4()),
             user_id=user_id,
+            profile_id=profile_id,
             title=title,
-            status="pending",
+            status=initial_status,
             extra_data={
                 "topic_ids": topic_ids or [],
                 "target_duration": max_duration_minutes,
@@ -157,6 +162,7 @@ class BriefingService:
         briefing_id: str,
         topic_ids: Optional[list[str]] = None,
         max_duration_minutes: Optional[int] = None,
+        profile_name: Optional[str] = None,
     ) -> Briefing:
         """Generate audio content for a briefing.
         
@@ -164,10 +170,15 @@ class BriefingService:
             briefing_id: The briefing record ID
             topic_ids: List of topic IDs to include (uses stored topic_ids if not provided)
             max_duration_minutes: Target duration in minutes
+            profile_name: Profile name for personalized greetings (overrides settings.user_name)
         """
-        # Get briefing record
+        # Get briefing record with profile relationship loaded
+        from sqlalchemy.orm import selectinload
+        from app.models.profile import Profile
         result = await self.db.execute(
-            select(Briefing).where(Briefing.id == briefing_id)
+            select(Briefing)
+            .options(selectinload(Briefing.profile))
+            .where(Briefing.id == briefing_id)
         )
         briefing = result.scalar_one_or_none()
         
@@ -198,6 +209,7 @@ class BriefingService:
                     briefing=briefing,
                     topic_ids=topic_ids,
                     max_duration_minutes=max_duration_minutes,
+                    profile_name=profile_name,
                 ),
                 timeout=timeout_seconds,
             )
@@ -233,10 +245,18 @@ class BriefingService:
         briefing: Briefing,
         topic_ids: Optional[list[str]],
         max_duration_minutes: int,
+        profile_name: Optional[str] = None,
     ) -> Briefing:
         """Internal method that performs the actual briefing generation.
         
         This is separated from generate_briefing to allow timeout wrapping.
+        
+        Args:
+            briefing_id: The briefing record ID
+            briefing: The briefing record
+            topic_ids: List of topic IDs to include
+            max_duration_minutes: Target duration in minutes
+            profile_name: Profile name for personalized greetings
         """
         try:
             # Update status and initialize progress
@@ -512,7 +532,15 @@ class BriefingService:
             # Step 7: Generate podcast script with LLM
             await update_progress(7, "Writing podcast script", 70)
             await self._check_cancelled(briefing_id)
-            user_name = get_settings().user_name
+            
+            # Get profile name from profile if not provided
+            # Always use profile name from the briefing's profile (never use settings.user_name)
+            if not profile_name and briefing.profile:
+                profile_name = briefing.profile.name
+            
+            # Use profile name for personalization (never fall back to settings.user_name)
+            # If no profile name is available, use None (will result in generic greeting)
+            user_name = profile_name if profile_name else None
             complexity = get_settings().conversation_complexity
             enable_non_speech_sounds = get_settings().enable_non_speech_sounds
             
@@ -1041,6 +1069,7 @@ class BriefingService:
     async def list_briefings(
         self,
         user_id: str,
+        profile_id: Optional[str] = None,
         limit: int = 10,
         offset: int = 0,
         listened: Optional[bool] = None,
@@ -1048,10 +1077,11 @@ class BriefingService:
         topic_ids: Optional[list[str]] = None,
         favorite: Optional[bool] = None,
     ) -> tuple[list[Briefing], int]:
-        """List briefings for a user.
+        """List briefings for a user/profile.
         
         Args:
             user_id: User ID
+            profile_id: Profile ID (if provided, filters by profile)
             limit: Maximum number of results
             offset: Number of results to skip
             listened: Optional filter by listened status
@@ -1061,6 +1091,9 @@ class BriefingService:
         """
         # Build query
         query = select(Briefing).where(Briefing.user_id == user_id)
+        
+        if profile_id:
+            query = query.where(Briefing.profile_id == profile_id)
         
         # Apply listened filter if provided
         if listened is not None:
@@ -1221,20 +1254,52 @@ class BriefingService:
         
         return briefing
     
-    async def has_briefing_in_progress(self, user_id: str) -> Optional[Briefing]:
-        """Check if user has a briefing currently being generated.
+    async def has_briefing_in_progress(self, user_id: str, profile_id: Optional[str] = None) -> Optional[Briefing]:
+        """Check if user/profile has a briefing currently being generated or queued.
         
         Args:
             user_id: The user ID to check
+            profile_id: The profile ID to check (optional)
             
         Returns:
-            The in-progress briefing if one exists, None otherwise
+            The in-progress or queued briefing if one exists, None otherwise
+        """
+        query = select(Briefing).where(Briefing.user_id == user_id)
+        
+        if profile_id:
+            query = query.where(Briefing.profile_id == profile_id)
+        
+        result = await self.db.execute(
+            query
+            .where(Briefing.status.in_(["pending", "generating", "queued"]))
+            .order_by(Briefing.created_at.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+    
+    async def has_any_active_briefing(self) -> bool:
+        """Check if any briefing globally is currently pending or generating.
+        
+        Returns:
+            True if any briefing is currently being generated
         """
         result = await self.db.execute(
             select(Briefing)
-            .where(Briefing.user_id == user_id)
             .where(Briefing.status.in_(["pending", "generating"]))
-            .order_by(Briefing.created_at.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none() is not None
+    
+    async def get_next_queued_briefing(self) -> Optional[Briefing]:
+        """Get the oldest queued briefing.
+        
+        Returns:
+            The oldest queued briefing, or None if no queued briefings
+        """
+        result = await self.db.execute(
+            select(Briefing)
+            .where(Briefing.status == "queued")
+            .order_by(Briefing.created_at.asc())
             .limit(1)
         )
         return result.scalar_one_or_none()
@@ -1256,7 +1321,7 @@ class BriefingService:
         if not briefing:
             return None
         
-        if briefing.status not in ["pending", "generating"]:
+        if briefing.status not in ["pending", "generating", "queued"]:
             return briefing  # Already completed/failed/cancelled
         
         briefing.status = "cancelled"

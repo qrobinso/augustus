@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { 
   Settings as SettingsIcon,
@@ -21,14 +21,25 @@ import {
   Mail,
   Sparkles,
   MoreVertical,
-  RotateCw
+  RotateCw,
+  Users
 } from 'lucide-react'
 import clsx from 'clsx'
 import { settingsApi, ModelOption } from '../api/client'
+import ProfileManagement from '../components/ProfileManagement'
+
+type SettingsTab = 'general' | 'profiles'
 
 export default function Settings() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const queryClient = useQueryClient()
+  
+  // Tab state from URL
+  const activeTab = (searchParams.get('tab') as SettingsTab) || 'general'
+  const setActiveTab = (tab: SettingsTab) => {
+    setSearchParams(tab === 'general' ? {} : { tab })
+  }
   
   // Form state
   const [openrouterKey, setOpenrouterKey] = useState('')
@@ -74,7 +85,6 @@ export default function Settings() {
   const [newsApiKey, setNewsApiKey] = useState('')
   const [resendApiKey, setResendApiKey] = useState('')
   const [resendFromEmail, setResendFromEmail] = useState('')
-  const [userName, setUserName] = useState('')
   const [autoPlayNext, setAutoPlayNext] = useState(false)
   
   // UI state
@@ -219,7 +229,6 @@ export default function Settings() {
       setBriefingDurationSlider(durationToSlider(settings.briefing_duration_minutes))
       setConversationComplexity(settings.conversation_complexity || 3)
       setTimezone(settings.timezone || 'UTC')
-      setUserName(settings.user_name || '')
       setAutoPlayNext(settings.auto_play_next || false)
       // Show masked keys if user hasn't typed anything yet
       if (!openrouterKey && settings.openrouter_api_key) {
@@ -292,7 +301,6 @@ export default function Settings() {
     if (briefingDuration !== settings?.briefing_duration_minutes) updates.briefing_duration_minutes = briefingDuration
     if (conversationComplexity !== settings?.conversation_complexity) updates.conversation_complexity = conversationComplexity
     if (timezone !== settings?.timezone) updates.timezone = timezone
-    if (userName !== settings?.user_name) updates.user_name = userName
     if (autoPlayNext !== settings?.auto_play_next) updates.auto_play_next = autoPlayNext
     
     if (Object.keys(updates).length > 0) {
@@ -329,7 +337,10 @@ export default function Settings() {
               Settings
             </h1>
             <p className="text-sm sm:text-base text-augustus-400">
-              Configure API keys and integrations for Augustus
+              {activeTab === 'general' 
+                ? 'Configure API keys and integrations for Augustus'
+                : 'Manage user profiles'
+              }
             </p>
           </div>
           
@@ -415,8 +426,41 @@ export default function Settings() {
             )}
           </div>
         </div>
+        
+        {/* Tabs */}
+        <div className="flex gap-1 mt-6 border-b border-augustus-800">
+          <button
+            onClick={() => setActiveTab('general')}
+            className={clsx(
+              'px-4 py-2.5 text-sm font-medium rounded-t-lg transition-colors flex items-center gap-2',
+              activeTab === 'general'
+                ? 'bg-augustus-800 text-white border-b-2 border-accent -mb-px'
+                : 'text-augustus-400 hover:text-white hover:bg-augustus-800/50'
+            )}
+          >
+            <SettingsIcon className="w-4 h-4" />
+            General
+          </button>
+          <button
+            onClick={() => setActiveTab('profiles')}
+            className={clsx(
+              'px-4 py-2.5 text-sm font-medium rounded-t-lg transition-colors flex items-center gap-2',
+              activeTab === 'profiles'
+                ? 'bg-augustus-800 text-white border-b-2 border-accent -mb-px'
+                : 'text-augustus-400 hover:text-white hover:bg-augustus-800/50'
+            )}
+          >
+            <Users className="w-4 h-4" />
+            Profiles
+          </button>
+        </div>
       </div>
       
+      {/* Tab Content */}
+      {activeTab === 'profiles' ? (
+        <ProfileManagement />
+      ) : (
+        <>
       {/* Success message */}
       {saved && (
         <div className="mb-4 sm:mb-6 p-3 sm:p-4 bg-green-500/10 border border-green-500/20 rounded-lg flex items-center gap-3">
@@ -993,55 +1037,39 @@ export default function Settings() {
         </div>
       </div>
       
-      {/* Personalization Section */}
+      {/* Playback Section */}
       <div className="card mb-4 sm:mb-6">
         <h2 className="text-base sm:text-lg font-semibold text-white mb-3 sm:mb-4 flex items-center gap-2">
           <SettingsIcon className="w-5 h-5 text-accent" />
-          Personalization
+          Playback
         </h2>
         
-        <div className="space-y-4">
-          <div>
-            <label className="label">Your Name</label>
-            <input
-              type="text"
-              value={userName}
-              onChange={(e) => setUserName(e.target.value)}
-              placeholder="Enter your name (e.g., David)"
-              className="input"
-            />
-            <p className="text-xs text-augustus-500 mt-2">
-              Hosts will address you by name in podcasts
-            </p>
-          </div>
-          
-          <div className="pt-3 border-t border-augustus-700/50">
-            <label className="flex items-start gap-3 cursor-pointer group">
-              <div className="relative flex items-center justify-center mt-0.5">
-                <input
-                  type="checkbox"
-                  checked={autoPlayNext}
-                  onChange={(e) => setAutoPlayNext(e.target.checked)}
-                  className="sr-only peer"
-                />
-                <div className="w-5 h-5 border-2 border-augustus-600 rounded bg-augustus-800 peer-checked:bg-accent peer-checked:border-accent transition-colors flex items-center justify-center">
-                  {autoPlayNext && (
-                    <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                    </svg>
-                  )}
-                </div>
+        <div>
+          <label className="flex items-start gap-3 cursor-pointer group">
+            <div className="relative flex items-center justify-center mt-0.5">
+              <input
+                type="checkbox"
+                checked={autoPlayNext}
+                onChange={(e) => setAutoPlayNext(e.target.checked)}
+                className="sr-only peer"
+              />
+              <div className="w-5 h-5 border-2 border-augustus-600 rounded bg-augustus-800 peer-checked:bg-accent peer-checked:border-accent transition-colors flex items-center justify-center">
+                {autoPlayNext && (
+                  <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                  </svg>
+                )}
               </div>
-              <div className="flex-1">
-                <span className="text-sm font-medium text-white group-hover:text-accent transition-colors">
-                  Auto-play Next Briefing
-                </span>
-                <p className="text-xs text-augustus-400 mt-1">
-                  When a briefing finishes, automatically play the most recent unlistened briefing.
-                </p>
-              </div>
-            </label>
-          </div>
+            </div>
+            <div className="flex-1">
+              <span className="text-sm font-medium text-white group-hover:text-accent transition-colors">
+                Auto-play Next Briefing
+              </span>
+              <p className="text-xs text-augustus-400 mt-1">
+                When a briefing finishes, automatically play the most recent unlistened briefing.
+              </p>
+            </div>
+          </label>
         </div>
       </div>
       
@@ -1337,6 +1365,8 @@ export default function Settings() {
               {filteredModels.length} model{filteredModels.length !== 1 ? 's' : ''} available
             </div>
           </div>
+        </>
+      )}
         </>
       )}
     </div>

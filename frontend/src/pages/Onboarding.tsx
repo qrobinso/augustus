@@ -27,7 +27,7 @@ import {
   XCircle,
   Globe,
 } from 'lucide-react'
-import { settingsApi, topicsApi, briefingsApi, ModelOption } from '../api/client'
+import { settingsApi, topicsApi, briefingsApi, profilesApi, ModelOption } from '../api/client'
 
 // Step definitions
 const STEPS = [
@@ -74,6 +74,9 @@ interface OnboardingData {
   customTopicPrompt: string
   firstBriefingTopics: string[]
 }
+
+// Profile name length limit (used in generation, keep it reasonable)
+const PROFILE_NAME_MAX_LENGTH = 50
 
 // ============ Welcome Step ============
 function WelcomeStep({
@@ -123,16 +126,31 @@ function WelcomeStep({
 
       <div className="space-y-4 text-left">
         <div>
-          <label className="label text-base">What should we call you?</label>
+          <label className="label text-base">
+            What should we call you?
+            <span className="ml-2 text-sm text-augustus-500">
+              ({userName.length}/{PROFILE_NAME_MAX_LENGTH})
+            </span>
+          </label>
           <input
             type="text"
             value={userName}
-            onChange={(e) => onUpdate({ userName: e.target.value })}
+            onChange={(e) => {
+              if (e.target.value.length <= PROFILE_NAME_MAX_LENGTH) {
+                onUpdate({ userName: e.target.value })
+              }
+            }}
             placeholder="Enter your name"
-            className="input text-lg"
+            maxLength={PROFILE_NAME_MAX_LENGTH}
+            className={`input text-lg ${userName.length > PROFILE_NAME_MAX_LENGTH ? 'border-red-500' : ''}`}
             autoFocus
-            onKeyDown={(e) => e.key === 'Enter' && userName.trim() && onNext()}
+            onKeyDown={(e) => e.key === 'Enter' && userName.trim() && userName.trim().length <= PROFILE_NAME_MAX_LENGTH && onNext()}
           />
+          {userName.length > PROFILE_NAME_MAX_LENGTH && (
+            <p className="text-sm text-red-400 mt-1">
+              Name must be {PROFILE_NAME_MAX_LENGTH} characters or less
+            </p>
+          )}
           <p className="text-sm text-augustus-500">
             Your hosts will greet you by name in each podcast
           </p>
@@ -171,7 +189,7 @@ function WelcomeStep({
 
       <button
         onClick={onNext}
-        disabled={!userName.trim() || isLoading}
+        disabled={!userName.trim() || userName.trim().length > PROFILE_NAME_MAX_LENGTH || isLoading}
         className="btn btn-primary w-full text-lg py-4"
       >
         {isLoading ? (
@@ -1611,11 +1629,24 @@ export default function Onboarding() {
   // Save settings incrementally after each step
   const saveWelcomeSettings = useMutation({
     mutationFn: async () => {
+      // Save timezone to settings
       const updates: Record<string, string> = {}
-      if (data.userName) updates.user_name = data.userName
       if (data.timezone) updates.timezone = data.timezone
       if (Object.keys(updates).length > 0) {
-        return settingsApi.update(updates)
+        await settingsApi.update(updates)
+      }
+      
+      // Update the admin profile name with the user's name
+      if (data.userName) {
+        try {
+          const profilesResponse = await profilesApi.list()
+          const adminProfile = profilesResponse.profiles.find(p => p.is_admin)
+          if (adminProfile) {
+            await profilesApi.update(adminProfile.id, { name: data.userName })
+          }
+        } catch (error) {
+          console.error('Failed to update admin profile name:', error)
+        }
       }
     },
   })
@@ -1780,8 +1811,8 @@ export default function Onboarding() {
 
     try {
       // Save settings first (including resend API key if provided)
+      // Note: user_name is now stored in the profile, not settings
       const updates: Record<string, string | boolean> = {
-        user_name: data.userName,
         timezone: data.timezone,
         openrouter_api_key: data.openrouterApiKey,
         openrouter_model: data.generalModel,

@@ -9,11 +9,26 @@ import {
   CheckCircle,
   XCircle,
   Plus,
-  Tag
+  Tag,
+  Clock,
+  AlertCircle
 } from 'lucide-react'
 import clsx from 'clsx'
-import { briefingsApi, topicsApi, castsApi, Briefing } from '../api/client'
+import { briefingsApi, topicsApi, castsApi, customSitesApi, Briefing } from '../api/client'
 import { useStore } from '../store/useStore'
+
+const PRESET_COLORS = [
+  '#3B82F6', // Blue
+  '#10B981', // Green
+  '#8B5CF6', // Purple
+  '#EF4444', // Red
+  '#F97316', // Orange
+  '#EC4899', // Pink
+  '#06B6D4', // Cyan
+  '#F59E0B', // Amber
+  '#6366F1', // Indigo
+  '#84CC16', // Lime
+]
 
 export default function DashboardGenerate() {
   const navigate = useNavigate()
@@ -28,13 +43,18 @@ export default function DashboardGenerate() {
     return saved || undefined
   })
   
+  // Prompt-based topic generation state
+  const [topicPrompt, setTopicPrompt] = useState('')
+  const [promptError, setPromptError] = useState<string | null>(null)
+  const [isGenerating, setIsGenerating] = useState(false)
+  
   // Track previously in-progress briefings to detect completion
   const prevInProgressIdsRef = useRef<Set<string>>(new Set())
   const autoPlayedBriefingsRef = useRef<Set<string>>(new Set())
   
-  // Check if there's a briefing in progress
+  // Check if there's a briefing in progress or queued
   const hasBriefingInProgress = (briefings: Briefing[] | undefined) => 
-    briefings?.some((b) => b.status === 'pending' || b.status === 'generating')
+    briefings?.some((b) => b.status === 'pending' || b.status === 'generating' || b.status === 'queued')
   
   const { data } = useQuery({
     queryKey: ['briefings'],
@@ -60,9 +80,14 @@ export default function DashboardGenerate() {
   const casts = castsData?.casts || []
   const defaultCast = casts.find(c => c.is_default)
   
-  // Check if there's a briefing currently in progress
+  // Check if there's a briefing currently in progress (pending or generating)
   const briefingInProgress = data?.briefings.find(
     (b) => b.status === 'pending' || b.status === 'generating'
+  )
+  
+  // Check if there's a briefing queued
+  const queuedBriefing = data?.briefings.find(
+    (b) => b.status === 'queued'
   )
   
   // Find newly completed briefing
@@ -71,7 +96,7 @@ export default function DashboardGenerate() {
     
     const currentInProgressIds = new Set(
       data.briefings
-        .filter((b) => b.status === 'pending' || b.status === 'generating')
+        .filter((b) => b.status === 'pending' || b.status === 'generating' || b.status === 'queued')
         .map((b) => b.id)
     )
     
@@ -136,11 +161,13 @@ export default function DashboardGenerate() {
       prevInProgressIdsRef.current = new Set()
       autoPlayedBriefingsRef.current.clear()
       queryClient.invalidateQueries({ queryKey: ['briefings'] })
+      setIsGenerating(false)
     },
     onError: (error: Error & { response?: { status: number } }) => {
       if (error.response?.status === 409) {
         queryClient.invalidateQueries({ queryKey: ['briefings'] })
       }
+      setIsGenerating(false)
     },
   })
   
@@ -184,11 +211,116 @@ export default function DashboardGenerate() {
     )
   }
   
-  const handleGenerate = () => {
-    generateMutation.mutate({
-      topicIds: selectedTopicIds.length > 0 ? selectedTopicIds : undefined,
-      castId: selectedCastId,
-    })
+  // Normalize URL for duplicate checking
+  const normalizeUrl = (url: string): string => {
+    return url.trim().toLowerCase().replace(/\/$/, '')
+  }
+  
+  // Normalize topic name for comparison (lowercase, trim, remove extra spaces)
+  const normalizeTopicName = (name: string): string => {
+    return name.trim().toLowerCase().replace(/\s+/g, ' ')
+  }
+  
+  // Check if a topic with similar name already exists
+  const findExistingTopic = (topicName: string): string | null => {
+    const normalizedName = normalizeTopicName(topicName)
+    const existingTopic = topics.find(t => normalizeTopicName(t.name) === normalizedName)
+    return existingTopic?.id || null
+  }
+  
+  const handleGenerate = async () => {
+    setIsGenerating(true)
+    setPromptError(null)
+    
+    try {
+      // If there's a prompt, generate and create the topic first
+      if (topicPrompt.trim()) {
+        // Generate topic from prompt
+        const generatedTopic = await topicsApi.generateFromPrompt(topicPrompt.trim())
+        
+        // Check if a topic with the same name already exists
+        const existingTopicId = findExistingTopic(generatedTopic.name)
+        let topicToUse
+        
+        if (existingTopicId) {
+          // Use existing topic
+          topicToUse = topics.find(t => t.id === existingTopicId)!
+        } else {
+          // Create the topic with a random color
+          const topicColor = PRESET_COLORS[Math.floor(Math.random() * PRESET_COLORS.length)]
+          topicToUse = await topicsApi.create({
+            name: generatedTopic.name,
+            description: generatedTopic.description,
+            color: topicColor,
+            use_newsapi: generatedTopic.use_newsapi,
+          })
+        }
+        
+        // Get all existing sites to check for duplicates
+        const existingSitesData = await customSitesApi.list()
+        const existingUrls = new Set(
+          existingSitesData.sites.map(site => normalizeUrl(site.url))
+        )
+        
+        // Create all sites (no selection needed - create all recommended sites)
+        const seenUrls = new Set<string>()
+        const sitesToCreate: Array<{ name: string; url: string }> = []
+        
+        for (const site of generatedTopic.sites) {
+          const normalizedUrl = normalizeUrl(site.url)
+          
+          // Skip if already seen in this batch or exists in database
+          if (seenUrls.has(normalizedUrl) || existingUrls.has(normalizedUrl)) {
+            continue
+          }
+          
+          seenUrls.add(normalizedUrl)
+          sitesToCreate.push(site)
+        }
+        
+        // Create sites, continuing even if some fail
+        for (const site of sitesToCreate) {
+          try {
+            await customSitesApi.create({
+              name: site.name,
+              url: site.url,
+              topic_id: topicToUse.id,
+            })
+          } catch (err: unknown) {
+            // Silently continue - site creation failures shouldn't block briefing generation
+            console.error(`Failed to create site ${site.name}:`, err)
+          }
+        }
+        
+        // Refresh topics and sites
+        queryClient.invalidateQueries({ queryKey: ['topics'] })
+        queryClient.invalidateQueries({ queryKey: ['custom-sites'] })
+        
+        // Combine the prompt-generated topic with any pre-selected topics
+        const finalTopicIds = selectedTopicIds.includes(topicToUse.id)
+          ? selectedTopicIds  // Topic already selected, use all selected topics
+          : [...selectedTopicIds, topicToUse.id]  // Add prompt topic to selected topics
+        
+        // Clear the prompt
+        setTopicPrompt('')
+        
+        // Generate briefing with combined topics (prompt-generated + pre-selected)
+        generateMutation.mutate({
+          topicIds: finalTopicIds.length > 0 ? finalTopicIds : undefined,
+          castId: selectedCastId,
+        })
+      } else {
+        // No prompt, just generate with selected topics
+        generateMutation.mutate({
+          topicIds: selectedTopicIds.length > 0 ? selectedTopicIds : undefined,
+          castId: selectedCastId,
+        })
+      }
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to create topic from prompt'
+      setPromptError(errorMessage)
+      setIsGenerating(false)
+    }
   }
   
   // Animation items for progress
@@ -306,15 +438,37 @@ export default function DashboardGenerate() {
 
   return (
     <div className="card mb-6 sm:mb-8">
-      <h2 className="text-base sm:text-lg font-semibold text-white mb-3 sm:mb-4 flex items-center gap-2">
+      <h2 className="text-base font-semibold text-white mb-4 flex items-center gap-2">
         <Sparkles className="w-5 h-5 text-accent" />
         Generate New Briefing
       </h2>
       
+       {/* Prompt Box for Creating New Topic */}
+       <div className="mb-6">
+         <div className="space-y-4">
+           <div className="relative">
+             <textarea
+               value={topicPrompt}
+               onChange={(e) => setTopicPrompt(e.target.value)}
+               placeholder="e.g. I want to follow the latest developments in electric vehicles and sustainable transportation..."
+               className="input min-h-[80px] sm:min-h-[100px] resize-none pr-4"
+               disabled={isGenerating || generateMutation.isPending}
+             />
+           </div>
+           
+           {promptError && (
+             <div className="flex items-center gap-2 text-red-400 text-sm">
+               <AlertCircle className="w-4 h-4 flex-shrink-0" />
+               <span>{promptError}</span>
+             </div>
+           )}
+         </div>
+       </div>
+      
+      {/* Existing Topics Selection */}
       <div className="mb-4">
-        <div className="flex items-center gap-2 mb-2">
-          <span className="flex items-center justify-center w-6 h-6 rounded-full bg-accent text-white text-xs font-semibold flex-shrink-0">1</span>
-          <p className="text-xs sm:text-sm text-augustus-400">Select topics to include:</p>
+        <div className="mb-2">
+          <p className="text-sm text-augustus-400">Or select existing topics to include:</p>
         </div>
         {topicsLoading ? (
           <div className="flex items-center gap-2 text-augustus-500">
@@ -332,7 +486,7 @@ export default function DashboardGenerate() {
                 key={topic.id}
                 onClick={() => toggleTopic(topic.id)}
                 className={clsx(
-                  'px-3 py-1.5 rounded-full text-xs sm:text-sm font-medium transition-all flex items-center gap-1.5 min-h-[36px]',
+                  'px-3 py-1.5 rounded-full text-sm font-medium transition-all flex items-center gap-1.5 min-h-[36px]',
                   selectedTopicIds.includes(topic.id)
                     ? 'text-white'
                     : 'bg-augustus-800 text-augustus-300 hover:bg-augustus-700 active:bg-augustus-600'
@@ -348,17 +502,10 @@ export default function DashboardGenerate() {
                 {topic.name}
               </button>
             ))}
-            <button
-              onClick={() => navigate('/topics')}
-              className="px-3 py-1.5 rounded-full text-xs sm:text-sm font-medium transition-all flex items-center gap-1.5 min-h-[36px] bg-augustus-800 text-augustus-300 hover:bg-augustus-700 active:bg-augustus-600 border border-augustus-700 hover:border-augustus-600"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              Create Topic
-            </button>
           </div>
         )}
         {selectedTopicIds.length === 0 && topics.length > 0 && (
-          <p className="text-xs text-augustus-500 mt-2">
+          <p className="text-sm text-augustus-500 mt-2">
             No topics selected - all topics will be included
           </p>
         )}
@@ -367,9 +514,8 @@ export default function DashboardGenerate() {
       {/* Cast selector */}
       {casts.length > 1 && (
         <div className="mb-4">
-          <div className="flex items-center gap-2 mb-2">
-            <span className="flex items-center justify-center w-6 h-6 rounded-full bg-accent text-white text-xs font-semibold flex-shrink-0">2</span>
-            <label className="text-xs sm:text-sm text-augustus-400">
+          <div className="mb-2">
+            <label className="text-sm text-augustus-400">
               Select cast:
             </label>
           </div>
@@ -407,6 +553,39 @@ export default function DashboardGenerate() {
                 Play & View Details
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Show queued message */}
+      {queuedBriefing && (
+        <div className="p-3 sm:p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg mb-4">
+          <div className="flex items-start justify-between gap-3 sm:gap-4">
+            <div className="flex items-start gap-2 sm:gap-3 flex-1 min-w-0">
+              <Clock className="w-5 h-5 text-blue-400 mt-0.5 flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-blue-400 font-medium text-sm sm:text-base">Queued</p>
+                <p className="text-xs sm:text-sm text-augustus-400 mb-1 truncate">
+                  {queuedBriefing.title}
+                </p>
+                <p className="text-xs text-blue-300/70">
+                  Another briefing is being generated. Yours will start automatically when ready.
+                </p>
+              </div>
+            </div>
+            
+            <button
+              onClick={() => cancelMutation.mutate(queuedBriefing.id)}
+              disabled={cancelMutation.isPending}
+              className="btn btn-ghost p-2 text-augustus-400 hover:text-red-400 hover:bg-red-500/10 flex-shrink-0"
+              title="Cancel queued briefing"
+            >
+              {cancelMutation.isPending ? (
+                <Loader2 className="w-5 h-5 animate-spin" />
+              ) : (
+                <XCircle className="w-5 h-5" />
+              )}
+            </button>
           </div>
         </div>
       )}
@@ -464,29 +643,33 @@ export default function DashboardGenerate() {
             </button>
           </div>
         </div>
-      ) : (
+      ) : queuedBriefing ? null : (
         <div className="space-y-3">
-          <div className="flex items-center gap-2">
-            <span className="flex items-center justify-center w-6 h-6 rounded-full bg-accent text-white text-xs font-semibold flex-shrink-0">{casts.length > 1 ? '3' : '2'}</span>
-            <p className="text-xs sm:text-sm text-augustus-400">Generate your briefing:</p>
+          <div>
+            <p className="text-sm text-augustus-400">Generate your briefing:</p>
           </div>
-          <button
-            onClick={handleGenerate}
-            disabled={generateMutation.isPending}
-            className="btn btn-primary flex items-center justify-center gap-2"
-          >
-            {generateMutation.isPending ? (
-              <>
-                <Loader2 className="w-5 h-5 animate-spin" />
-                Starting...
-              </>
-            ) : (
-              <>
-                <Sparkles className="w-5 h-5" />
-                Create Briefing Now
-              </>
-            )}
-          </button>
+           <button
+             onClick={handleGenerate}
+             disabled={isGenerating || generateMutation.isPending || (!topicPrompt.trim() && selectedTopicIds.length === 0 && topics.length > 0)}
+             className="btn btn-primary flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+           >
+             {(isGenerating || generateMutation.isPending) ? (
+               <>
+                 <Loader2 className="w-5 h-5 animate-spin" />
+                 {topicPrompt.trim() ? 'Creating Topic & Starting...' : 'Starting...'}
+               </>
+             ) : (
+               <>
+                 <Sparkles className="w-5 h-5" />
+                 Create Briefing Now
+               </>
+             )}
+           </button>
+           {topicPrompt.trim() && (
+             <p className="text-sm text-augustus-500">
+               This will create a new topic from your prompt and generate a briefing
+             </p>
+           )}
         </div>
       )}
     </div>

@@ -10,6 +10,7 @@ from app.schemas.scheduled_briefing import (
     ScheduledBriefingResponse,
     ScheduledBriefingListResponse,
 )
+from app.schemas.profile import ProfileCreate, ProfileUpdate, ProfileResponse, ProfileListResponse
 
 __all__ = [
     "UserCreate",
@@ -29,5 +30,9 @@ __all__ = [
     "ScheduledBriefingUpdate",
     "ScheduledBriefingResponse",
     "ScheduledBriefingListResponse",
+    "ProfileCreate",
+    "ProfileUpdate",
+    "ProfileResponse",
+    "ProfileListResponse",
 ]
 

@@ -253,7 +253,7 @@ class GeminiProvider(TTSProvider):
         if voice_map is None:
             voice_map = {
                 "HOST1": "Kore",
-                "HOST2": "Puck",
+                "HOST2": "Sadachbia",
             }
             print(f"[Gemini] WARNING: No voice_map provided, using defaults")
         

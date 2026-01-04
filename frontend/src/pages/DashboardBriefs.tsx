@@ -60,7 +60,7 @@ export default function DashboardBriefs() {
   
   // Check if there's a briefing in progress to determine poll interval
   const hasBriefingInProgress = (briefings: Briefing[] | undefined) => 
-    briefings?.some((b) => b.status === 'pending' || b.status === 'generating')
+    briefings?.some((b) => b.status === 'pending' || b.status === 'generating' || b.status === 'queued')
   
   const { data, isLoading, error } = useQuery({
     queryKey: ['briefings', listenedFilter, filterCastId, filterTopicIds, favoriteFilter, currentPage],
@@ -251,10 +251,17 @@ export default function DashboardBriefs() {
                 </div>
               </div>
               
+              {/* Show delete button for all briefings, but especially for failed/cancelled/errored ones */}
               <button
                 onClick={(e) => {
                   e.stopPropagation()
-                  if (confirm('Are you sure you want to delete this briefing?')) {
+                  const statusText = briefing.status === 'cancelled' ? 'cancelled' : 
+                                   briefing.status === 'failed' ? 'failed' : 
+                                   briefing.error_message ? 'errored' : ''
+                  const confirmText = statusText 
+                    ? `Are you sure you want to delete this ${statusText} briefing?`
+                    : 'Are you sure you want to delete this briefing?'
+                  if (confirm(confirmText)) {
                     deleteMutation.mutate(briefing.id)
                   }
                 }}
@@ -280,6 +287,18 @@ export default function DashboardBriefs() {
               <h2 className="text-4xl sm:text-6xl font-display font-black text-white leading-[0.85] tracking-tighter group-hover:text-accent transition-colors">
                 {briefing.title}
               </h2>
+              
+              {briefing.status === 'queued' && (
+                <div className="mt-4 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+                  <div className="flex items-center gap-2 text-blue-400">
+                    <Clock className="w-4 h-4" />
+                    <span className="text-sm font-medium">Queued</span>
+                  </div>
+                  <p className="text-xs text-blue-300/70 mt-1">
+                    Another briefing is being generated. Yours will start automatically when ready.
+                  </p>
+                </div>
+              )}
               
               {(briefing.status === 'generating' || briefing.status === 'pending') && briefing.extra_data?.progress && (
                 <div className="mt-4 space-y-2">
@@ -372,7 +391,9 @@ export default function DashboardBriefs() {
                   )}
                 >
                   <div className="absolute inset-0 bg-gradient-to-br from-white/20 to-transparent opacity-0 group-hover/btn:opacity-100 transition-opacity" />
-                  {briefing.status === 'generating' || briefing.status === 'pending' ? (
+                  {briefing.status === 'queued' ? (
+                    <Clock className="w-10 h-10 text-blue-400" />
+                  ) : briefing.status === 'generating' || briefing.status === 'pending' ? (
                     <Loader2 className="w-10 h-10 animate-spin" />
                   ) : isCurrentlyPlaying ? (
                     <Pause className="w-10 h-10 sm:w-14 sm:h-14 fill-current relative z-10" />
@@ -485,6 +506,15 @@ export default function DashboardBriefs() {
             <p className={clsx('text-red-400 mt-2', isLatest ? 'text-sm sm:text-base' : 'text-xs sm:text-sm')}>{briefing.error_message}</p>
           )}
           
+          {briefing.status === 'queued' && (
+            <div className={clsx('mt-2 p-2 bg-blue-500/10 border border-blue-500/30 rounded-lg', isLatest && 'mt-3')}>
+              <div className="flex items-center gap-2 text-blue-400">
+                <Clock className="w-3.5 h-3.5" />
+                <span className="text-xs font-medium">Queued - waiting for other generation to complete</span>
+              </div>
+            </div>
+          )}
+          
           {(briefing.status === 'generating' || briefing.status === 'pending') && briefing.extra_data?.progress && (
             <div className={clsx('space-y-1 sm:space-y-2 mt-2', isLatest && 'mt-3 sm:mt-4')}>
               <div className="flex justify-between text-xs">
@@ -529,17 +559,18 @@ export default function DashboardBriefs() {
            </button>
          )}
          
-         {/* Delete button for failed briefings */}
-         {briefing.status === 'failed' && (
+         {/* Delete button for failed, cancelled, or errored briefings */}
+         {(briefing.status === 'failed' || briefing.status === 'cancelled' || briefing.error_message) && (
            <button
              onClick={(e) => {
                e.stopPropagation()
-               if (confirm('Are you sure you want to delete this failed briefing?')) {
+               const statusText = briefing.status === 'cancelled' ? 'cancelled' : 'failed'
+               if (confirm(`Are you sure you want to delete this ${statusText} briefing?`)) {
                  deleteMutation.mutate(briefing.id)
                }
              }}
-             className="absolute top-4 left-4 w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center flex-shrink-0 transition-all z-10 bg-red-500/20 hover:bg-red-500/40 text-red-400 hover:text-red-300 backdrop-blur-sm"
-             title="Delete failed briefing"
+             className="absolute top-4 right-4 w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center flex-shrink-0 transition-all z-10 bg-red-500/20 hover:bg-red-500/40 text-red-400 hover:text-red-300 backdrop-blur-sm"
+             title="Delete briefing"
            >
              <Trash2 className="w-5 h-5 sm:w-6 sm:h-6" />
            </button>

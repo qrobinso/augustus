@@ -1,36 +1,48 @@
 import { useState, useEffect } from 'react'
-import { Outlet, NavLink, useLocation, Link } from 'react-router-dom'
+import { Outlet, NavLink, useLocation, Link, useNavigate } from 'react-router-dom'
 import { 
   LayoutDashboard, 
   Tag,
   Settings,
   Menu,
   X,
-  Users
+  Users,
+  ChevronRight
 } from 'lucide-react'
 import clsx from 'clsx'
 import AudioPlayer from './AudioPlayer'
 import { useStore } from '../store/useStore'
 
-const navItems = [
-  { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/topics', icon: Tag, label: 'Topics' },
-  { to: '/casts', icon: Users, label: 'Casts' },
-  { to: '/settings', icon: Settings, label: 'Settings' },
+// Get initials from a name (max 2 characters)
+function getInitials(name: string): string {
+  const words = name.trim().split(/\s+/)
+  if (words.length >= 2) {
+    return (words[0][0] + words[1][0]).toUpperCase()
+  }
+  return name.slice(0, 2).toUpperCase()
+}
+
+const baseNavItems = [
+  { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', adminOnly: false },
+  { to: '/topics', icon: Tag, label: 'Topics', adminOnly: false },
+  { to: '/casts', icon: Users, label: 'Casts', adminOnly: false },
+  { to: '/settings', icon: Settings, label: 'Settings', adminOnly: true },
 ]
 
 // Mobile bottom nav shows only the most important items
-const mobileNavItems = [
-  { to: '/dashboard', icon: LayoutDashboard, label: 'Home' },
-  { to: '/topics', icon: Tag, label: 'Topics' },
-  { to: '/casts', icon: Users, label: 'Casts' },
-  { to: '/settings', icon: Settings, label: 'Settings' },
+const baseMobileNavItems = [
+  { to: '/dashboard', icon: LayoutDashboard, label: 'Home', adminOnly: false },
+  { to: '/topics', icon: Tag, label: 'Topics', adminOnly: false },
+  { to: '/casts', icon: Users, label: 'Casts', adminOnly: false },
+  { to: '/settings', icon: Settings, label: 'Settings', adminOnly: true },
 ]
 
 export default function Layout() {
   const currentAudio = useStore((s) => s.currentAudio)
+  const currentProfile = useStore((s) => s.currentProfile)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const location = useLocation()
+  const navigate = useNavigate()
   
   // Close sidebar when route changes
   useEffect(() => {
@@ -48,6 +60,11 @@ export default function Layout() {
       document.body.style.overflow = ''
     }
   }, [sidebarOpen])
+  
+  // Filter nav items based on admin status
+  const isAdmin = currentProfile?.is_admin ?? false
+  const navItems = baseNavItems.filter(item => !item.adminOnly || isAdmin)
+  const mobileNavItems = baseMobileNavItems.filter(item => !item.adminOnly || isAdmin)
   
   return (
     <div className="h-[100dvh] flex flex-col md:flex-row overflow-hidden">
@@ -123,8 +140,28 @@ export default function Layout() {
           </ul>
         </nav>
         
-        {/* Footer */}
+        {/* Footer with Profile Switcher */}
         <div className="p-4 border-t border-augustus-800/50 flex-shrink-0 pb-safe">
+          {/* Profile Button */}
+          <button
+            onClick={() => navigate('/profiles')}
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg bg-augustus-800/50 hover:bg-augustus-800 transition-colors group mb-3"
+          >
+            <div 
+              className="w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold text-white shadow-md"
+              style={{ backgroundColor: currentProfile?.color || '#e85d04' }}
+            >
+              {currentProfile?.name ? getInitials(currentProfile.name) : '?'}
+            </div>
+            <div className="flex-1 text-left min-w-0">
+              <p className="text-sm font-medium text-augustus-100 truncate">
+                {currentProfile?.name || 'Select Profile'}
+              </p>
+              <p className="text-xs text-augustus-500">Switch profile</p>
+            </div>
+            <ChevronRight className="w-4 h-4 text-augustus-500 group-hover:text-augustus-300 transition-colors" />
+          </button>
+          
           <p className="text-xs text-augustus-600 text-center">
             Augustus v0.1.0
           </p>

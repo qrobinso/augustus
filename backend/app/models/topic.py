@@ -12,6 +12,7 @@ from app.database import Base
 
 if TYPE_CHECKING:
     from app.models.user import User
+    from app.models.profile import Profile
     from app.models.custom_site import CustomSite
     from app.models.article import Article
 
@@ -38,6 +39,12 @@ class Topic(Base):
         String(36),
         ForeignKey("users.id"),
         nullable=False,
+    )
+    profile_id: Mapped[Optional[str]] = mapped_column(
+        String(36),
+        ForeignKey("profiles.id"),
+        nullable=True,
+        doc="Profile this topic belongs to",
     )
     
     # Topic details
@@ -83,6 +90,7 @@ class Topic(Base):
     
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="topics")
+    profile: Mapped[Optional["Profile"]] = relationship("Profile", back_populates="topics")
     custom_sites: Mapped[list["CustomSite"]] = relationship(
         "CustomSite",
         back_populates="topic",
@@ -104,7 +112,7 @@ DEFAULT_TOPICS = [
     {"name": "Business", "slug": "business", "color": "#10B981"},  # Green
     {"name": "Science", "slug": "science", "color": "#8B5CF6"},  # Purple
     {"name": "Health", "slug": "health", "color": "#EF4444"},  # Red
-    {"name": "Sport", "slug": "sport", "color": "#F97316"},  # Orange
+    {"name": "Sports", "slug": "sports", "color": "#F97316"},  # Orange
 ]
 
 

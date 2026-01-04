@@ -42,6 +42,11 @@ class User(Base):
     )
     
     # Relationships
+    profiles: Mapped[list["Profile"]] = relationship(
+        "Profile",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
     briefings: Mapped[list["Briefing"]] = relationship(
         "Briefing",
         back_populates="user",
