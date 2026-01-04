@@ -48,7 +48,6 @@ function OnboardingCheck({ children }: { children: React.ReactNode }) {
 
 // Component that checks if user has selected a profile
 function ProfileCheck({ children }: { children: React.ReactNode }) {
-  const navigate = useNavigate()
   const location = useLocation()
   const { currentProfile, setCurrentProfile, setProfiles } = useStore()
   
@@ -65,7 +64,8 @@ function ProfileCheck({ children }: { children: React.ReactNode }) {
       // If no current profile is selected but we have profiles, auto-select
       if (!currentProfile && profilesData.profiles.length > 0) {
         // Check if we have a stored profile ID that still exists
-        const storedProfile = profilesData.profiles.find(p => p.id === currentProfile?.id)
+        const storedProfileId = localStorage.getItem('currentProfileId')
+        const storedProfile = storedProfileId ? profilesData.profiles.find(p => p.id === storedProfileId) : null
         if (storedProfile) {
           setCurrentProfile(storedProfile)
         } else {

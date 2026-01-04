@@ -8,7 +8,6 @@ import {
   FileText,
   CheckCircle,
   XCircle,
-  Plus,
   Tag,
   Clock,
   AlertCircle

@@ -94,7 +94,7 @@ export interface Briefing {
     url: string
     summary?: string
   }>
-  status: 'pending' | 'generating' | 'completed' | 'failed' | 'cancelled'
+  status: 'pending' | 'generating' | 'queued' | 'completed' | 'failed' | 'cancelled'
   error_message?: string
   generated_at?: string
   created_at: string
