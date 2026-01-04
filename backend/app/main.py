@@ -160,14 +160,6 @@ async def lifespan(app: FastAPI):
     try:
         await init_db()
         
-        # Run migrations
-        try:
-            from app.migrations.add_profiles_table import migrate as migrate_profiles
-            await migrate_profiles()
-            print("[Startup] Profile migrations completed")
-        except Exception as e:
-            print(f"[Startup] Warning: Migration error (may already be applied): {e}")
-        
         # Ensure audio storage directory exists
         audio_path = Path(settings.audio_storage_path)
         audio_path.mkdir(parents=True, exist_ok=True)

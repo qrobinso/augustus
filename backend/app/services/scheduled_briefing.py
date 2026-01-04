@@ -78,11 +78,22 @@ class ScheduledBriefingService:
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[List[ScheduledBriefing], int]:
-        """List scheduled briefings for a user/profile."""
+        """List scheduled briefings for a user/profile.
+        
+        If profile_id is provided, shows briefings for that profile.
+        Also includes briefings with NULL profile_id (legacy briefings).
+        """
         # Build query with optional profile filter
         base_query = select(ScheduledBriefing).where(ScheduledBriefing.user_id == user_id)
         if profile_id:
-            base_query = base_query.where(ScheduledBriefing.profile_id == profile_id)
+            # Include briefings for this profile OR briefings with NULL profile_id (legacy)
+            from sqlalchemy import or_
+            base_query = base_query.where(
+                or_(
+                    ScheduledBriefing.profile_id == profile_id,
+                    ScheduledBriefing.profile_id.is_(None)
+                )
+            )
         
         # Get total count
         count_result = await self.db.execute(base_query)
@@ -264,6 +275,7 @@ class ScheduledBriefingService:
                 # Create briefing record with schedule name
                 briefing = await briefing_service.create_briefing(
                     user_id=schedule.user_id,
+                    profile_id=schedule.profile_id,
                     topic_ids=schedule.topic_ids if schedule.topic_ids else None,
                     max_duration_minutes=schedule.max_duration_minutes,
                     name=schedule.name,

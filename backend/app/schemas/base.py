@@ -27,3 +27,4 @@ UTCDatetime = Annotated[datetime, PlainSerializer(serialize_datetime_as_utc)]
 UTCDatetimeOptional = Annotated[datetime | None, PlainSerializer(serialize_datetime_as_utc)]
 
 
+

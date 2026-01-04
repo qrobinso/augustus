@@ -484,12 +484,12 @@ class BriefingService:
             await update_progress(6, "Loading cast configuration", 65)
             cast_service = CastService(self.db)
             if briefing.cast_id:
-                cast = await cast_service.get_cast(briefing.cast_id, briefing.user_id)
+                cast = await cast_service.get_cast(briefing.cast_id, briefing.user_id, briefing.profile_id)
                 if not cast:
                     print(f"[Briefing] Cast {briefing.cast_id} not found, using default")
-                    cast = await cast_service.get_default_cast(briefing.user_id)
+                    cast = await cast_service.get_default_cast(briefing.user_id, briefing.profile_id)
             else:
-                cast = await cast_service.get_default_cast(briefing.user_id)
+                cast = await cast_service.get_default_cast(briefing.user_id, briefing.profile_id)
             
             # Save the cast_id to the briefing so it can be looked up later
             if cast and not briefing.cast_id:
@@ -1093,7 +1093,14 @@ class BriefingService:
         query = select(Briefing).where(Briefing.user_id == user_id)
         
         if profile_id:
-            query = query.where(Briefing.profile_id == profile_id)
+            # Include briefings for this profile OR briefings with NULL profile_id (legacy)
+            from sqlalchemy import or_
+            query = query.where(
+                or_(
+                    Briefing.profile_id == profile_id,
+                    Briefing.profile_id.is_(None)
+                )
+            )
         
         # Apply listened filter if provided
         if listened is not None:

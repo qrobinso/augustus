@@ -60,7 +60,7 @@ async def find_briefings_for_batching(
     if not email_schedules:
         return []
     
-    # Match briefings to schedules based on timing and topic_ids
+    # Match briefings to schedules based on timing, topic_ids, and profile_id
     batched_items = []
     for briefing in recent_briefings:
         if not briefing.generated_at:
@@ -76,6 +76,15 @@ async def find_briefings_for_batching(
             # Check if briefing was generated within 5 minutes of schedule's last_generated_at
             time_diff = abs((briefing.generated_at - schedule.last_generated_at).total_seconds())
             if time_diff < 300:  # Within 5 minutes
+                # Match profile_id (both must be None or both must match)
+                profile_match = (
+                    briefing.profile_id == schedule.profile_id or
+                    (briefing.profile_id is None and schedule.profile_id is None)
+                )
+                
+                if not profile_match:
+                    continue
+                
                 schedule_topic_ids = set(schedule.topic_ids or [])
                 
                 # Match if topic_ids match (or if both are empty for "all topics")
@@ -89,6 +98,8 @@ async def find_briefings_for_batching(
                     break
     
     return batched_items
+
+
 
 
 
