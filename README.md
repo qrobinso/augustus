@@ -4,15 +4,20 @@
 
 Augustus transforms your personalized content—news feeds, topics, and queries—into natural, conversational AI-generated podcasts.
 
-![Augustus Dashboard](docs/screenshot.png)
+## Who is Augustus for?
+
+Augustus is designed for two primary use cases:
+
+- **Self-hosted, home lab setups with one or more people in the household** - Perfect for individuals and families who want complete control over their data and content. With multi-profile support, each household member can have their own personalized briefings, topics, and preferences while sharing the same infrastructure.
+
+- **Enterprises that want to enable daily podcasts for their employees with their own models and data** - Ideal for organizations looking to provide personalized audio content to their teams while maintaining full data sovereignty. Augustus allows enterprises to use their own LLM models, keep all data on-premises, and customize content delivery to match organizational needs.
 
 ## Features
 
-### Core Content Types
+### Core Content
 
-- 🎙️ **Daily Briefings** - AI-generated audio briefings from RSS feeds, custom sites, and news sources
-  - Aggregate content from multiple topics and sources
-  - Configurable duration (Short: 3min, Medium: 7min, Long: 25min)
+- 🎙️ **Daily Briefings** - AI-generated audio briefings from news sources, blogs, and Reddit
+  - Configurable duration
   - Automatic content curation and summarization
   - Chapter-based navigation with transcripts
   - Playback position tracking and resume functionality
@@ -20,24 +25,16 @@ Augustus transforms your personalized content—news feeds, topics, and queries�
 
 - 📅 **Scheduled Briefings** - Automatically generate briefings on a schedule
   - Daily, weekly, or custom schedule patterns
-  - Timezone-aware scheduling
   - Multiple notification methods (email, webhook)
-  - Queue-based processing for reliable execution
 
 ### Content Management
 
-- 🏷️ **Topics** - Organize content by topics with color coding
+- 🏷️ **Topics** - Organize content by topics
   - Create custom topics for different interests
   - Enable/disable topics for briefings
   - AI-powered site suggestion generation
   - NewsAPI integration for additional sources
-
-- 🌐 **Custom Sites** - Add custom RSS feeds and websites
-  - Add any RSS feed or website URL
   - Automatic article scraping and parsing
-  - Test site connectivity before adding
-  - Organize sites by topic
-  - Error tracking and status monitoring
 
 - 🎭 **Casts** - Customizable AI host configurations
   - Create custom host personalities and voices
@@ -47,14 +44,12 @@ Augustus transforms your personalized content—news feeds, topics, and queries�
 
 - 👥 **Profiles** - Multi-profile support for households
   - Create separate profiles with their own data
-  - Netflix-style profile switcher
   - Each profile has independent briefings, topics, schedules, and casts
   - Admin profile for account management
-  - Personalized greetings on dashboard
 
 ### Audio & Playback
 
-- 🎵 **Advanced Audio Player**
+- 🎵 **Audio Player**
   - Chapter-based progress visualization with color-coded segments
   - Interactive chapter markers with hover tooltips
   - Playback speed control (0.75x - 2.0x)
@@ -62,12 +57,6 @@ Augustus transforms your personalized content—news feeds, topics, and queries�
   - Auto-mark as listened
   - Chapter navigation with active chapter highlighting
   - Minimizable player for compact viewing
-  - Touch-optimized controls for mobile devices
-
-- 🗣️ **Multi-Voice TTS** - Natural conversations between AI hosts
-  - Multiple TTS provider support
-  - Voice selection per host
-  - Natural conversation flow
 
 ### Integrations & Providers
 
@@ -78,12 +67,11 @@ Augustus transforms your personalized content—news feeds, topics, and queries�
   - Automatic model switching
 
 - 🔊 **TTS Providers**
-  - **Piper** - Self-hosted, free, good quality (default)
+  - **Piper** - Self-hosted, free, good quality
   - **ElevenLabs** - Cloud API, premium quality voices
   - **Google Gemini** - Native TTS with expressiveness
 
 - 📰 **News Sources**
-  - RSS feed aggregation
   - NewsAPI integration (optional)
   - Custom website scraping
   - Automatic content fetching
@@ -99,23 +87,6 @@ Augustus transforms your personalized content—news feeds, topics, and queries�
   - Notification callbacks
   - Integration with external services
 
-### Personalization & Settings
-
-- ⚙️ **Comprehensive Settings**
-  - Timezone configuration
-  - Content duration preferences
-  - Conversation complexity (Casual to Expert)
-  - Personal name for host addressing
-  - API key management
-
-- 🔍 **Filtering & Organization**
-  - Filter by listened status (All, Listened, Not Listened)
-  - Filter by cast/hosts
-  - Filter by topics (multi-select with color coding)
-  - Collapsible filter panels with state persistence
-  - Search and pagination
-  - Featured briefing card for latest content
-
 ### Technical Features
 
 - 🏠 **Self-hosted** - Full data ownership and privacy
@@ -127,11 +98,6 @@ Augustus transforms your personalized content—news feeds, topics, and queries�
   - Pluggable LLM providers
   - Pluggable TTS providers
   - Easy to extend and customize
-
-- 📊 **REST API** - Full programmatic access
-  - Complete API documentation
-  - OpenAPI/Swagger specs
-  - Authentication via API key
 
 ## Quick Start
 
@@ -163,7 +129,7 @@ Augustus transforms your personalized content—news feeds, topics, and queries�
 
 3. **Start with Docker Compose**
    ```bash
-   docker compose up -d
+   docker compose -f docker/docker-compose.yml up -d
    ```
 
 4. **Access the app**
@@ -182,106 +148,12 @@ Augustus transforms your personalized content—news feeds, topics, and queries�
    - Configure your timezone and preferences
    - Start generating!
 
-> **Important:** Make sure to change the `API_KEY` in your `.env` file from the default value before deploying to production!
+> **For detailed Docker setup instructions, see [docker/README.md](docker/README.md)**
 
-### First Steps
-
-1. **Create a Topic** - Go to Topics and create your first topic (e.g., "Technology", "Science")
-2. **Add Sources** - Add RSS feeds or custom sites to your topics
-3. **Generate a Briefing** - Go to Dashboard and click "Generate Briefing"
-4. **Schedule Briefings** - Set up scheduled briefings for daily/weekly delivery
-
-## Development Setup
-
-### Backend (Python/FastAPI)
-
-```bash
-cd backend
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload
-```
-
-### Frontend (React/Vite)
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-### Development with Docker
-
-```bash
-# Start backend only (frontend runs locally for hot reload)
-docker compose -f docker-compose.dev.yml up
-```
 
 ## Production Deployment
 
-### Docker Compose Setup
-
-The `docker-compose.yml` file is configured for production deployment. Here's what you need to know:
-
-1. **Environment Variables**: Copy `.env.example` to `.env` and configure all required values:
-   ```bash
-   cp .env.example .env
-   # Edit .env with your actual API keys and settings
-   ```
-
-2. **Required Configuration**:
-   - **API_KEY**: Change from default `change-me-in-production` to a secure random string
-   - **OPENROUTER_API_KEY**: Your OpenRouter API key (required)
-
-3. **Optional Configuration** (can be set in `.env` or via Settings UI):
-   - TTS provider API keys (ElevenLabs, Gemini)
-   - NewsAPI key for additional news sources
-   - Resend API key for email notifications
-   - Timezone, duration, and complexity settings
-
-4. **Data Persistence**: The following directories are mounted as volumes:
-   - `./data` - Database and application data
-   - `./audio` - Generated audio files
-   - `./models` - TTS voice models (for Piper)
-
-5. **Ports**: 
-   - Frontend: `3000` (mapped to nginx port 80) - Access at `http://YOUR_SERVER_IP:3000`
-   - Backend API: `8000`
-   - Consider using a reverse proxy (nginx, Traefik, etc.) for production
-
-6. **Health Checks**: Both services include health checks for monitoring
-
-7. **Start Services**:
-   ```bash
-   docker compose up -d
-   ```
-
-### Production Considerations
-
-- **Reverse Proxy**: For production, set up nginx or Traefik in front of the containers
-- **SSL/TLS**: Use Let's Encrypt or similar for HTTPS
-- **Database**: For production, consider using PostgreSQL instead of SQLite
-- **Backups**: Regularly backup the `./data` and `./audio` directories
-- **Resource Limits**: Add resource limits to docker-compose.yml if needed
-- **Security**: Ensure `.env` file is not committed to version control
-
-### Database Migrations
-
-When upgrading Augustus, you may need to run database migrations for new features:
-
-```bash
-# Run migrations (from backend directory or in Docker container)
-cd backend
-python -m app.migrations.add_profiles_table
-```
-
-For Docker deployments:
-```bash
-docker exec augustus-backend python -m app.migrations.add_profiles_table
-```
-
-Migrations are idempotent and safe to run multiple times.
+For detailed production deployment instructions, including Docker Compose setup, configuration, and best practices, see [docker/README.md](docker/README.md).
 
 ## Configuration
 
@@ -543,45 +415,8 @@ Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md)
 
 This project is licensed under the Apache 2.0 License - see the [LICENSE](LICENSE) file for details.
 
-## Web Interface
 
-The Augustus web dashboard provides a modern, responsive interface for managing all aspects of your audio content:
 
-- **Dashboard** - Enhanced interface with tabbed navigation
-  - **Audio Briefs Tab** - View all briefings with advanced filtering
-    - Filter by listened status, cast, or topics
-    - Featured briefing card for the latest content
-    - Pagination for large collections
-    - Real-time generation progress tracking
-  - **Generate Tab** - Create new briefings and manage schedules
-    - Topic and cast selection
-    - Scheduled briefings management with accordion view
-    - Active/inactive schedule toggling
-    - Quick schedule creation from generation form
-- **Briefing Detail** - Full transcript, chapter navigation, enhanced audio player
-- **Topics** - Organize content by topics, manage custom sites with improved mobile support
-- **Casts** - Configure AI host personalities and voices
-- **Settings** - Comprehensive configuration interface
-  - API key management
-  - Model selection with search
-  - TTS provider configuration
-  - Duration and complexity settings
-  - Timezone and personalization
-  - Integration settings
-  - **Profiles tab** - Manage user profiles for the household
-
-### Mobile Experience
-
-The interface is fully optimized for mobile devices:
-
-- **Responsive Design** - Touch-friendly controls and layouts
-- **Mobile Navigation** - Bottom navigation bar for quick access
-- **Slide-out Sidebar** - Easy menu access on mobile
-- **Optimized Audio Player** - Large touch targets, swipe-friendly controls
-- **Adaptive Layouts** - Content adapts seamlessly to screen size
-- **Safe Area Support** - Proper spacing for notched devices
-
-The interface is built with React, TypeScript, and Tailwind CSS, providing a fast and responsive experience across all devices.
 
 ## Acknowledgments
 
@@ -592,8 +427,4 @@ The interface is built with React, TypeScript, and Tailwind CSS, providing a fas
 - [Resend](https://resend.com) for email delivery
 - [NewsAPI](https://newsapi.org) for news aggregation
 - Inspired by [Huxe](https://huxe.com)
-
----
-
-**Augustus** - *Audio Intelligence for Everyone* 🎙️
 

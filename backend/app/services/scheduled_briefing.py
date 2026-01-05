@@ -306,8 +306,12 @@ class ScheduledBriefingService:
                     
                     # Send notifications if briefing completed successfully
                     if briefing.status == 'completed':
-                        # Use batched email notifications if email is enabled
-                        if 'email' in schedule.notification_methods:
+                        # When manually triggered via "Generate Now", always send email if recipients are configured
+                        # This ensures the email mechanism is triggered even if 'email' is not in notification_methods
+                        has_email_recipients = schedule.email_recipients and len(schedule.email_recipients) > 0
+                        should_send_email = 'email' in schedule.notification_methods or has_email_recipients
+                        
+                        if should_send_email:
                             # Schedule batched email notification after a delay
                             # This allows other briefings to complete and be batched together
                             import asyncio
@@ -320,8 +324,9 @@ class ScheduledBriefingService:
                                     window_minutes=15,
                                 )
                             )
-                        else:
-                            # For non-email notifications, send immediately
+                        
+                        # Send other notifications (webhook) if configured
+                        if 'webhook' in schedule.notification_methods:
                             await self._send_notifications(schedule, briefing)
                     
                     return briefing

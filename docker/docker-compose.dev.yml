@@ -4,7 +4,7 @@ version: '3.8'
 services:
   backend:
     build:
-      context: ./backend
+      context: ../backend
       dockerfile: Dockerfile
     container_name: augustus-backend-dev
     environment:
@@ -17,16 +17,16 @@ services:
       - API_KEY=${API_KEY:-dev-api-key}
       - DEBUG=true
     volumes:
-      - ./backend:/app
-      - ./data:/app/data
-      - ./audio:/app/audio
-      - ./models:/app/models
+      - ../backend:/app
+      - ../data:/app/data
+      - ../audio:/app/audio
+      - ../models:/app/models
     ports:
       - "8000:8000"
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
   # Frontend runs locally with npm run dev for hot reload
-  # Just start the backend with: docker-compose -f docker-compose.dev.yml up
+  # Just start the backend with: docker-compose -f docker/docker-compose.dev.yml up
 
 volumes:
   data:

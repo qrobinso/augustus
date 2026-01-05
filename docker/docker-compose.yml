@@ -3,7 +3,7 @@ version: '3.8'
 services:
   backend:
     build:
-      context: ./backend
+      context: ../backend
       dockerfile: Dockerfile
     container_name: augustus-backend
     restart: unless-stopped
@@ -34,9 +34,9 @@ services:
       # Advanced
       - DEBUG=${DEBUG:-false}
     volumes:
-      - ./data:/app/data
-      - ./audio:/app/audio
-      - ./models:/app/models
+      - ../data:/app/data
+      - ../audio:/app/audio
+      - ../models:/app/models
     ports:
       - "8000:8000"
     healthcheck:
@@ -48,7 +48,7 @@ services:
 
   frontend:
     build:
-      context: ./frontend
+      context: ../frontend
       dockerfile: Dockerfile
     container_name: augustus-frontend
     restart: unless-stopped
