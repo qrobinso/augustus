@@ -129,12 +129,15 @@ export default function DashboardGenerate() {
     navigate(`/briefing/${briefing.id}`)
   }
   
-  // Auto-play when a briefing finishes
+  // Auto-play when a briefing finishes generating
+  // Note: This may not auto-play on mobile due to browser restrictions (requires user interaction)
+  // The audio will be loaded and ready to play when the user taps the play button
   useEffect(() => {
     if (newlyCompletedBriefing && newlyCompletedBriefing.audio_url) {
       if (!autoPlayedBriefingsRef.current.has(newlyCompletedBriefing.id)) {
         autoPlayedBriefingsRef.current.add(newlyCompletedBriefing.id)
         
+        // Load the audio (setCurrentAudio now properly loads the source)
         setCurrentAudio({
           id: newlyCompletedBriefing.id,
           type: 'briefing',
@@ -144,6 +147,8 @@ export default function DashboardGenerate() {
           chapters: newlyCompletedBriefing.chapters,
           initialPosition: newlyCompletedBriefing.playback_position || undefined,
         })
+        
+        // Try to auto-play (will fail silently on mobile without user interaction)
         setIsPlaying(true)
         
         navigate(`/briefing/${newlyCompletedBriefing.id}`)

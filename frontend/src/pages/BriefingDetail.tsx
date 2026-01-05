@@ -384,7 +384,7 @@ export default function BriefingDetail() {
               togglePlayPause()
             }
           } else {
-            // Set up audio state first
+            // Set up audio state - setCurrentAudio now properly loads the audio source
             setCurrentAudio({
               id: briefing.id,
               type: 'briefing',
@@ -395,15 +395,10 @@ export default function BriefingDetail() {
               initialPosition: briefing.playback_position || undefined,
             })
             
-            // Actually load and play the audio using audioManager
-            // Note: This may fail on mobile browsers due to autoplay restrictions
-            audioManager.setSourceAndPlay(audioUrl, true)
+            // Try to auto-play (may fail on mobile without user interaction)
+            audioManager.play()
               .then(() => {
                 setIsPlaying(true)
-                // Seek to saved position if available
-                if (briefing.playback_position && briefing.playback_position > 0) {
-                  audioManager.seek(briefing.playback_position)
-                }
               })
               .catch((error) => {
                 console.warn('[BriefingDetail] Autoplay failed (likely mobile browser restriction):', error)

@@ -144,7 +144,8 @@ export default function AudioPlayer() {
       if (nextBriefing && nextBriefing.audio_url) {
         console.log('[AudioPlayer] Auto-playing next unlistened briefing:', nextBriefing.title)
         
-        // Set the new audio and start playing from the beginning
+        // Load and play the next briefing
+        // setCurrentAudio now properly loads the audio source
         setCurrentAudio({
           id: nextBriefing.id,
           type: 'briefing',
@@ -155,10 +156,11 @@ export default function AudioPlayer() {
           initialPosition: 0,  // Always start from beginning for auto-play
         })
         
-        // Small delay to allow audio to load before playing
+        // Try to auto-play after audio is loaded
+        // This works because the previous briefing already established audio playback permission
         setTimeout(() => {
           setIsPlaying(true)
-        }, 100)
+        }, 200)
       } else {
         console.log('[AudioPlayer] No fresh unlistened briefings to auto-play')
       }
