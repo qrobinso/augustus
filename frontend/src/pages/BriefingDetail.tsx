@@ -309,38 +309,27 @@ export default function BriefingDetail() {
       const timeoutId = setTimeout(() => {
         const segmentEl = segmentRefs.current.get(activeSegmentIndex)
         if (segmentEl) {
-          // Calculate audio player height based on state
+          // Calculate audio player height based on state for scroll margin
           // When minimized: ~100-120px, when full: ~200-250px, when off: 0px
           let playerHeight = 0
           if (currentAudio) {
-            // Estimate heights based on typical player sizes
-            // Minimized player is roughly 100-120px, full player is 200-250px
-            playerHeight = audioPlayerMinimized ? 120 : 250
+            playerHeight = audioPlayerMinimized ? 130 : 260
           }
           
-          // Get the element's position
-          const rect = segmentEl.getBoundingClientRect()
-          const viewportHeight = window.innerHeight
+          // Temporarily set scroll margin to account for the fixed audio player
+          const originalMargin = segmentEl.style.scrollMarginBottom
+          segmentEl.style.scrollMarginBottom = `${playerHeight + 20}px`
           
-          // Calculate the available viewport height (excluding player)
-          const availableHeight = viewportHeight - playerHeight - 20 // 20px padding
+          // Use scrollIntoView for reliable cross-browser scrolling
+          segmentEl.scrollIntoView({
+            behavior: 'smooth',
+            block: 'center',
+          })
           
-          // Calculate desired position: center of available space
-          const desiredTop = (availableHeight / 2) - (rect.height / 2)
-          
-          // Calculate current position relative to viewport
-          const currentTop = rect.top
-          
-          // Calculate scroll offset needed
-          const scrollOffset = currentTop - desiredTop
-          
-          // Only scroll if the segment would be covered by the player or needs centering
-          if (Math.abs(scrollOffset) > 10 || rect.bottom > availableHeight) {
-            window.scrollBy({
-              top: scrollOffset,
-              behavior: 'smooth'
-            })
-          }
+          // Restore original scroll margin after scroll completes
+          setTimeout(() => {
+            segmentEl.style.scrollMarginBottom = originalMargin
+          }, 500)
         }
       }, 50) // Small delay to allow DOM updates
       
