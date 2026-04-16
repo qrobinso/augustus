@@ -1,8 +1,9 @@
 import { useEffect } from 'react'
-import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
+import { Routes, Route, Navigate, useNavigate, useLocation, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { settingsApi, profilesApi } from './api/client'
 import { useStore } from './store/useStore'
+import { slugify } from './utils/profileSlug'
 import Layout from './components/Layout'
 import DashboardLayout from './pages/DashboardLayout'
 import DashboardBriefs from './pages/DashboardBriefs'
@@ -50,17 +51,17 @@ function OnboardingCheck({ children }: { children: React.ReactNode }) {
 function ProfileCheck({ children }: { children: React.ReactNode }) {
   const location = useLocation()
   const { currentProfile, setCurrentProfile, setProfiles } = useStore()
-  
+
   // Fetch profiles to populate store
   const { data: profilesData, isLoading } = useQuery({
     queryKey: ['profiles'],
     queryFn: () => profilesApi.list(),
   })
-  
+
   useEffect(() => {
     if (profilesData) {
       setProfiles(profilesData.profiles)
-      
+
       // If no current profile is selected but we have profiles, auto-select
       if (!currentProfile && profilesData.profiles.length > 0) {
         // Check if we have a stored profile ID that still exists
@@ -76,12 +77,12 @@ function ProfileCheck({ children }: { children: React.ReactNode }) {
       }
     }
   }, [profilesData, currentProfile, setCurrentProfile, setProfiles])
-  
+
   // Skip profile check for certain routes
   const skipProfileCheck = ['/profiles', '/onboarding', '/settings'].some(
     path => location.pathname.startsWith(path)
   )
-  
+
   // Wait for loading
   if (isLoading) {
     return (
@@ -90,13 +91,51 @@ function ProfileCheck({ children }: { children: React.ReactNode }) {
       </div>
     )
   }
-  
+
   // Redirect to profile selector if no profile and not on exempt route
   if (!skipProfileCheck && !currentProfile && profilesData?.profiles && profilesData.profiles.length > 1) {
     return <Navigate to="/profiles" replace />
   }
-  
+
   return <>{children}</>
+}
+
+// Component that syncs profile slug from URL with the profile store
+function ProfileSlugSync({ children }: { children: React.ReactNode }) {
+  const { profileSlug } = useParams<{ profileSlug: string }>()
+  const navigate = useNavigate()
+  const location = useLocation()
+  const { currentProfile, profiles, setCurrentProfile } = useStore()
+
+  useEffect(() => {
+    if (!profileSlug || profiles.length === 0) return
+
+    // Find profile matching the URL slug
+    const matchedProfile = profiles.find(p => slugify(p.name) === profileSlug)
+
+    if (matchedProfile) {
+      // If URL slug matches a different profile, switch to it
+      if (!currentProfile || currentProfile.id !== matchedProfile.id) {
+        setCurrentProfile(matchedProfile)
+      }
+    } else if (currentProfile) {
+      // URL slug doesn't match any profile - redirect to current profile's slug
+      const correctSlug = slugify(currentProfile.name)
+      const restOfPath = location.pathname.replace(`/${profileSlug}`, '')
+      navigate(`/${correctSlug}${restOfPath}`, { replace: true })
+    }
+  }, [profileSlug, profiles, currentProfile, setCurrentProfile, navigate, location.pathname])
+
+  return <>{children}</>
+}
+
+// Redirect from root to the current profile's dashboard
+function RootRedirect() {
+  const { currentProfile } = useStore()
+  if (currentProfile) {
+    return <Navigate to={`/${slugify(currentProfile.name)}/dashboard`} replace />
+  }
+  return <Navigate to="/profiles" replace />
 }
 
 function App() {
@@ -106,15 +145,18 @@ function App() {
         <Routes>
           {/* Onboarding route - outside main layout */}
           <Route path="/onboarding" element={<Onboarding />} />
-          
+
           {/* Profile switcher - outside main layout */}
           <Route path="/profiles" element={<ProfileSwitcher />} />
-          
-          {/* Main app with layout */}
-          <Route path="/" element={<Layout />}>
-            <Route index element={<Navigate to="/dashboard" replace />} />
+
+          {/* Root redirect to profile-scoped dashboard */}
+          <Route path="/" element={<RootRedirect />} />
+
+          {/* Profile-scoped routes */}
+          <Route path="/:profileSlug" element={<ProfileSlugSync><Layout /></ProfileSlugSync>}>
+            <Route index element={<Navigate to="dashboard" replace />} />
             <Route path="dashboard" element={<DashboardLayout />}>
-              <Route index element={<Navigate to="/dashboard/briefs" replace />} />
+              <Route index element={<Navigate to="briefs" replace />} />
               <Route path="briefs" element={<DashboardBriefs />} />
               <Route path="generate" element={<DashboardGenerate />} />
               <Route path="schedules" element={<DashboardSchedules />} />
@@ -140,4 +182,3 @@ function App() {
 }
 
 export default App
-

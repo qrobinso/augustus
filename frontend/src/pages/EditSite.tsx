@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
-import { useNavigate, useLocation, useParams } from 'react-router-dom'
+import { useLocation, useParams } from 'react-router-dom'
+import { useProfileNavigate } from '../utils/profileSlug'
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query'
 import { 
   Globe,
@@ -9,7 +10,7 @@ import {
 import { customSitesApi, topicsApi } from '../api/client'
 
 export default function EditSite() {
-  const navigate = useNavigate()
+  const navigate = useProfileNavigate()
   const location = useLocation()
   const { id } = useParams<{ id: string }>()
   const queryClient = useQueryClient()

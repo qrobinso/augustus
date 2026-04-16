@@ -26,18 +26,19 @@ from app.services.news import get_news_service
 from app.services.scraper import get_scraper_service
 from app.services.search import get_search_service
 from app.utils.timezone import utc_now, local_now, format_local_datetime
+from app.services.cancellation import (
+    BriefingCancelledException,
+    BriefingTimeoutException,
+    register as cancel_register,
+    unregister as cancel_unregister,
+    is_cancelled as cancel_is_cancelled,
+)
 
 settings = get_settings()
 
 
-class BriefingCancelledException(Exception):
-    """Exception raised when a briefing generation is cancelled."""
-    pass
-
-
-class BriefingTimeoutException(Exception):
-    """Exception raised when a briefing generation exceeds the timeout."""
-    pass
+# Re-export exceptions for backward compatibility
+__all__ = ["BriefingService", "BriefingCancelledException", "BriefingTimeoutException"]
 
 
 class BriefingService:
@@ -52,13 +53,20 @@ class BriefingService:
     
     async def _check_cancelled(self, briefing_id: str) -> None:
         """Check if briefing has been cancelled and raise exception if so.
-        
+
+        Uses the in-memory cancellation event for a fast path before
+        falling back to a database check.
+
         Args:
             briefing_id: The briefing ID to check
-            
+
         Raises:
             BriefingCancelledException: If the briefing has been cancelled
         """
+        # Fast path: check in-memory event first (no DB query)
+        if cancel_is_cancelled(briefing_id):
+            raise BriefingCancelledException("Briefing was cancelled by user")
+
         result = await self.db.execute(
             select(Briefing).where(Briefing.id == briefing_id)
         )
@@ -258,6 +266,8 @@ class BriefingService:
             max_duration_minutes: Target duration in minutes
             profile_name: Profile name for personalized greetings
         """
+        # Register cancellation event for this briefing
+        cancel_register(briefing_id)
         try:
             # Update status and initialize progress
             briefing.status = "generating"
@@ -560,6 +570,7 @@ class BriefingService:
                 recent_articles=recent_articles,
                 last_script=last_script,
                 enable_non_speech_sounds=enable_non_speech_sounds,
+                briefing_id=briefing_id,
             )
             await self._check_cancelled(briefing_id)
             
@@ -632,6 +643,7 @@ class BriefingService:
                     script=segments,
                     output_path=audio_path,
                     voice_map=voice_map,  # Use cast voice IDs
+                    briefing_id=briefing_id,
                 )
                 await self._check_cancelled(briefing_id)
             except BriefingCancelledException:
@@ -747,7 +759,10 @@ class BriefingService:
                 briefing.error_message = str(e)
             await self.db.commit()
             raise
-    
+        finally:
+            # Always unregister the cancellation event to prevent memory leaks
+            cancel_unregister(briefing_id)
+
     def _parse_script(self, script: str, cast_members: list[dict] | None = None) -> list[dict]:
         """Parse podcast script into speaker segments.
         
@@ -1591,6 +1606,7 @@ class BriefingService:
                 articles=articles_for_analysis,
                 topics=topics,
                 max_stories=max_stories,
+                briefing_id=briefing_id,
             )
             
             # Check for cancellation after LLM call
@@ -1698,6 +1714,7 @@ class BriefingService:
             # Use orchestrator to gather facts
             facts_dict, raw_facts_response, facts_usage = await self.orchestrator.gather_additional_facts(
                 stories=stories_for_analysis,
+                briefing_id=briefing_id,
             )
             
             # Check for cancellation after LLM call

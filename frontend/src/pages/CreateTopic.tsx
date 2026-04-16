@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
-import { useNavigate, useLocation, useParams } from 'react-router-dom'
+import { useLocation, useParams } from 'react-router-dom'
+import { useProfileNavigate } from '../utils/profileSlug'
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query'
 import { 
   Tag,
@@ -52,7 +53,7 @@ interface TestResult {
 }
 
 export default function CreateTopic() {
-  const navigate = useNavigate()
+  const navigate = useProfileNavigate()
   const location = useLocation()
   const { id } = useParams<{ id: string }>()
   const queryClient = useQueryClient()

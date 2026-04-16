@@ -144,6 +144,7 @@ class GeminiProvider(TTSProvider):
         text: str,
         voice_id: str,
         output_path: Path,
+        briefing_id: Optional[str] = None,
     ) -> TTSResult:
         """Synthesize text using Gemini."""
         # Resolve voice ID from alias (host1, host2) if provided
@@ -203,8 +204,14 @@ class GeminiProvider(TTSProvider):
             
             return all_audio_data, mime_type
 
-        audio_data, mime_type = await asyncio.to_thread(_call_gemini)
-        
+        if briefing_id:
+            from app.services.cancellation import cancellable_await
+            audio_data, mime_type = await cancellable_await(
+                asyncio.to_thread(_call_gemini), briefing_id,
+            )
+        else:
+            audio_data, mime_type = await asyncio.to_thread(_call_gemini)
+
         if not audio_data:
             raise RuntimeError("Gemini TTS failed: No audio data received")
         
@@ -248,6 +255,7 @@ class GeminiProvider(TTSProvider):
         script: list[dict],
         output_path: Path,
         voice_map: Optional[dict[str, str]] = None,
+        briefing_id: Optional[str] = None,
     ) -> TTSResult:
         """Synthesize a multi-speaker conversation using Gemini's native multi-speaker support."""
         if voice_map is None:
@@ -353,7 +361,13 @@ class GeminiProvider(TTSProvider):
             
             return all_audio_data, mime_type
         
-        audio_data, mime_type = await asyncio.to_thread(_call_gemini_multispeaker)
+        if briefing_id:
+            from app.services.cancellation import cancellable_await
+            audio_data, mime_type = await cancellable_await(
+                asyncio.to_thread(_call_gemini_multispeaker), briefing_id,
+            )
+        else:
+            audio_data, mime_type = await asyncio.to_thread(_call_gemini_multispeaker)
         
         if not audio_data:
             raise RuntimeError("Gemini multi-speaker TTS failed: No audio data received")

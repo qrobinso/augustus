@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Outlet, NavLink, useLocation, Link, useNavigate } from 'react-router-dom'
-import { 
-  LayoutDashboard, 
+import {
+  LayoutDashboard,
   Tag,
   Settings,
   Menu,
@@ -12,6 +12,7 @@ import {
 import clsx from 'clsx'
 import AudioPlayer from './AudioPlayer'
 import { useStore } from '../store/useStore'
+import { useProfileSlug } from '../utils/profileSlug'
 
 // Get initials from a name (max 2 characters)
 function getInitials(name: string): string {
@@ -23,18 +24,18 @@ function getInitials(name: string): string {
 }
 
 const baseNavItems = [
-  { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', adminOnly: false },
-  { to: '/topics', icon: Tag, label: 'Topics', adminOnly: false },
-  { to: '/casts', icon: Users, label: 'Casts', adminOnly: false },
-  { to: '/settings', icon: Settings, label: 'Settings', adminOnly: true },
+  { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', adminOnly: false },
+  { path: '/topics', icon: Tag, label: 'Topics', adminOnly: false },
+  { path: '/casts', icon: Users, label: 'Casts', adminOnly: false },
+  { path: '/settings', icon: Settings, label: 'Settings', adminOnly: true },
 ]
 
 // Mobile bottom nav shows only the most important items
 const baseMobileNavItems = [
-  { to: '/dashboard', icon: LayoutDashboard, label: 'Home', adminOnly: false },
-  { to: '/topics', icon: Tag, label: 'Topics', adminOnly: false },
-  { to: '/casts', icon: Users, label: 'Casts', adminOnly: false },
-  { to: '/settings', icon: Settings, label: 'Settings', adminOnly: true },
+  { path: '/dashboard', icon: LayoutDashboard, label: 'Home', adminOnly: false },
+  { path: '/topics', icon: Tag, label: 'Topics', adminOnly: false },
+  { path: '/casts', icon: Users, label: 'Casts', adminOnly: false },
+  { path: '/settings', icon: Settings, label: 'Settings', adminOnly: true },
 ]
 
 export default function Layout() {
@@ -43,6 +44,7 @@ export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const location = useLocation()
   const navigate = useNavigate()
+  const profileSlug = useProfileSlug()
   
   // Close sidebar when route changes
   useEffect(() => {
@@ -61,16 +63,26 @@ export default function Layout() {
     }
   }, [sidebarOpen])
   
-  // Filter nav items based on admin status
+  // Filter nav items based on admin status and prefix with profile slug
   const isAdmin = currentProfile?.is_admin ?? false
-  const navItems = baseNavItems.filter(item => !item.adminOnly || isAdmin)
-  const mobileNavItems = baseMobileNavItems.filter(item => !item.adminOnly || isAdmin)
+  const navItems = useMemo(() =>
+    baseNavItems
+      .filter(item => !item.adminOnly || isAdmin)
+      .map(item => ({ ...item, to: `/${profileSlug}${item.path}` })),
+    [isAdmin, profileSlug]
+  )
+  const mobileNavItems = useMemo(() =>
+    baseMobileNavItems
+      .filter(item => !item.adminOnly || isAdmin)
+      .map(item => ({ ...item, to: `/${profileSlug}${item.path}` })),
+    [isAdmin, profileSlug]
+  )
   
   return (
     <div className="h-[100dvh] flex flex-col md:flex-row overflow-hidden">
       {/* Mobile Header */}
       <header className="md:hidden flex items-center justify-between px-4 py-3 bg-augustus-900/80 backdrop-blur-xl border-b border-augustus-800/50 flex-shrink-0 pt-safe">
-        <Link to="/dashboard" className="flex items-center cursor-pointer hover:opacity-80 transition-opacity pt-2">
+        <Link to={`/${profileSlug}/dashboard`} className="flex items-center cursor-pointer hover:opacity-80 transition-opacity pt-2">
           <img src="/augustus-logo.png" alt="Augustus" className="h-[1.15rem]" />
         </Link>
         <button
@@ -103,7 +115,7 @@ export default function Layout() {
       >
         {/* Logo */}
         <div className="px-6 pb-6 pt-6 border-b border-augustus-800/50 flex items-center justify-between" style={{ paddingTop: 'calc(1.5rem + env(safe-area-inset-top, 0px))' }}>
-          <Link to="/dashboard" className="flex items-center cursor-pointer hover:opacity-80 transition-opacity flex-1 pt-4">
+          <Link to={`/${profileSlug}/dashboard`} className="flex items-center cursor-pointer hover:opacity-80 transition-opacity flex-1 pt-4">
             <img src="/augustus-logo.png" alt="Augustus" className="h-[1.44rem]" />
           </Link>
           {/* Close button - mobile only */}

@@ -46,14 +46,16 @@ class BriefingOrchestrator:
         articles: list[dict],
         topics: list[str],
         max_stories: int = 5,
+        briefing_id: Optional[str] = None,
     ) -> tuple[list[dict], Optional[str], str, dict]:
         """Analyze and rank news stories.
-        
+
         Args:
             articles: List of article dictionaries
             topics: List of topics to focus on
             max_stories: Maximum number of stories to select
-            
+            briefing_id: Optional briefing ID for cancellation support
+
         Returns:
             Tuple of (ranked_stories, analysis_summary, raw_response, usage)
         """
@@ -61,24 +63,30 @@ class BriefingOrchestrator:
             articles=articles,
             topics=topics,
             max_stories=max_stories,
+            briefing_id=briefing_id,
         )
     
     async def gather_additional_facts(
         self,
         stories: list[dict],
+        briefing_id: Optional[str] = None,
     ) -> tuple[dict[int, list[str]], str, dict]:
         """Gather additional facts for stories.
-        
+
         Args:
             stories: List of story dictionaries with full content
-            
+            briefing_id: Optional briefing ID for cancellation support
+
         Returns:
             Tuple of (facts_dict, raw_response, usage)
             facts_dict: Dictionary mapping article index to lists of facts
             raw_response: Raw LLM response content
             usage: LLM usage data including cost information
         """
-        return await self.facts_gatherer.gather_facts(stories=stories)
+        return await self.facts_gatherer.gather_facts(
+            stories=stories,
+            briefing_id=briefing_id,
+        )
     
     async def write_briefing_script(
         self,
@@ -96,9 +104,10 @@ class BriefingOrchestrator:
         recent_articles: Optional[list[dict]] = None,
         last_script: Optional[str] = None,
         enable_non_speech_sounds: bool = False,
+        briefing_id: Optional[str] = None,
     ):
         """Generate the podcast script for a briefing.
-        
+
         Args:
             content: News content to discuss
             topics: List of topics to focus on
@@ -114,7 +123,8 @@ class BriefingOrchestrator:
             recent_articles: List of recent articles for continuity
             last_script: Transcript from last briefing for continuity
             enable_non_speech_sounds: Whether to include non-speech sounds markup
-            
+            briefing_id: Optional briefing ID for cancellation support
+
         Returns:
             LLMResponse object with generated content, model, and usage info
         """
@@ -133,5 +143,6 @@ class BriefingOrchestrator:
             recent_articles=recent_articles,
             last_script=last_script,
             enable_non_speech_sounds=enable_non_speech_sounds,
+            briefing_id=briefing_id,
         )
 

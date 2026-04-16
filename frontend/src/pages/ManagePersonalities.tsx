@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useProfileNavigate } from '../utils/profileSlug'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { 
   ArrowLeft,
@@ -16,7 +16,7 @@ import clsx from 'clsx'
 import { castsApi } from '../api/client'
 
 export default function ManagePersonalities() {
-  const navigate = useNavigate()
+  const navigate = useProfileNavigate()
   const queryClient = useQueryClient()
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
   const [fileContent, setFileContent] = useState<string>('')

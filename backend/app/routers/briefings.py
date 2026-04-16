@@ -333,12 +333,17 @@ async def cancel_briefing(
             detail="Access denied",
         )
     
-    if briefing.status not in ["pending", "generating"]:
+    if briefing.status not in ["pending", "generating", "queued"]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Briefing cannot be cancelled (not in progress)",
         )
-    
+
     cancelled = await service.cancel_briefing(briefing_id)
+
+    # Signal immediate cancellation of any in-flight LLM/TTS requests
+    from app.services.cancellation import signal as cancel_signal
+    cancel_signal(briefing_id)
+
     return BriefingResponse.model_validate(cancelled)
 

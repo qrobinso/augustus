@@ -151,14 +151,16 @@ CRITICAL FILTERING REQUIREMENTS:
         articles: list[dict],
         topics: list[str],
         max_stories: int = 5,
+        briefing_id: Optional[str] = None,
     ) -> tuple[list[dict], Optional[str], str, dict]:
         """Analyze and rank news stories by importance and topic relevance.
-        
+
         Args:
             articles: List of article dictionaries with title, summary, source, category
             topics: List of topics to focus on
             max_stories: Maximum number of stories to select
-            
+            briefing_id: Optional briefing ID for cancellation support
+
         Returns:
             Tuple of (ranked_stories, analysis_summary, raw_response, usage)
             ranked_stories: List of story dicts with article_num, priority, reason
@@ -168,13 +170,14 @@ CRITICAL FILTERING REQUIREMENTS:
         """
         system_prompt = self._build_system_prompt(topics)
         user_prompt = self._build_user_prompt(articles, topics, max_stories)
-        
+
         # Call LLM to analyze and rank stories
         response = await self.llm.generate(
             prompt=user_prompt,
             system_prompt=system_prompt,
             max_tokens=2048,
             temperature=0.3,  # Lower temperature for more consistent analysis
+            briefing_id=briefing_id,
         )
         
         # Store raw response content before parsing

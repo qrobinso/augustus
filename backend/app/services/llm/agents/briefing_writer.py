@@ -691,9 +691,10 @@ Generate the podcast script now:"""
         recent_articles: Optional[list[dict]] = None,
         last_script: Optional[str] = None,
         enable_non_speech_sounds: bool = False,
+        briefing_id: Optional[str] = None,
     ):
         """Generate podcast script for a briefing.
-        
+
         Args:
             content: News content to discuss
             topics: List of topics to focus on
@@ -709,7 +710,8 @@ Generate the podcast script now:"""
             recent_articles: List of recent articles for continuity
             last_script: Transcript from last briefing for continuity
             enable_non_speech_sounds: Whether to include non-speech sounds markup
-            
+            briefing_id: Optional briefing ID for cancellation support
+
         Returns:
             LLMResponse object with generated content, model, and usage info
         """
@@ -732,13 +734,14 @@ Generate the podcast script now:"""
             recent_articles=recent_articles,
             last_script=last_script,
         )
-        
+
         response = await self.llm.generate(
             prompt=user_prompt,
             system_prompt=system_prompt,
             max_tokens=4096,
             temperature=0.7,
+            briefing_id=briefing_id,
         )
-        
+
         return response
 

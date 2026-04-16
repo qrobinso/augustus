@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
-import { useNavigate, useLocation, useParams } from 'react-router-dom'
+import { useLocation, useParams } from 'react-router-dom'
+import { useProfileNavigate } from '../utils/profileSlug'
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query'
 import { 
   Users,
@@ -13,7 +14,7 @@ import clsx from 'clsx'
 import { castsApi, CastCreate, CastUpdate } from '../api/client'
 
 export default function CreateCast() {
-  const navigate = useNavigate()
+  const navigate = useProfileNavigate()
   const location = useLocation()
   const { id } = useParams<{ id: string }>()
   const queryClient = useQueryClient()

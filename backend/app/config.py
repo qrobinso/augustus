@@ -61,7 +61,6 @@ class Settings(BaseSettings):
     piper_model_path: str = "./models/en_US-lessac-medium.onnx"
     piper_config_path: Optional[str] = None
     piper_url: Optional[str] = None  # URL for remote Piper TTS API (e.g., http://localhost:5000)
-    piper_model: Optional[str] = None  # Model name to use with remote Piper API
     
     # ElevenLabs TTS
     elevenlabs_api_key: Optional[str] = None
@@ -127,6 +126,4 @@ def get_settings() -> Settings:
     print(f"[Config] TTS Provider loaded: {settings.tts_provider}")
     if settings.piper_url:
         print(f"[Config] Piper URL loaded: {settings.piper_url}")
-    if settings.piper_model:
-        print(f"[Config] Piper Model loaded: {settings.piper_model}")
     return settings

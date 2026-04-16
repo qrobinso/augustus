@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useProfileNavigate } from '../utils/profileSlug'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { 
   Tag,
@@ -34,7 +34,7 @@ const PRESET_COLORS = [
 ]
 
 export default function Topics() {
-  const navigate = useNavigate()
+  const navigate = useProfileNavigate()
   const queryClient = useQueryClient()
   
   // Sort state - persisted to localStorage

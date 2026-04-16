@@ -5,6 +5,7 @@ import { motion } from 'framer-motion'
 import { profilesApi, Profile } from '../api/client'
 import { useStore } from '../store/useStore'
 import { Settings, Shield } from 'lucide-react'
+import { slugify } from '../utils/profileSlug'
 
 // Get initials from a name (max 2 characters)
 function getInitials(name: string): string {
@@ -49,7 +50,7 @@ export default function ProfileSwitcher() {
     queryClient.invalidateQueries({ queryKey: ['topics'] })
     queryClient.invalidateQueries({ queryKey: ['casts'] })
     queryClient.invalidateQueries({ queryKey: ['scheduled-briefings'] })
-    navigate('/')
+    navigate(`/${slugify(profile.name)}/dashboard`)
   }
 
   const handleManageProfiles = () => {

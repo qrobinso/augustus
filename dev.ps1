@@ -62,6 +62,28 @@ if (Test-Path $envFile) {
     }
 }
 
+# Kill any stale processes on our ports from previous runs
+# Uses taskkill /T to kill entire process trees (uvicorn --reload spawns child workers)
+$portsToClean = @(8000, 3000)
+foreach ($port in $portsToClean) {
+    try {
+        $connections = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue
+        $pidsKilled = @{}
+        foreach ($conn in $connections) {
+            if ($conn.OwningProcess -gt 0 -and -not $pidsKilled.ContainsKey($conn.OwningProcess)) {
+                $proc = Get-Process -Id $conn.OwningProcess -ErrorAction SilentlyContinue
+                if ($proc) {
+                    Write-Host "[INFO] Killing stale process on port $port (PID: $($proc.Id), $($proc.ProcessName))" -ForegroundColor Yellow
+                    & taskkill /PID $proc.Id /T /F 2>$null | Out-Null
+                    $pidsKilled[$conn.OwningProcess] = $true
+                }
+            }
+        }
+    } catch {}
+}
+# Brief pause to let ports fully release
+Start-Sleep -Seconds 3
+
 # Create necessary directories
 $dirs = @("audio", "models", "data")
 foreach ($dirName in $dirs) {
@@ -82,7 +104,7 @@ if (-not (Test-Path $venvPython)) {
     Push-Location $backendDir
     & python -m venv venv
     Pop-Location
-    
+
     if (-not (Test-Path $venvPython)) {
         Write-Host "[ERROR] Failed to create virtual environment" -ForegroundColor Red
         Read-Host "Press Enter to exit"
@@ -149,6 +171,41 @@ $backendProcess = Start-Process -FilePath $venvPython `
 
 Write-Host "[OK] Backend started (PID: $($backendProcess.Id))" -ForegroundColor Green
 
+# Wait for backend to be ready by checking if port 8000 is listening
+Write-Host "[INFO] Waiting for backend to be ready..." -ForegroundColor Yellow
+$maxWait = 60
+$waited = 0
+$backendReady = $false
+while ($waited -lt $maxWait) {
+    try {
+        $tcp = New-Object System.Net.Sockets.TcpClient
+        $tcp.Connect("127.0.0.1", 8000)
+        $tcp.Close()
+        $backendReady = $true
+        break
+    } catch {
+        # Port not yet listening
+    }
+
+    if ($backendProcess.HasExited) {
+        Write-Host "[ERROR] Backend process exited unexpectedly" -ForegroundColor Red
+        Read-Host "Press Enter to exit"
+        exit 1
+    }
+
+    Start-Sleep -Seconds 1
+    $waited++
+    if ($waited % 5 -eq 0) {
+        Write-Host "[INFO] Still waiting for backend... ($waited seconds)" -ForegroundColor Gray
+    }
+}
+
+if (-not $backendReady) {
+    Write-Host "[WARN] Backend did not respond within $maxWait seconds, starting frontend anyway..." -ForegroundColor Yellow
+} else {
+    Write-Host "[OK] Backend is ready! (took $waited seconds)" -ForegroundColor Green
+}
+
 # Start frontend
 $frontendDir = Join-Path $ROOT_DIR "frontend"
 Push-Location $frontendDir
@@ -164,32 +221,32 @@ Write-Host "[OK] Frontend started (PID: $($frontendProcess.Id))" -ForegroundColo
 function Stop-AllProcesses {
     Write-Host ""
     Write-Host "[INFO] Shutting down Augustus..." -ForegroundColor Yellow
-    
-    # Stop backend
+
+    # Stop backend (tree kill to get uvicorn child workers)
     if ($backendProcess -and -not $backendProcess.HasExited) {
         Write-Host "[INFO] Stopping backend..." -ForegroundColor Gray
-        Stop-Process -Id $backendProcess.Id -Force -ErrorAction SilentlyContinue
+        & taskkill /PID $backendProcess.Id /T /F 2>$null | Out-Null
     }
-    
-    # Stop frontend
+
+    # Stop frontend (tree kill to get node child processes)
     if ($frontendProcess -and -not $frontendProcess.HasExited) {
         Write-Host "[INFO] Stopping frontend..." -ForegroundColor Gray
-        Stop-Process -Id $frontendProcess.Id -Force -ErrorAction SilentlyContinue
+        & taskkill /PID $frontendProcess.Id /T /F 2>$null | Out-Null
     }
-    
-    # Kill any remaining node/python processes on our ports
+
+    # Kill any remaining processes on our ports as a safety net
     $portsToCheck = @(8000, 3000)
     foreach ($port in $portsToCheck) {
         try {
             $connections = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue
             foreach ($conn in $connections) {
                 if ($conn.OwningProcess -gt 0) {
-                    Stop-Process -Id $conn.OwningProcess -Force -ErrorAction SilentlyContinue
+                    & taskkill /PID $conn.OwningProcess /T /F 2>$null | Out-Null
                 }
             }
         } catch {}
     }
-    
+
     Write-Host "[OK] Augustus stopped." -ForegroundColor Green
 }
 
@@ -199,7 +256,7 @@ try {
     Write-Host "[OK] Services running! Open http://localhost:3000 in your browser." -ForegroundColor Green
     Write-Host "[INFO] Press Ctrl+C to stop..." -ForegroundColor Gray
     Write-Host ""
-    
+
     # Wait for either process to exit
     while ($true) {
         if ($backendProcess.HasExited -and $frontendProcess.HasExited) {

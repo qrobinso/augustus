@@ -96,19 +96,21 @@ class OpenRouterProvider(LLMProvider):
         system_prompt: Optional[str] = None,
         max_tokens: int = 8192,
         temperature: float = 0.7,
+        briefing_id: Optional[str] = None,
     ) -> LLMResponse:
         """Generate text from prompt using OpenRouter."""
         messages = []
-        
+
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
-        
+
         messages.append({"role": "user", "content": prompt})
-        
+
         return await self.generate_conversation(
             messages=messages,
             max_tokens=max_tokens,
             temperature=temperature,
+            briefing_id=briefing_id,
         )
     
     async def generate_conversation(
@@ -116,6 +118,7 @@ class OpenRouterProvider(LLMProvider):
         messages: list[dict],
         max_tokens: int = 8192,
         temperature: float = 0.7,
+        briefing_id: Optional[str] = None,
     ) -> LLMResponse:
         """Generate response for a conversation."""
         payload = {
@@ -124,7 +127,7 @@ class OpenRouterProvider(LLMProvider):
             "max_tokens": max_tokens,
             "temperature": temperature,
         }
-        
+
         # Log the request
         _log_separator(f"LLM REQUEST to {self.model}")
         for msg in messages:
@@ -135,8 +138,16 @@ class OpenRouterProvider(LLMProvider):
                 content = content[:2000] + f"\n... [truncated, {len(msg['content'])} chars total]"
             print(f"\n[{role}]:\n{content}")
         print(f"\nSettings: max_tokens={max_tokens}, temperature={temperature}")
-        
-        response = await self.client.post("/chat/completions", json=payload)
+
+        # Use cancellable_await to allow immediate abort on cancellation
+        if briefing_id:
+            from app.services.cancellation import cancellable_await
+            response = await cancellable_await(
+                self.client.post("/chat/completions", json=payload),
+                briefing_id,
+            )
+        else:
+            response = await self.client.post("/chat/completions", json=payload)
         response.raise_for_status()
         
         data = response.json()

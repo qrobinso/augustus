@@ -1,4 +1,4 @@
-import { useNavigate } from 'react-router-dom'
+import { useProfileNavigate } from '../utils/profileSlug'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { 
   Users,
@@ -13,7 +13,7 @@ import clsx from 'clsx'
 import { castsApi, Cast } from '../api/client'
 
 export default function Casts() {
-  const navigate = useNavigate()
+  const navigate = useProfileNavigate()
   const queryClient = useQueryClient()
   
   const { data, isLoading, error } = useQuery({

@@ -1,9 +1,10 @@
-import { Outlet, useNavigate, useLocation } from 'react-router-dom'
+import { Outlet, useLocation } from 'react-router-dom'
 import clsx from 'clsx'
 import { useStore } from '../store/useStore'
+import { useProfileNavigate } from '../utils/profileSlug'
 
 export default function DashboardLayout() {
-  const navigate = useNavigate()
+  const navigate = useProfileNavigate()
   const location = useLocation()
   const currentProfile = useStore((s) => s.currentProfile)
   

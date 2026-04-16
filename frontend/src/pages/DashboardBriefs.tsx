@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { 
   Play,
@@ -21,9 +20,10 @@ import clsx from 'clsx'
 import { briefingsApi, settingsApi, topicsApi, castsApi, Briefing, Topic, Cast } from '../api/client'
 import { useStore } from '../store/useStore'
 import { formatCompactDate } from '../utils/timezone'
+import { useProfileNavigate } from '../utils/profileSlug'
 
 export default function DashboardBriefs() {
-  const navigate = useNavigate()
+  const navigate = useProfileNavigate()
   const queryClient = useQueryClient()
   const currentAudio = useStore((s) => s.currentAudio)
   const isPlaying = useStore((s) => s.isPlaying)

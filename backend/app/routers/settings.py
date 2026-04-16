@@ -26,7 +26,6 @@ class SettingsResponse(BaseModel):
     # TTS
     tts_provider: str = "piper"
     piper_url: Optional[str] = None
-    piper_model: Optional[str] = None
     elevenlabs_api_key: Optional[str] = None
     elevenlabs_model: str = "eleven_turbo_v2_5"
     gemini_api_key: Optional[str] = None
@@ -74,7 +73,6 @@ class SettingsUpdate(BaseModel):
     openrouter_writer_model: Optional[str] = None
     tts_provider: Optional[str] = None
     piper_url: Optional[str] = None
-    piper_model: Optional[str] = None
     elevenlabs_api_key: Optional[str] = None
     elevenlabs_model: Optional[str] = None
     gemini_api_key: Optional[str] = None
@@ -202,7 +200,6 @@ def get_current_settings() -> dict:
         "openrouter_writer_model": os.environ.get("OPENROUTER_WRITER_MODEL") or env_vars.get("OPENROUTER_WRITER_MODEL"),
         "tts_provider": os.environ.get("TTS_PROVIDER") or env_vars.get("TTS_PROVIDER", "piper"),
         "piper_url": os.environ.get("PIPER_URL") or env_vars.get("PIPER_URL"),
-        "piper_model": os.environ.get("PIPER_MODEL") or env_vars.get("PIPER_MODEL"),
         "elevenlabs_api_key": os.environ.get("ELEVENLABS_API_KEY") or env_vars.get("ELEVENLABS_API_KEY"),
         "elevenlabs_model": os.environ.get("ELEVENLABS_MODEL") or env_vars.get("ELEVENLABS_MODEL", "eleven_turbo_v2_5"),
         "gemini_api_key": os.environ.get("GEMINI_API_KEY") or env_vars.get("GEMINI_API_KEY"),
@@ -235,7 +232,6 @@ async def get_settings_endpoint():
         openrouter_writer_model=settings.get("openrouter_writer_model"),
         tts_provider=settings["tts_provider"],
         piper_url=settings.get("piper_url"),
-        piper_model=settings.get("piper_model"),
         elevenlabs_api_key=mask_api_key(settings["elevenlabs_api_key"]),
         elevenlabs_model=settings["elevenlabs_model"],
         gemini_api_key=mask_api_key(settings["gemini_api_key"]),
@@ -287,10 +283,6 @@ async def update_settings(updates: SettingsUpdate):
         if updates.piper_url is not None:
             env_updates["PIPER_URL"] = updates.piper_url
             os.environ["PIPER_URL"] = updates.piper_url
-        
-        if updates.piper_model is not None:
-            env_updates["PIPER_MODEL"] = updates.piper_model
-            os.environ["PIPER_MODEL"] = updates.piper_model
         
         if updates.elevenlabs_api_key is not None:
             env_updates["ELEVENLABS_API_KEY"] = updates.elevenlabs_api_key

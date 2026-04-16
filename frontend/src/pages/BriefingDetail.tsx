@@ -1,4 +1,4 @@
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
+import { useParams, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import { 
@@ -33,10 +33,11 @@ import { briefingsApi, settingsApi, castsApi, scheduledBriefingsApi, topicsApi, 
 import { useStore } from '../store/useStore'
 import { formatFullDate } from '../utils/timezone'
 import { audioManager } from '../utils/audioManager'
+import { useProfileNavigate } from '../utils/profileSlug'
 
 export default function BriefingDetail() {
   const { id } = useParams<{ id: string }>()
-  const navigate = useNavigate()
+  const navigate = useProfileNavigate()
   const [searchParams] = useSearchParams()
   const queryClient = useQueryClient()
   const segmentRefs = useRef<Map<number, HTMLDivElement>>(new Map())
@@ -1335,14 +1336,6 @@ export default function BriefingDetail() {
                             <span className="text-augustus-400">Voice:</span>
                             <span className="text-white font-mono text-xs break-all text-right ml-2">
                               {String(briefing.extra_data.tts_voice)}
-                            </span>
-                          </div>
-                        )}
-                        {settings.tts_provider === 'piper' && settings.piper_model && (
-                          <div className="flex justify-between">
-                            <span className="text-augustus-400">Piper Model:</span>
-                            <span className="text-white font-mono text-xs break-all text-right ml-2">
-                              {settings.piper_model}
                             </span>
                           </div>
                         )}

@@ -49,14 +49,13 @@ class PiperProvider(TTSProvider):
         self.model_path = model_path or settings.piper_model_path
         # Strip whitespace and check if URL is actually set
         self.piper_url = (settings.piper_url or "").strip() or None
-        self.piper_model = (settings.piper_model or "").strip() or None
         self._piper_available: Optional[bool] = None
         # Only use HTTP if URL is non-empty after stripping
         self._use_http = bool(self.piper_url)
         
         # Log configuration for debugging
         if self._use_http:
-            print(f"[Piper] Configured for HTTP API: {self.piper_url}, model: {self.piper_model or 'default'}")
+            print(f"[Piper] Configured for HTTP API: {self.piper_url}")
         else:
             print(f"[Piper] Configured for CLI, model path: {self.model_path}")
     
@@ -97,6 +96,7 @@ class PiperProvider(TTSProvider):
         text: str,
         voice_id: str,
         output_path: Path,
+        briefing_id: Optional[str] = None,
     ) -> TTSResult:
         """Synthesize text using Piper."""
         if not await self._check_piper_available():
@@ -120,17 +120,19 @@ class PiperProvider(TTSProvider):
         if not self.piper_url:
             raise RuntimeError("Piper URL is not configured")
         
-        # For HTTP API, use voice_id if it looks like a Piper voice name (contains underscore or dash)
-        # Otherwise use the configured piper_model
-        # voice_id from voice_map might be from other providers (e.g., ElevenLabs IDs like "1SM7GgM6IMuvQlz2BwM3")
-        if voice_id and ("_" in voice_id or "-" in voice_id or voice_id.startswith("en_")):
-            # Looks like a Piper voice name (e.g., "en_US-lessac-medium")
+        # Resolve internal aliases to Piper model names
+        voice_aliases = {
+            "host1": "en_US-lessac-medium",
+            "host2": "en_US-amy-medium",
+        }
+
+        if voice_id in voice_aliases:
+            voice = voice_aliases[voice_id]
+        elif voice_id:
+            # Use the voice_id directly — cast voices are passed through as Piper voice names
             voice = voice_id
-        elif self.piper_model:
-            # Use configured model
-            voice = self.piper_model
         else:
-            raise RuntimeError("Piper model must be configured when using HTTP API. Set PIPER_MODEL in settings or use a valid Piper voice name.")
+            raise RuntimeError("No voice specified. Configure voice/model in the cast settings.")
         
         # Prepare request - Piper uses POST with query parameters
         api_url = f"{self.piper_url.rstrip('/')}/tts"
@@ -261,15 +263,22 @@ class PiperProvider(TTSProvider):
         script: list[dict],
         output_path: Path,
         voice_map: Optional[dict[str, str]] = None,
+        briefing_id: Optional[str] = None,
     ) -> TTSResult:
         """Synthesize a multi-speaker conversation."""
         if voice_map is None:
-            # Use default voices (should always be passed from cast, but fallback just in case)
             voice_map = {
                 "HOST1": "en_US-lessac-medium",
                 "HOST2": "en_US-amy-medium",
             }
             print(f"[Piper] WARNING: No voice_map provided, using defaults")
+
+        # Log distinct cast voices being used
+        distinct_voices = set(voice_map.values())
+        if len(distinct_voices) > 1:
+            print(f"[Piper] Multiple cast voices detected: {voice_map}")
+        else:
+            print(f"[Piper] Single voice in use: {distinct_voices}")
         
         # Generate audio for each segment and track durations
         segment_paths = []

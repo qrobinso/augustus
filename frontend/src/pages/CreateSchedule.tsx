@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { useParams, useSearchParams } from 'react-router-dom'
+import { useProfileNavigate } from '../utils/profileSlug'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Clock, Mail, Webhook, Loader2, Calendar } from 'lucide-react'
 import clsx from 'clsx'
@@ -16,7 +17,7 @@ const DAYS_OF_WEEK = [
 ]
 
 export default function CreateSchedule() {
-  const navigate = useNavigate()
+  const navigate = useProfileNavigate()
   const { id } = useParams<{ id: string }>()
   const [searchParams] = useSearchParams()
   const queryClient = useQueryClient()

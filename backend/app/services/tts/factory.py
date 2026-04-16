@@ -74,15 +74,17 @@ class TTSFactory:
         output_path: Path,
         voice_map: Optional[dict[str, str]] = None,
         provider_name: Optional[str] = None,
+        briefing_id: Optional[str] = None,
     ) -> TTSResult:
         """Synthesize conversation using the chosen provider.
-        
+
         Args:
             script: List of dicts with 'speaker' and 'text' keys
             output_path: Path to save combined audio
             voice_map: Optional mapping of speaker names to voice IDs
             provider_name: Optional provider name. Defaults to settings.tts_provider.
-            
+            briefing_id: Optional briefing ID for cancellation support
+
         Returns:
             TTSResult with combined audio
         """
@@ -90,7 +92,9 @@ class TTSFactory:
         print(f"[TTS] Using {provider_name} provider for conversation")
         provider = cls.get_provider(provider_name)
         try:
-            result = await provider.synthesize_conversation(script, output_path, voice_map)
+            result = await provider.synthesize_conversation(
+                script, output_path, voice_map, briefing_id=briefing_id,
+            )
             return result
         finally:
             await provider.close()

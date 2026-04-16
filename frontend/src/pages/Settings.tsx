@@ -1,5 +1,5 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { 
   Settings as SettingsIcon,
@@ -7,7 +7,7 @@ import {
   Cpu,
   Volume2,
   Rss,
-  Save,
+
   Loader2,
   CheckCircle,
   AlertCircle,
@@ -27,11 +27,12 @@ import {
 import clsx from 'clsx'
 import { settingsApi, ModelOption } from '../api/client'
 import ProfileManagement from '../components/ProfileManagement'
+import { useProfileNavigate } from '../utils/profileSlug'
 
 type SettingsTab = 'general' | 'profiles'
 
 export default function Settings() {
-  const navigate = useNavigate()
+  const navigate = useProfileNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const queryClient = useQueryClient()
   
@@ -47,7 +48,6 @@ export default function Settings() {
   const [openrouterWriterModel, setOpenrouterWriterModel] = useState('')
   const [ttsProvider, setTtsProvider] = useState('piper')
   const [piperUrl, setPiperUrl] = useState('')
-  const [piperModel, setPiperModel] = useState('')
   const [elevenlabsKey, setElevenlabsKey] = useState('')
   const [elevenlabsModel, setElevenlabsModel] = useState('eleven_turbo_v2_5')
   const [geminiKey, setGeminiKey] = useState('')
@@ -103,6 +103,7 @@ export default function Settings() {
   const writerModelButtonRef = useRef<HTMLButtonElement>(null)
   const [writerDropdownPosition, setWriterDropdownPosition] = useState({ top: 0, left: 0, width: 0 })
   const [showMobileMenu, setShowMobileMenu] = useState(false)
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>()
   
   // Fetch current settings
   const { data: settings, isLoading, error } = useQuery({
@@ -192,10 +193,18 @@ export default function Settings() {
   // Update settings mutation
   const updateMutation = useMutation({
     mutationFn: settingsApi.update,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['settings'] })
+    onSuccess: (_data, variables) => {
+      queryClient.setQueryData(['settings'], (old: any) => {
+        if (!old) return old
+        const updated = { ...old, ...variables }
+        if ('openrouter_api_key' in variables) updated.openrouter_configured = true
+        if ('elevenlabs_api_key' in variables) updated.elevenlabs_configured = true
+        if ('gemini_api_key' in variables) updated.gemini_configured = true
+        if ('resend_api_key' in variables) updated.resend_configured = true
+        return updated
+      })
       setSaved(true)
-      setTimeout(() => setSaved(false), 3000)
+      setTimeout(() => setSaved(false), 2000)
     },
   })
 
@@ -222,7 +231,6 @@ export default function Settings() {
       setOpenrouterWriterModel(settings.openrouter_writer_model || '')
       setTtsProvider(settings.tts_provider)
       setPiperUrl(settings.piper_url || '')
-      setPiperModel(settings.piper_model || '')
       setElevenlabsModel(settings.elevenlabs_model || 'eleven_turbo_v2_5')
       setGeminiModel(settings.gemini_model || 'gemini-2.5-flash-preview-tts')
       setEnableNonSpeechSounds(settings.enable_non_speech_sounds || false)
@@ -252,61 +260,59 @@ export default function Settings() {
     }
   }, [settings])
   
-  const handleSave = () => {
+  const handleSave = useCallback(() => {
+    if (!settings) return
+
     const updates: Record<string, string | number | boolean> = {}
-    
+
     // Helper to check if a key is a new value (not the masked version)
     const isNewKey = (value: string, maskedValue?: string) => {
       if (!value) return false
-      // If it contains "..." it's likely the masked version, don't send it
       if (value.includes('...')) return false
-      // If it's the same as the masked value from settings, don't send it
       if (value === maskedValue) return false
       return true
     }
-    
+
     // Only send API keys if they're new (not masked values)
-    if (isNewKey(openrouterKey, settings?.openrouter_api_key)) {
-      updates.openrouter_api_key = openrouterKey
-    }
-    if (isNewKey(elevenlabsKey, settings?.elevenlabs_api_key)) {
-      updates.elevenlabs_api_key = elevenlabsKey
-    }
-    if (isNewKey(geminiKey, settings?.gemini_api_key)) {
-      updates.gemini_api_key = geminiKey
-    }
-    if (isNewKey(newsApiKey, settings?.news_api_key)) {
-      updates.news_api_key = newsApiKey
-    }
-    if (isNewKey(resendApiKey, settings?.resend_api_key)) {
-      updates.resend_api_key = resendApiKey
-    }
-    
-    // Always send non-key settings if changed
-    if (resendFromEmail !== (settings?.resend_from_email || '')) {
-      updates.resend_from_email = resendFromEmail || ''
-    }
-    if (openrouterModel !== settings?.openrouter_model) updates.openrouter_model = openrouterModel
-    if (openrouterWriterModel !== (settings?.openrouter_writer_model || '')) {
-      updates.openrouter_writer_model = openrouterWriterModel || ''
-    }
-    if (ttsProvider !== settings?.tts_provider) updates.tts_provider = ttsProvider
-    if (piperUrl !== settings?.piper_url) updates.piper_url = piperUrl
-    if (piperModel !== settings?.piper_model) updates.piper_model = piperModel
-    if (elevenlabsModel !== settings?.elevenlabs_model) updates.elevenlabs_model = elevenlabsModel
-    if (geminiModel !== settings?.gemini_model) updates.gemini_model = geminiModel
-    if (enableNonSpeechSounds !== settings?.enable_non_speech_sounds) updates.enable_non_speech_sounds = enableNonSpeechSounds
+    if (isNewKey(openrouterKey, settings.openrouter_api_key)) updates.openrouter_api_key = openrouterKey
+    if (isNewKey(elevenlabsKey, settings.elevenlabs_api_key)) updates.elevenlabs_api_key = elevenlabsKey
+    if (isNewKey(geminiKey, settings.gemini_api_key)) updates.gemini_api_key = geminiKey
+    if (isNewKey(newsApiKey, settings.news_api_key)) updates.news_api_key = newsApiKey
+    if (isNewKey(resendApiKey, settings.resend_api_key)) updates.resend_api_key = resendApiKey
+
+    // Non-key settings - normalize null/undefined/empty for comparison
+    if ((resendFromEmail || '') !== (settings.resend_from_email || '')) updates.resend_from_email = resendFromEmail || ''
+    if (openrouterModel !== settings.openrouter_model) updates.openrouter_model = openrouterModel
+    if ((openrouterWriterModel || '') !== (settings.openrouter_writer_model || '')) updates.openrouter_writer_model = openrouterWriterModel || ''
+    if (ttsProvider !== settings.tts_provider) updates.tts_provider = ttsProvider
+    if ((piperUrl || '') !== (settings.piper_url || '')) updates.piper_url = piperUrl
+    if ((elevenlabsModel || '') !== (settings.elevenlabs_model || '')) updates.elevenlabs_model = elevenlabsModel
+    if ((geminiModel || '') !== (settings.gemini_model || '')) updates.gemini_model = geminiModel
+    if (enableNonSpeechSounds !== (settings.enable_non_speech_sounds || false)) updates.enable_non_speech_sounds = enableNonSpeechSounds
     const briefingDuration = sliderToDuration(briefingDurationSlider)
-    
-    if (briefingDuration !== settings?.briefing_duration_minutes) updates.briefing_duration_minutes = briefingDuration
-    if (conversationComplexity !== settings?.conversation_complexity) updates.conversation_complexity = conversationComplexity
-    if (timezone !== settings?.timezone) updates.timezone = timezone
-    if (autoPlayNext !== settings?.auto_play_next) updates.auto_play_next = autoPlayNext
-    
+    if (briefingDuration !== settings.briefing_duration_minutes) updates.briefing_duration_minutes = briefingDuration
+    if (conversationComplexity !== (settings.conversation_complexity || 3)) updates.conversation_complexity = conversationComplexity
+    if ((timezone || 'UTC') !== (settings.timezone || 'UTC')) updates.timezone = timezone
+    if (autoPlayNext !== (settings.auto_play_next || false)) updates.auto_play_next = autoPlayNext
+
     if (Object.keys(updates).length > 0) {
       updateMutation.mutate(updates)
     }
-  }
+  }, [settings, openrouterKey, openrouterModel, openrouterWriterModel, ttsProvider, piperUrl, elevenlabsKey, elevenlabsModel, geminiKey, geminiModel, enableNonSpeechSounds, briefingDurationSlider, conversationComplexity, timezone, newsApiKey, resendApiKey, resendFromEmail, autoPlayNext, updateMutation])
+
+  // Auto-save: debounce all form value changes
+  useEffect(() => {
+    if (!settings) return
+
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => {
+      handleSave()
+    }, 800)
+
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+    }
+  }, [handleSave])
   
   if (isLoading) {
     return (
@@ -336,11 +342,25 @@ export default function Settings() {
             <h1 className="text-2xl sm:text-3xl font-display font-semibold text-white mb-1 sm:mb-2">
               Settings
             </h1>
-            <p className="text-sm sm:text-base text-augustus-400">
-              {activeTab === 'general' 
-                ? 'Configure API keys and integrations for Augustus'
-                : 'Manage user profiles'
-              }
+            <p className="text-sm sm:text-base text-augustus-400 flex items-center gap-2">
+              <span>
+                {activeTab === 'general'
+                  ? 'Configure API keys and integrations for Augustus'
+                  : 'Manage user profiles'
+                }
+              </span>
+              {updateMutation.isPending && (
+                <span className="inline-flex items-center gap-1 text-xs text-augustus-500">
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  Saving...
+                </span>
+              )}
+              {saved && !updateMutation.isPending && (
+                <span className="inline-flex items-center gap-1 text-xs text-green-400">
+                  <CheckCircle className="w-3 h-3" />
+                  Saved
+                </span>
+              )}
             </p>
           </div>
           
@@ -461,13 +481,6 @@ export default function Settings() {
         <ProfileManagement />
       ) : (
         <>
-      {/* Success message */}
-      {saved && (
-        <div className="mb-4 sm:mb-6 p-3 sm:p-4 bg-green-500/10 border border-green-500/20 rounded-lg flex items-center gap-3">
-          <CheckCircle className="w-5 h-5 text-green-400 flex-shrink-0" />
-          <span className="text-green-400 text-sm sm:text-base">Settings saved successfully!</span>
-        </div>
-      )}
       
       {/* OpenRouter Section */}
       <div className="card mb-4 sm:mb-6 overflow-visible">
@@ -816,19 +829,6 @@ export default function Settings() {
                 </p>
               </div>
               
-              <div>
-                <label className="label">Piper Model</label>
-                <input
-                  type="text"
-                  value={piperModel}
-                  onChange={(e) => setPiperModel(e.target.value)}
-                  placeholder="en_US-lessac-medium"
-                  className="input"
-                />
-                <p className="text-xs text-augustus-500 mt-1">
-                  Model name to use with remote Piper API (e.g., en_US-lessac-medium)
-                </p>
-              </div>
             </>
           )}
           
@@ -1189,28 +1189,6 @@ export default function Settings() {
         </div>
       </div>
       
-      {/* Save Button - Sticky on mobile */}
-      <div className="sticky bottom-0 py-4 bg-gradient-to-t from-augustus-950 via-augustus-950 to-transparent -mx-4 px-4 sm:static sm:py-0 sm:bg-transparent sm:mx-0 sm:px-0">
-        <div className="flex justify-end">
-          <button
-            onClick={handleSave}
-            disabled={updateMutation.isPending}
-            className="btn btn-primary flex items-center gap-2 w-full sm:w-auto"
-          >
-            {updateMutation.isPending ? (
-              <>
-                <Loader2 className="w-5 h-5 animate-spin" />
-                Saving...
-              </>
-            ) : (
-              <>
-                <Save className="w-5 h-5" />
-                Save Settings
-              </>
-            )}
-          </button>
-        </div>
-      </div>
       
       {/* About Button */}
       <div className="mt-6 sm:mt-8 space-y-4">

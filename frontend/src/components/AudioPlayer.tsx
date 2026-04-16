@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState, useCallback, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useProfileNavigate } from '../utils/profileSlug'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { 
   Play, 
@@ -22,7 +22,7 @@ import { briefingsApi, castsApi, settingsApi, topicsApi, Briefing } from '../api
 import { audioManager } from '../utils/audioManager'
 
 export default function AudioPlayer() {
-  const navigate = useNavigate()
+  const navigate = useProfileNavigate()
   const progressRef = useRef<HTMLDivElement>(null)
   const [volume, setVolume] = useState(1)
   const [isMuted, setIsMuted] = useState(false)

@@ -76,7 +76,6 @@ def tts_list_providers():
     click.echo("\n--- Piper ---")
     click.echo(f"  Model Path: {settings.piper_model_path}")
     click.echo(f"  URL: {settings.piper_url or '(not configured)'}")
-    click.echo(f"  Model: {settings.piper_model or '(not configured)'}")
     
     click.echo("\n--- ElevenLabs ---")
     click.echo(f"  API Key: {'[OK] configured' if settings.elevenlabs_api_key else '[--] not configured'}")

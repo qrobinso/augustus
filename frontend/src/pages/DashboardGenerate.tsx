@@ -1,5 +1,4 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { 
   Play,
@@ -15,6 +14,7 @@ import {
 import clsx from 'clsx'
 import { briefingsApi, topicsApi, castsApi, customSitesApi, Briefing } from '../api/client'
 import { useStore } from '../store/useStore'
+import { useProfileNavigate } from '../utils/profileSlug'
 
 const PRESET_COLORS = [
   '#3B82F6', // Blue
@@ -30,7 +30,7 @@ const PRESET_COLORS = [
 ]
 
 export default function DashboardGenerate() {
-  const navigate = useNavigate()
+  const navigate = useProfileNavigate()
   const queryClient = useQueryClient()
   const setCurrentAudio = useStore((s) => s.setCurrentAudio)
   const setIsPlaying = useStore((s) => s.setIsPlaying)

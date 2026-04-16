@@ -82,6 +82,7 @@ class ElevenLabsProvider(TTSProvider):
         text: str,
         voice_id: str,
         output_path: Path,
+        briefing_id: Optional[str] = None,
     ) -> TTSResult:
         """Synthesize text using ElevenLabs."""
         # Resolve voice ID from alias
@@ -170,6 +171,7 @@ class ElevenLabsProvider(TTSProvider):
         script: list[dict],
         output_path: Path,
         voice_map: Optional[dict[str, str]] = None,
+        briefing_id: Optional[str] = None,
     ) -> TTSResult:
         """Synthesize a multi-speaker conversation using ElevenLabs Text to Dialogue API.
         
@@ -242,11 +244,18 @@ class ElevenLabsProvider(TTSProvider):
                     "model_id": "eleven_v3",
                 }
                 
-                response = await self.client.post(
-                    "/text-to-dialogue",
-                    json=payload,
-                    timeout=300.0,
-                )
+                if briefing_id:
+                    from app.services.cancellation import cancellable_await
+                    response = await cancellable_await(
+                        self.client.post("/text-to-dialogue", json=payload, timeout=300.0),
+                        briefing_id,
+                    )
+                else:
+                    response = await self.client.post(
+                        "/text-to-dialogue",
+                        json=payload,
+                        timeout=300.0,
+                    )
                 
                 if response.status_code != 200:
                     error_detail = response.text

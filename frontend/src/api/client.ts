@@ -193,7 +193,6 @@ export interface AppSettings {
   openrouter_writer_model?: string
   tts_provider: string
   piper_url?: string
-  piper_model?: string
   elevenlabs_api_key?: string
   elevenlabs_model: string
   gemini_api_key?: string
@@ -474,7 +473,6 @@ export const settingsApi = {
     openrouter_writer_model: string
     tts_provider: string
     piper_url: string
-    piper_model: string
     elevenlabs_api_key: string
     elevenlabs_model: string
     gemini_api_key: string

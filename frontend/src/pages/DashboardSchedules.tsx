@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { 
   Loader2, 
@@ -15,9 +14,10 @@ import {
 } from 'lucide-react'
 import clsx from 'clsx'
 import { scheduledBriefingsApi, castsApi } from '../api/client'
+import { useProfileNavigate } from '../utils/profileSlug'
 
 export default function DashboardSchedules() {
-  const navigate = useNavigate()
+  const navigate = useProfileNavigate()
   const queryClient = useQueryClient()
   
   const [selectedTopicIds] = useState<string[]>([])
@@ -234,6 +234,7 @@ export default function DashboardSchedules() {
     </div>
   )
 }
+
 
 
 
