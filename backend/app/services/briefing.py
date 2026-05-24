@@ -1111,6 +1111,7 @@ class BriefingService:
             cast_id: Optional filter by cast ID
             topic_ids: Optional filter by topic IDs (briefings must contain at least one of these topics)
             favorite: Optional filter by favorite status
+            q: Optional text search across title and transcript (case-insensitive)
         """
         # Build query
         query = select(Briefing).where(Briefing.user_id == user_id)
@@ -1162,10 +1163,6 @@ class BriefingService:
         
         # Apply text search across title + transcript if provided
         if q and q.strip():
-            q_stripped = q.strip().lower()
-            # Escape LIKE wildcard characters for literal matching
-            escaped = q_stripped.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-            # Strip our escape prefixes back to get the plain search term for Python str.lower() matching
             search_term = q.strip().lower()
             filtered_by_q = []
             for briefing in all_briefings:
