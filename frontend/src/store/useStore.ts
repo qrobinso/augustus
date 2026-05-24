@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { audioManager } from '../utils/audioManager'
+import { addToQueue, playNext as playNextQueue, removeFromQueue, reorderQueue, type QueueItem } from './queue'
 
 // Re-export Profile type from api client for consistency
 export type { Profile } from '../api/client'
@@ -30,6 +31,7 @@ interface AudioState {
   isPlaying: boolean
   currentTime: number
   duration: number
+  queue: QueueItem[]
 }
 
 interface AppState extends AudioState, ProfileState {
@@ -50,6 +52,12 @@ interface AppState extends AudioState, ProfileState {
    * Toggle play/pause - MUST be called from user interaction handler.
    */
   togglePlayPause: () => void
+  addToQueue: (item: QueueItem) => void
+  playNext: (item: QueueItem) => void
+  removeFromQueue: (id: string) => void
+  reorderQueue: (from: number, to: number) => void
+  clearQueue: () => void
+  playFromQueueHead: () => boolean
 }
 
 export const useStore = create<AppState>()(
@@ -67,6 +75,7 @@ export const useStore = create<AppState>()(
       currentTime: 0,
       duration: 0,
       audioPlayerMinimized: false,
+      queue: [],
   
   setCurrentAudio: (audio) => {
     // Always update the audio manager source when setting new audio
@@ -167,9 +176,9 @@ export const useStore = create<AppState>()(
    */
   togglePlayPause: () => {
     const { isPlaying, currentAudio } = get()
-    
+
     if (!currentAudio) return
-    
+
     if (isPlaying) {
       audioManager.pause()
       set({ isPlaying: false })
@@ -181,11 +190,26 @@ export const useStore = create<AppState>()(
         })
     }
   },
+
+  addToQueue: (item) => set({ queue: addToQueue(get().queue, item) }),
+  playNext: (item) => set({ queue: playNextQueue(get().queue, item) }),
+  removeFromQueue: (id) => set({ queue: removeFromQueue(get().queue, id) }),
+  reorderQueue: (from, to) => set({ queue: reorderQueue(get().queue, from, to) }),
+  clearQueue: () => set({ queue: [] }),
+  playFromQueueHead: () => {
+    const { queue, playAudio } = get()
+    if (queue.length === 0) return false
+    const [head, ...rest] = queue
+    set({ queue: rest })
+    playAudio({ ...head, initialPosition: 0 })
+    return true
+  },
     }),
     {
       name: 'augustus-profile-storage',
       partialize: (state) => ({
         currentProfile: state.currentProfile,
+        queue: state.queue,
       }),
     }
   )
