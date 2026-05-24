@@ -975,7 +975,7 @@ export default function BriefingDetail() {
               <span className="hidden sm:inline">Download</span>
             </button>
 
-            {briefing.audio_url && (
+            {briefing.status === 'completed' && briefing.audio_url && (
               <>
                 <button
                   onClick={() => playNext(toQueueItem(briefing))}

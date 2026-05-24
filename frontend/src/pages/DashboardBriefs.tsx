@@ -16,7 +16,8 @@ import {
   Waves,
   Heart,
   ListPlus,
-  CornerUpRight
+  CornerUpRight,
+  Search
 } from 'lucide-react'
 import clsx from 'clsx'
 import { briefingsApi, settingsApi, topicsApi, castsApi, Briefing, Topic, Cast } from '../api/client'
@@ -51,7 +52,15 @@ export default function DashboardBriefs() {
   const [currentPage, setCurrentPage] = useState(0)
   const [isMobile, setIsMobile] = useState(false)
   const pageSize = 10
-  
+
+  const [searchInput, setSearchInput] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
+
+  useEffect(() => {
+    const t = setTimeout(() => setSearchQuery(searchInput), 300)
+    return () => clearTimeout(t)
+  }, [searchInput])
+
   // Detect mobile screen size
   useEffect(() => {
     const checkMobile = () => {
@@ -77,24 +86,25 @@ export default function DashboardBriefs() {
     briefings?.some((b) => b.status === 'pending' || b.status === 'generating' || b.status === 'queued')
   
   const { data, isLoading, error } = useQuery({
-    queryKey: ['briefings', listenedFilter, filterCastId, filterTopicIds, favoriteFilter, currentPage],
+    queryKey: ['briefings', listenedFilter, filterCastId, filterTopicIds, favoriteFilter, currentPage, searchQuery],
     queryFn: () => briefingsApi.list(
-      pageSize, 
-      currentPage * pageSize, 
+      pageSize,
+      currentPage * pageSize,
       listenedFilter,
       filterCastId,
       filterTopicIds.length > 0 ? filterTopicIds : undefined,
-      favoriteFilter
+      favoriteFilter,
+      searchQuery || undefined
     ),
     refetchInterval: (query) => {
       return hasBriefingInProgress(query.state.data?.briefings) ? 2000 : 10000
     },
   })
   
-  // Reset to first page when filter changes
+  // Reset to first page when filter or search changes
   useEffect(() => {
     setCurrentPage(0)
-  }, [listenedFilter, filterCastId, filterTopicIds, favoriteFilter])
+  }, [listenedFilter, filterCastId, filterTopicIds, favoriteFilter, searchQuery])
   
   // Fetch settings for timezone
   const { data: settings } = useQuery({
@@ -623,6 +633,28 @@ export default function DashboardBriefs() {
 
   return (
     <div className="space-y-3 sm:space-y-4">
+      {/* Search bar */}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-augustus-500 pointer-events-none" />
+        <input
+          type="search"
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
+          placeholder="Search briefings…"
+          className="w-full bg-augustus-900 border border-augustus-800 rounded-xl pl-10 pr-10 py-2.5 text-sm text-white placeholder-augustus-500 focus:outline-none focus:border-accent transition-colors"
+          aria-label="Search briefings"
+        />
+        {searchInput && (
+          <button
+            onClick={() => setSearchInput('')}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-augustus-500 hover:text-white transition-colors"
+            aria-label="Clear search"
+          >
+            <XCircle className="w-4 h-4" />
+          </button>
+        )}
+      </div>
+
       {/* Filter controls */}
       <div className="card mb-6 sm:mb-8">
         <button
@@ -854,7 +886,9 @@ export default function DashboardBriefs() {
         <div className="card text-center py-10 sm:py-12">
           <Calendar className="w-10 sm:w-12 h-10 sm:h-12 text-augustus-600 mx-auto mb-3 sm:mb-4" />
           <p className="text-sm sm:text-base text-augustus-400">
-            {favoriteFilter === true
+            {searchQuery.trim()
+              ? `No briefings match "${searchQuery}"`
+              : favoriteFilter === true
               ? 'No favorite briefings found.'
               : listenedFilter === true
               ? 'No listened briefings found.'
@@ -865,9 +899,21 @@ export default function DashboardBriefs() {
         </div>
       ) : (
         (() => {
-          const shouldGroupByListened = listenedFilter === undefined
           const briefings = data?.briefings || []
-          
+
+          // When searching, render a flat list without grouping
+          if (searchQuery.trim()) {
+            return briefings.map((briefing) => {
+              const isCurrentlyPlaying = currentAudio?.id === briefing.id && isPlaying
+              const isLatest = false
+              const briefingTopicIds = (briefing.extra_data?.topic_ids as string[]) || []
+              const briefingTopics = topics.filter((t) => briefingTopicIds.includes(t.id))
+              return renderBriefingCard(briefing, isLatest, isCurrentlyPlaying, briefingTopics)
+            })
+          }
+
+          const shouldGroupByListened = listenedFilter === undefined
+
           if (shouldGroupByListened) {
             const notListened = briefings.filter(b => !b.listened)
             const listened = briefings.filter(b => b.listened)

@@ -294,8 +294,8 @@ export const briefingsApi = {
     if (favorite !== undefined) {
       params.set('favorite', String(favorite))
     }
-    if (q && q.trim()) {
-      params.set('q', q.trim())
+    if (q) {
+      params.set('q', q)
     }
     const { data } = await api.get<{ briefings: Briefing[]; total: number }>(
       `/api/briefings?${params}`
