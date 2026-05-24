@@ -482,7 +482,13 @@ When specific topics are provided, make sure to cover stories from ALL of those 
         if enable_non_speech_sounds:
             non_speech_sounds_section = NON_SPEECH_SOUNDS_GUIDE
         
-        return prompt + complexity_instruction + non_speech_sounds_section
+        attribution_guidance = (
+            "\n- When you state a key fact or figure, attribute it to its source "
+            "naturally in speech (e.g. \"according to Reuters\", \"the BBC reports\"). "
+            "Attribute the most important claims; do not cite a source in every sentence."
+        )
+
+        return prompt + complexity_instruction + non_speech_sounds_section + attribution_guidance
     
     def _build_user_prompt(
         self,

@@ -729,6 +729,20 @@ class BriefingService:
             )
             costs["total"] = total_cost
             
+            # Build chapter_sources: map chapter index -> list of {name, url} for frontend
+            chapter_sources = {}
+            for ci, _chapter in enumerate(chapters):
+                if ci < len(ranked_items):
+                    _item = ranked_items[ci]
+                    _srcs = []
+                    _url = getattr(_item, "url", None)
+                    if _url:
+                        _srcs.append({"name": getattr(_item, "source", None) or _item.title, "url": _url})
+                    for _s in getattr(_item, "research_sources", []) or []:
+                        _srcs.append(_s)
+                    if _srcs:
+                        chapter_sources[str(ci)] = _srcs
+
             # Reassign extra_data to ensure SQLAlchemy detects the change
             # (in-place mutations like .update() aren't detected on JSON fields)
             new_extra_data = dict(briefing.extra_data) if briefing.extra_data else {}
@@ -741,6 +755,7 @@ class BriefingService:
                 "tts_voice": tts_result.voice_id,
                 "segment_timings": segment_timings,
                 "chapters": chapters,  # Store chapters with timestamps
+                "chapter_sources": chapter_sources,  # Per-chapter source links for frontend
                 "story_analysis": analysis_summary,
                 "story_analysis_raw": raw_analysis,
                 "story_analysis_usage": story_analysis_usage,
