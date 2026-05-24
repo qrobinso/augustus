@@ -730,18 +730,42 @@ class BriefingService:
             costs["total"] = total_cost
             
             # Build chapter_sources: map chapter index -> list of {name, url} for frontend
+            # Use title-based matching instead of positional alignment; chapters can include
+            # intro/outro that have no corresponding story, so positional mapping is wrong.
+            def _norm(s):
+                return (s or "").strip().lower()
+
+            def _match_story_index(chapter_title):
+                ct = _norm(chapter_title)
+                if not ct:
+                    return None
+                best_idx, best_score = None, 0
+                for si, story in enumerate(ranked_items):
+                    st = _norm(getattr(story, "title", ""))
+                    if not st:
+                        continue
+                    # substring either direction => score by overlap length
+                    if st in ct or ct in st:
+                        score = min(len(st), len(ct))
+                        if score > best_score:
+                            best_idx, best_score = si, score
+                return best_idx
+
             chapter_sources = {}
             for ci, _chapter in enumerate(chapters):
-                if ci < len(ranked_items):
-                    _item = ranked_items[ci]
-                    _srcs = []
-                    _url = getattr(_item, "url", None)
-                    if _url:
-                        _srcs.append({"name": getattr(_item, "source", None) or _item.title, "url": _url})
-                    for _s in getattr(_item, "research_sources", []) or []:
-                        _srcs.append(_s)
-                    if _srcs:
-                        chapter_sources[str(ci)] = _srcs
+                _title = _chapter.get("title") if isinstance(_chapter, dict) else getattr(_chapter, "title", None)
+                _si = _match_story_index(_title)
+                if _si is None:
+                    continue
+                _item = ranked_items[_si]
+                _srcs = []
+                _url = getattr(_item, "url", None)
+                if _url:
+                    _srcs.append({"name": getattr(_item, "source", None) or _item.title, "url": _url})
+                for _s in getattr(_item, "research_sources", []) or []:
+                    _srcs.append(_s)
+                if _srcs:
+                    chapter_sources[str(ci)] = _srcs
 
             # Reassign extra_data to ensure SQLAlchemy detects the change
             # (in-place mutations like .update() aren't detected on JSON fields)
