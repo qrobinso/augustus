@@ -77,6 +77,7 @@ export interface BriefingExtraData {
   stories_selected?: number
   topic_ids?: string[]
   cast_name?: string
+  chapter_sources?: Record<string, Array<{ name: string; url: string }>>
 }
 
 export interface Briefing {

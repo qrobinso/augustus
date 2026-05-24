@@ -454,6 +454,9 @@ export default function BriefingDetail() {
     return formatFullDate(dateStr, timezone)
   }
   
+  // Derive per-chapter sources map from extra_data
+  const chapterSources = briefing?.extra_data?.chapter_sources
+
   // Get transcript as plain text for copying
   const getTranscriptText = () => {
     // If we have segment timings, format them as text
@@ -640,6 +643,22 @@ export default function BriefingDetail() {
                   {formatTimestamp(chapterForSegment.start_time)}
                 </button>
               </div>
+              {chapterIndex !== null && chapterSources?.[String(chapterIndex)]?.length ? (
+                <div className="mt-1 flex flex-wrap gap-2">
+                  {chapterSources[String(chapterIndex)].map((s, i) => (
+                    <a
+                      key={i}
+                      href={s.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-accent hover:underline inline-flex items-center gap-1"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <ExternalLink className="w-3 h-3" /> {s.name}
+                    </a>
+                  ))}
+                </div>
+              ) : null}
             </div>
           )
         }
