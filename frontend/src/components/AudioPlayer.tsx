@@ -1,11 +1,11 @@
 import { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import { useProfileNavigate } from '../utils/profileSlug'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { 
-  Play, 
-  Pause, 
-  SkipBack, 
-  SkipForward, 
+import {
+  Play,
+  Pause,
+  SkipBack,
+  SkipForward,
   Volume2,
   VolumeX,
   X,
@@ -14,7 +14,8 @@ import {
   Minimize2,
   Maximize2,
   Heart,
-  Loader2
+  Loader2,
+  ListVideo
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useStore } from '../store/useStore'
@@ -28,6 +29,7 @@ export default function AudioPlayer() {
   const [isMuted, setIsMuted] = useState(false)
   const [playbackRate, setPlaybackRate] = useState(1)
   const [showChapters, setShowChapters] = useState(false)
+  const [showQueue, setShowQueue] = useState(false)
   const [hasMarkedListened, setHasMarkedListened] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
   const [hasSetInitialPosition, setHasSetInitialPosition] = useState(false)
@@ -40,10 +42,10 @@ export default function AudioPlayer() {
   const lastSavedPositionRef = useRef<number>(0)
   const queryClient = useQueryClient()
   
-  const { 
-    currentAudio, 
-    isPlaying, 
-    currentTime, 
+  const {
+    currentAudio,
+    isPlaying,
+    currentTime,
     duration,
     setCurrentAudio,
     setIsPlaying,
@@ -52,6 +54,11 @@ export default function AudioPlayer() {
     setAudioPlayerMinimized,
     clearAudio,
     togglePlayPause,
+    queue,
+    playFromQueueHead,
+    reorderQueue,
+    removeFromQueue,
+    clearQueue,
   } = useStore()
   
   // Fetch briefing to get cast_id
@@ -219,9 +226,12 @@ export default function AudioPlayer() {
       if (currentAudio?.type === 'briefing' && currentAudio.id) {
         savePositionMutation.mutate({ id: currentAudio.id, position: 0 })
         lastSavedPositionRef.current = 0
-        
-        // Auto-play next unlistened briefing if enabled
-        playNextUnlistenedBriefing()
+
+        // Queue takes priority; fall back to auto-next if queue is empty
+        const startedFromQueue = playFromQueueHead()
+        if (!startedFromQueue) {
+          playNextUnlistenedBriefing()
+        }
       }
     })
     
@@ -246,7 +256,7 @@ export default function AudioPlayer() {
       unsubPlay()
       unsubPause()
     }
-  }, [setCurrentTime, setDuration, setIsPlaying, currentAudio, hasMarkedListened, markListenedMutation, savePlaybackPosition, savePositionMutation, playNextUnlistenedBriefing, isPlaying])
+  }, [setCurrentTime, setDuration, setIsPlaying, currentAudio, hasMarkedListened, markListenedMutation, savePlaybackPosition, savePositionMutation, playNextUnlistenedBriefing, playFromQueueHead, isPlaying])
   
   // Reset state when audio changes
   useEffect(() => {
@@ -1064,6 +1074,49 @@ export default function AudioPlayer() {
           </div>
         </div>
         
+        {/* Up Next queue panel */}
+        {showQueue && (
+          <div className="mb-2 sm:mb-3 max-h-40 overflow-auto bg-augustus-950/50 rounded-lg p-2">
+            {queue.length === 0 ? (
+              <p className="text-xs text-augustus-500 px-2 py-1">Queue is empty</p>
+            ) : (
+              <div className="space-y-1">
+                {queue.map((q, i) => (
+                  <div key={q.id} className="flex items-center gap-2 p-1.5 rounded bg-augustus-900/50">
+                    <span className="flex-1 text-sm text-augustus-200 truncate">{q.title}</span>
+                    <button
+                      onClick={() => reorderQueue(i, i - 1)}
+                      disabled={i === 0}
+                      aria-label="Move up"
+                      className="btn-icon btn btn-ghost p-1 disabled:opacity-30"
+                    >
+                      <ChevronUp className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => reorderQueue(i, i + 1)}
+                      disabled={i === queue.length - 1}
+                      aria-label="Move down"
+                      className="btn-icon btn btn-ghost p-1 disabled:opacity-30"
+                    >
+                      <ChevronDown className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => removeFromQueue(q.id)}
+                      aria-label="Remove from queue"
+                      className="btn-icon btn btn-ghost p-1"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+                <button onClick={clearQueue} className="text-xs text-augustus-400 hover:text-white px-2 py-1">
+                  Clear queue
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Bottom row: Time + additional controls */}
         <div className="flex items-center justify-between gap-2">
           {/* Time display */}
@@ -1135,6 +1188,24 @@ export default function AudioPlayer() {
                 )}
               </button>
             ) : null}
+
+            {/* Up Next / Queue toggle */}
+            <button
+              onClick={() => setShowQueue(!showQueue)}
+              className={clsx(
+                'btn-icon btn btn-ghost p-1.5 sm:p-2 min-h-[44px] min-w-[44px] sm:min-h-[36px] sm:min-w-[36px] touch-target relative',
+                showQueue && 'text-accent'
+              )}
+              title="Up next queue"
+              aria-label={showQueue ? 'Hide queue' : 'Show queue'}
+            >
+              <ListVideo className="w-4 h-4 sm:w-5 sm:h-5" />
+              {queue.length > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 w-4 h-4 text-[9px] font-bold bg-accent text-white rounded-full flex items-center justify-center leading-none">
+                  {queue.length}
+                </span>
+              )}
+            </button>
           </div>
         </div>
       </div>

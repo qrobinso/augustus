@@ -1,11 +1,11 @@
 import { useParams, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useRef, useEffect, useState, useCallback, useMemo } from 'react'
-import { 
-  ArrowLeft, 
-  Play, 
+import {
+  ArrowLeft,
+  Play,
   Pause,
-  Clock, 
+  Clock,
   Calendar,
   Loader2,
   AlertCircle,
@@ -26,11 +26,14 @@ import {
   Trash2,
   CalendarClock,
   Download,
-  Move
+  Move,
+  ListPlus,
+  CornerUpRight
 } from 'lucide-react'
 import clsx from 'clsx'
 import { briefingsApi, settingsApi, castsApi, scheduledBriefingsApi, topicsApi, SegmentTiming } from '../api/client'
 import { useStore } from '../store/useStore'
+import type { QueueItem } from '../store/queue'
 import { formatFullDate } from '../utils/timezone'
 import { audioManager } from '../utils/audioManager'
 import { useProfileNavigate } from '../utils/profileSlug'
@@ -49,6 +52,17 @@ export default function BriefingDetail() {
   const setIsPlaying = useStore((s) => s.setIsPlaying)
   const playAudio = useStore((s) => s.playAudio)
   const togglePlayPause = useStore((s) => s.togglePlayPause)
+  const addToQueue = useStore((s) => s.addToQueue)
+  const playNext = useStore((s) => s.playNext)
+
+  const toQueueItem = (b: NonNullable<typeof briefing>): QueueItem => ({
+    id: b.id,
+    type: 'briefing',
+    title: b.title,
+    audioUrl: b.audio_url!,
+    transcript: b.transcript,
+    chapters: b.chapters,
+  })
   
   // Track active segment for highlighting
   const [activeSegmentIndex, setActiveSegmentIndex] = useState<number | null>(null)
@@ -960,7 +974,29 @@ export default function BriefingDetail() {
               <Download className="w-4 h-4" />
               <span className="hidden sm:inline">Download</span>
             </button>
-            
+
+            {briefing.audio_url && (
+              <>
+                <button
+                  onClick={() => playNext(toQueueItem(briefing))}
+                  className="btn btn-ghost flex items-center gap-2 text-sm"
+                  title="Play next"
+                >
+                  <CornerUpRight className="w-4 h-4" />
+                  <span className="hidden sm:inline">Play Next</span>
+                </button>
+
+                <button
+                  onClick={() => addToQueue(toQueueItem(briefing))}
+                  className="btn btn-ghost flex items-center gap-2 text-sm"
+                  title="Add to queue"
+                >
+                  <ListPlus className="w-4 h-4" />
+                  <span className="hidden sm:inline">Add to Queue</span>
+                </button>
+              </>
+            )}
+
             <button
               onClick={() => listenedMutation.mutate({ listened: !briefing.listened })}
               disabled={listenedMutation.isPending}
