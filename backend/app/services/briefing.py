@@ -34,6 +34,8 @@ from app.services.cancellation import (
     unregister as cancel_unregister,
     is_cancelled as cancel_is_cancelled,
 )
+from app.services.search import SearchService
+from app.services.web_research import select_stories_for_research, merge_sources
 
 settings = get_settings()
 
@@ -500,7 +502,6 @@ class BriefingService:
                 for _s in getattr(_item, "research_sources", []) or []:
                     _research_sources.append(_s)
             if _research_sources:
-                from app.services.web_research import merge_sources
                 briefing.sources = merge_sources(briefing.sources, _research_sources)
                 print(f"[Briefing] Merged {len(_research_sources)} web-research source(s) into briefing.sources")
 
@@ -1759,10 +1760,7 @@ class BriefingService:
                     print(f"[Briefing] Generated {len(facts)} facts for article {idx + 1}: {ranked_items[idx].title[:60]}...")
 
             # Gap-fill thin stories with live web research
-            from app.services.web_research import select_stories_for_research
-            from app.config import get_settings as _get_settings
-
-            _settings = _get_settings()
+            _settings = get_settings()
             if _settings.web_research_enabled:
                 thin_indices = select_stories_for_research(
                     ranked_items,
@@ -1773,7 +1771,7 @@ class BriefingService:
                 )
                 if thin_indices:
                     print(f"[Briefing] {len(thin_indices)} thin story/stories identified for web research: {thin_indices}")
-                    search = get_search_service()
+                    search = SearchService()
                     try:
                         for idx in thin_indices:
                             item = ranked_items[idx]
