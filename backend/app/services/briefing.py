@@ -1098,6 +1098,7 @@ class BriefingService:
         cast_id: Optional[str] = None,
         topic_ids: Optional[list[str]] = None,
         favorite: Optional[bool] = None,
+        q: Optional[str] = None,
     ) -> tuple[list[Briefing], int]:
         """List briefings for a user/profile.
         
@@ -1159,9 +1160,24 @@ class BriefingService:
                     filtered_briefings.append(briefing)
             all_briefings = filtered_briefings
         
+        # Apply text search across title + transcript if provided
+        if q and q.strip():
+            q_stripped = q.strip().lower()
+            # Escape LIKE wildcard characters for literal matching
+            escaped = q_stripped.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            # Strip our escape prefixes back to get the plain search term for Python str.lower() matching
+            search_term = q.strip().lower()
+            filtered_by_q = []
+            for briefing in all_briefings:
+                title_match = search_term in (briefing.title or "").lower()
+                transcript_match = search_term in (briefing.transcript or "").lower()
+                if title_match or transcript_match:
+                    filtered_by_q.append(briefing)
+            all_briefings = filtered_by_q
+
         # Get total count
         total = len(all_briefings)
-        
+
         # Apply pagination
         briefings = all_briefings[offset:offset + limit]
         
