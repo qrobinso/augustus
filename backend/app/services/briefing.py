@@ -460,7 +460,10 @@ class BriefingService:
             
             # Store sources (the ranked/prioritized stories - should be 3-5)
             briefing.sources = [item.to_dict() for item in ranked_items]
-            
+
+            # NOTE: web-research sources are merged in AFTER _generate_additional_facts runs
+            # (see the merge block below, after Step 5 returns)
+
             # Save ONLY the articles that were used in the podcast script (ranked_items)
             # Group by topic_id to save efficiently
             articles_by_topic = {}
@@ -490,7 +493,17 @@ class BriefingService:
             )
             await self._check_cancelled(briefing_id)
             print(f"[Briefing] Generated facts for {len(additional_facts)} articles")
-            
+
+            # Merge any web-research sources gathered during gap-fill into briefing.sources
+            _research_sources = []
+            for _item in ranked_items:
+                for _s in getattr(_item, "research_sources", []) or []:
+                    _research_sources.append(_s)
+            if _research_sources:
+                from app.services.web_research import merge_sources
+                briefing.sources = merge_sources(briefing.sources, _research_sources)
+                print(f"[Briefing] Merged {len(_research_sources)} web-research source(s) into briefing.sources")
+
             # Step 6: Load cast for this briefing
             await update_progress(6, "Loading cast configuration", 65)
             cast_service = CastService(self.db)
@@ -1744,7 +1757,52 @@ class BriefingService:
             for idx, facts in facts_dict.items():
                 if 0 <= idx < len(ranked_items):
                     print(f"[Briefing] Generated {len(facts)} facts for article {idx + 1}: {ranked_items[idx].title[:60]}...")
-            
+
+            # Gap-fill thin stories with live web research
+            from app.services.web_research import select_stories_for_research
+            from app.config import get_settings as _get_settings
+
+            _settings = _get_settings()
+            if _settings.web_research_enabled:
+                thin_indices = select_stories_for_research(
+                    ranked_items,
+                    facts_dict,
+                    min_chars=_settings.web_research_min_content_chars,
+                    min_facts=_settings.web_research_min_facts,
+                    max_stories=_settings.web_research_max_stories,
+                )
+                if thin_indices:
+                    print(f"[Briefing] {len(thin_indices)} thin story/stories identified for web research: {thin_indices}")
+                    search = get_search_service()
+                    try:
+                        for idx in thin_indices:
+                            item = ranked_items[idx]
+                            try:
+                                research_text, sources = await search.research_topic(
+                                    item.title, num_sources=3
+                                )
+                            except Exception as e:
+                                print(
+                                    f"[Briefing] Web research failed for '{getattr(item, 'title', '')}': {e}"
+                                )
+                                continue
+                            if research_text:
+                                item.content = (
+                                    (getattr(item, "content", "") or "")
+                                    + "\n\n[Web research]\n"
+                                    + research_text
+                                )
+                            if sources:
+                                item.research_sources = [
+                                    {"name": s.title, "url": s.url} for s in sources
+                                ]
+                                print(
+                                    f"[Briefing] Web research added {len(sources)} sources "
+                                    f"for article {idx + 1}: {item.title[:60]}..."
+                                )
+                    finally:
+                        await search.close()
+
             return facts_dict, raw_facts_response, facts_usage
             
         except (json.JSONDecodeError, ValueError) as e:
