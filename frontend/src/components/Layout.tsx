@@ -7,7 +7,8 @@ import {
   Menu,
   X,
   Users,
-  ChevronRight
+  ChevronRight,
+  Plug
 } from 'lucide-react'
 import clsx from 'clsx'
 import AudioPlayer from './AudioPlayer'
@@ -27,6 +28,7 @@ const baseNavItems = [
   { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', adminOnly: false },
   { path: '/topics', icon: Tag, label: 'Topics', adminOnly: false },
   { path: '/casts', icon: Users, label: 'Casts', adminOnly: false },
+  { path: '/mcp', icon: Plug, label: 'MCP', adminOnly: true },
   { path: '/settings', icon: Settings, label: 'Settings', adminOnly: true },
 ]
 

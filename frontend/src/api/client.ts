@@ -666,6 +666,103 @@ export const castsApi = {
   },
 }
 
+// MCP Types
+export interface McpApiKey {
+  id: string
+  name: string
+  profile_id: string
+  profile_name?: string | null
+  key_prefix: string
+  enabled_tools?: string[] | null
+  last_used_at?: string | null
+  last_client?: string | null
+  revoked_at?: string | null
+  created_at: string
+}
+
+export interface McpApiKeyCreated extends McpApiKey {
+  key: string
+}
+
+export interface McpToolCatalogItem {
+  name: string
+  description: string
+  category: string
+}
+
+export interface McpAuditEntry {
+  id: string
+  api_key_id?: string | null
+  api_key_name?: string | null
+  tool_name: string
+  status: string
+  error?: string | null
+  duration_ms?: number | null
+  client?: string | null
+  args_summary?: string | null
+  created_at: string
+}
+
+export interface McpConnectedClient {
+  api_key_id: string
+  api_key_name: string
+  client?: string | null
+  last_seen: string
+  request_count_24h: number
+}
+
+export interface McpServerInfo {
+  api_url: string
+  python_path: string
+  mcp_script_path: string
+}
+
+export const mcpApi = {
+  serverInfo: async (): Promise<McpServerInfo> => {
+    const { data } = await api.get<McpServerInfo>('/api/mcp/server-info')
+    return data
+  },
+
+  listTools: async (): Promise<McpToolCatalogItem[]> => {
+    const { data } = await api.get<McpToolCatalogItem[]>('/api/mcp/tools')
+    return data
+  },
+
+  listKeys: async (): Promise<McpApiKey[]> => {
+    const { data } = await api.get<McpApiKey[]>('/api/mcp/keys')
+    return data
+  },
+
+  createKey: async (payload: { name: string; profile_id: string; enabled_tools: string[] | null }): Promise<McpApiKeyCreated> => {
+    const { data } = await api.post<McpApiKeyCreated>('/api/mcp/keys', payload)
+    return data
+  },
+
+  updateKey: async (id: string, payload: { name?: string; enabled_tools?: string[] | null }): Promise<McpApiKey> => {
+    const { data } = await api.patch<McpApiKey>(`/api/mcp/keys/${id}`, payload)
+    return data
+  },
+
+  revokeKey: async (id: string): Promise<McpApiKey> => {
+    const { data } = await api.post<McpApiKey>(`/api/mcp/keys/${id}/revoke`)
+    return data
+  },
+
+  deleteKey: async (id: string): Promise<void> => {
+    await api.delete(`/api/mcp/keys/${id}`)
+  },
+
+  listAudit: async (limit = 100): Promise<McpAuditEntry[]> => {
+    const { data } = await api.get<McpAuditEntry[]>(`/api/mcp/audit?limit=${limit}`)
+    return data
+  },
+
+  listClients: async (): Promise<McpConnectedClient[]> => {
+    const { data } = await api.get<McpConnectedClient[]>('/api/mcp/clients')
+    return data
+  },
+}
+
 export const authApi = {
   getMe: async () => {
     const { data } = await api.get('/api/auth/me')
