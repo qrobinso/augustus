@@ -26,6 +26,7 @@ from app.services.news import get_news_service
 from app.services.scraper import get_scraper_service
 from app.services.search import get_search_service
 from app.utils.timezone import utc_now, local_now, format_local_datetime
+from app.utils.audio import embed_chapters_in_mp3
 from app.services.cancellation import (
     BriefingCancelledException,
     BriefingTimeoutException,
@@ -682,6 +683,12 @@ class BriefingService:
             
             # Update briefing
             briefing.audio_filename = audio_filename
+            # Embed ID3 chapters so external podcast players show them (new briefings only).
+            try:
+                if chapters:
+                    embed_chapters_in_mp3(audio_path, chapters, title=briefing.title)
+            except Exception as e:
+                print(f"[Briefing] Chapter embedding skipped: {e}")
             briefing.duration_seconds = tts_result.duration_seconds
             briefing.status = "completed"
             briefing.generated_at = utc_now()
