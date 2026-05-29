@@ -15,6 +15,14 @@ def _log_separator(title: str):
     print(f"{'='*60}")
 
 
+def cached_system_message(text: str) -> dict:
+    """Build a system message whose content is marked for provider prompt caching."""
+    return {
+        "role": "system",
+        "content": [{"type": "text", "text": text, "cache_control": {"type": "ephemeral"}}],
+    }
+
+
 class OpenRouterProvider(LLMProvider):
     """OpenRouter API provider for multi-model access."""
     
@@ -142,10 +150,14 @@ class OpenRouterProvider(LLMProvider):
         for msg in messages:
             role = msg["role"].upper()
             content = msg["content"]
-            # Truncate long content for readability
-            if len(content) > 2000:
-                content = content[:2000] + f"\n... [truncated, {len(msg['content'])} chars total]"
-            print(f"\n[{role}]:\n{content}")
+            # Truncate long content for readability (content may be str or list for cached messages)
+            if isinstance(content, list):
+                display = str(content)
+            else:
+                display = content
+                if len(display) > 2000:
+                    display = display[:2000] + f"\n... [truncated, {len(content)} chars total]"
+            print(f"\n[{role}]:\n{display}")
         print(f"\nSettings: max_tokens={max_tokens}, temperature={temperature}")
 
         # Use cancellable_await to allow immediate abort on cancellation

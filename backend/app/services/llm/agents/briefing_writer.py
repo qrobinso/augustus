@@ -692,13 +692,28 @@ Generate the podcast script now:"""
             last_script=last_script,
         )
 
-        response = await self.llm.generate(
-            prompt=user_prompt,
-            system_prompt=system_prompt,
-            max_tokens=tokens_for_duration(duration),
-            temperature=0.7,
-            briefing_id=briefing_id,
-        )
+        from app.config import get_settings
+        from app.services.llm.openrouter import cached_system_message
 
+        max_tokens = tokens_for_duration(duration)
+        if get_settings().llm_prompt_cache:
+            messages = [
+                cached_system_message(system_prompt),
+                {"role": "user", "content": user_prompt},
+            ]
+            response = await self.llm.generate_conversation(
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=0.7,
+                briefing_id=briefing_id,
+            )
+        else:
+            response = await self.llm.generate(
+                prompt=user_prompt,
+                system_prompt=system_prompt,
+                max_tokens=max_tokens,
+                temperature=0.7,
+                briefing_id=briefing_id,
+            )
         return response
 
