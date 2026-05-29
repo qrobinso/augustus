@@ -41,3 +41,34 @@ def silent_mp3(tmp_path):
     p = str(tmp_path / "test.mp3")
     make_silent_mp3(p)
     return p
+
+
+from app.services.llm.base import LLMProvider, LLMResponse
+
+
+class FakeLLM(LLMProvider):
+    """Recording fake provider. Captures call kwargs; returns canned content."""
+
+    def __init__(self, response_content: str = "{}"):
+        self.response_content = response_content
+        self.calls: list[dict] = []
+
+    async def generate(self, prompt, system_prompt=None, max_tokens=4096,
+                       temperature=0.7, response_format=None, briefing_id=None):
+        self.calls.append({
+            "prompt": prompt, "system_prompt": system_prompt,
+            "max_tokens": max_tokens, "temperature": temperature,
+            "response_format": response_format,
+        })
+        return LLMResponse(content=self.response_content, model="fake", usage={})
+
+    async def generate_conversation(self, messages, max_tokens=4096,
+                                   temperature=0.7, response_format=None, briefing_id=None):
+        self.calls.append({
+            "messages": messages, "max_tokens": max_tokens,
+            "temperature": temperature, "response_format": response_format,
+        })
+        return LLMResponse(content=self.response_content, model="fake", usage={})
+
+    async def close(self):
+        pass

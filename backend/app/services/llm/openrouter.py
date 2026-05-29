@@ -90,12 +90,24 @@ class OpenRouterProvider(LLMProvider):
         
         return self._client
     
+    def _build_payload(self, messages, max_tokens, temperature, response_format=None):
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        }
+        if response_format is not None:
+            payload["response_format"] = response_format
+        return payload
+
     async def generate(
         self,
         prompt: str,
         system_prompt: Optional[str] = None,
         max_tokens: int = 8192,
         temperature: float = 0.7,
+        response_format: Optional[dict] = None,
         briefing_id: Optional[str] = None,
     ) -> LLMResponse:
         """Generate text from prompt using OpenRouter."""
@@ -110,6 +122,7 @@ class OpenRouterProvider(LLMProvider):
             messages=messages,
             max_tokens=max_tokens,
             temperature=temperature,
+            response_format=response_format,
             briefing_id=briefing_id,
         )
     
@@ -118,15 +131,11 @@ class OpenRouterProvider(LLMProvider):
         messages: list[dict],
         max_tokens: int = 8192,
         temperature: float = 0.7,
+        response_format: Optional[dict] = None,
         briefing_id: Optional[str] = None,
     ) -> LLMResponse:
         """Generate response for a conversation."""
-        payload = {
-            "model": self.model,
-            "messages": messages,
-            "max_tokens": max_tokens,
-            "temperature": temperature,
-        }
+        payload = self._build_payload(messages, max_tokens, temperature, response_format)
 
         # Log the request
         _log_separator(f"LLM REQUEST to {self.model}")
