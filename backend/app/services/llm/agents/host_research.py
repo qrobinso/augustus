@@ -87,6 +87,61 @@ class HostResearchAgent:
             + '\n\nOutput JSON: {"articles":[{"article_num":1,"queries":["..."]}]}'
         )
 
+    async def _gather_sources(
+        self, stories: list[dict], queries_by_idx: dict[int, list[str]], host_name: str,
+    ) -> tuple[dict[int, str], list[dict]]:
+        """Run this host's queries, returning per-story content and found_by-tagged sources."""
+        settings = get_settings()
+        max_sources = settings.host_research_max_sources_per_story
+        content_by_idx: dict[int, str] = {}
+        sources: list[dict] = []
+        seen_urls: set[str] = set()
+
+        for idx, story in enumerate(stories):
+            collected: list[str] = []
+
+            # Always include the original article content as a baseline.
+            url = story.get("url")
+            if url:
+                try:
+                    page = await self.search_service.fetch_page_content(url)
+                    if page and len(page) > 200:
+                        collected.append(page)
+                except Exception as e:
+                    print(f"[HostResearch:{host_name}] fetch failed for {url}: {e}")
+
+            # Persona-biased searches.
+            for query in queries_by_idx.get(idx, []):
+                try:
+                    results = await self.search_service.search(query, num_results=max_sources)
+                except Exception as e:
+                    print(f"[HostResearch:{host_name}] search failed for '{query}': {e}")
+                    continue
+                for result in results:
+                    if result.url in seen_urls:
+                        continue
+                    seen_urls.add(result.url)
+                    sources.append({
+                        "title": result.title,
+                        "url": result.url,
+                        "snippet": getattr(result, "snippet", ""),
+                        "found_by": [host_name],
+                        "story_index": idx,
+                    })
+                    if len([s for s in sources if s["story_index"] == idx]) > max_sources:
+                        continue
+                    try:
+                        page = await self.search_service.fetch_page_content(result.url)
+                        if page and len(page) > 200:
+                            collected.append(f"[Source: {result.title}]\n{page}")
+                    except Exception as e:
+                        print(f"[HostResearch:{host_name}] fetch failed for {result.url}: {e}")
+
+            if collected:
+                content_by_idx[idx] = "\n\n".join(collected)
+
+        return content_by_idx, sources
+
     async def _generate_queries(
         self, stories: list[dict], host_name: str, personality_name: str,
         briefing_id: Optional[str] = None,
