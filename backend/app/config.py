@@ -54,6 +54,9 @@ class Settings(BaseSettings):
     openrouter_model: str = "anthropic/claude-3.5-sonnet"
     openrouter_writer_model: Optional[str] = None  # Optional separate model for briefing writing (uses openrouter_model if not set)
     
+    llm_structured_outputs: bool = True
+    llm_prompt_cache: bool = False
+
     # TTS Providers
     tts_provider: str = "piper"  # "piper", "elevenlabs", or "gemini"
     

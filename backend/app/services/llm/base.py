@@ -24,6 +24,7 @@ class LLMProvider(ABC):
         system_prompt: Optional[str] = None,
         max_tokens: int = 4096,
         temperature: float = 0.7,
+        response_format: Optional[dict] = None,
         briefing_id: Optional[str] = None,
     ) -> LLMResponse:
         """Generate text from prompt.
@@ -45,6 +46,7 @@ class LLMProvider(ABC):
         messages: list[dict],
         max_tokens: int = 4096,
         temperature: float = 0.7,
+        response_format: Optional[dict] = None,
         briefing_id: Optional[str] = None,
     ) -> LLMResponse:
         """Generate response for a conversation.

@@ -3,8 +3,48 @@
 import json
 from typing import Optional
 
+from app.config import get_settings
 from app.services.llm.base import LLMProvider
 from app.services.search import get_search_service
+
+FACTS_SCHEMA = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "article_facts",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "articles": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "article_num": {"type": "integer"},
+                            "title": {"type": "string"},
+                            "questions_and_answers": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "additionalProperties": False,
+                                    "properties": {
+                                        "question": {"type": "string"},
+                                        "answer": {"type": "string"},
+                                    },
+                                    "required": ["question", "answer"],
+                                },
+                            },
+                        },
+                        "required": ["article_num", "title", "questions_and_answers"],
+                    },
+                }
+            },
+            "required": ["articles"],
+        },
+    },
+}
 
 
 class FactsGathererAgent:
@@ -275,11 +315,13 @@ Return ONLY the JSON output, no other text."""
         user_prompt = self._build_user_prompt(stories, additional_content)
 
         # Call LLM to generate questions and answers
+        response_format = FACTS_SCHEMA if get_settings().llm_structured_outputs else None
         response = await self.llm.generate(
             prompt=user_prompt,
             system_prompt=system_prompt,
             max_tokens=4096,  # Increased for detailed answers
             temperature=0.5,  # Moderate temperature for factual but varied responses
+            response_format=response_format,
             briefing_id=briefing_id,
         )
         
