@@ -106,7 +106,7 @@ function SetupTab() {
   const command = serverInfo?.python_path || 'python'
   const args = [serverInfo?.mcp_script_path || '/path/to/augustus/backend/mcp_server.py']
 
-  const claudeDesktop = JSON.stringify(
+  const clientConfig = JSON.stringify(
     {
       mcpServers: {
         augustus: {
@@ -127,51 +127,6 @@ function SetupTab() {
   --env AUGUSTUS_API_URL=${apiUrl} \\
   --env AUGUSTUS_API_KEY=aug_your_key_here \\
   -- "${command}" "${args[0]}"`
-
-  const cursor = JSON.stringify(
-    {
-      mcpServers: {
-        augustus: {
-          command,
-          args,
-          env: {
-            AUGUSTUS_API_URL: apiUrl,
-            AUGUSTUS_API_KEY: 'aug_your_key_here',
-          },
-        },
-      },
-    },
-    null,
-    2,
-  )
-
-  const openclawCli = `openclaw mcp set augustus '${JSON.stringify({
-    command,
-    args,
-    env: {
-      AUGUSTUS_API_URL: apiUrl,
-      AUGUSTUS_API_KEY: 'aug_your_key_here',
-    },
-  })}'`
-
-  const openclawJson = JSON.stringify(
-    {
-      mcp: {
-        servers: {
-          augustus: {
-            command,
-            args,
-            env: {
-              AUGUSTUS_API_URL: apiUrl,
-              AUGUSTUS_API_KEY: 'aug_your_key_here',
-            },
-          },
-        },
-      },
-    },
-    null,
-    2,
-  )
 
   return (
     <div className="space-y-6">
@@ -196,34 +151,14 @@ function SetupTab() {
         </p>
 
         <ConfigSection
-          title="Claude Desktop"
-          subtitle="Edit claude_desktop_config.json"
-          code={claudeDesktop}
-          language="json"
+          title="Claude Desktop / Cursor"
+          subtitle="Add to claude_desktop_config.json or ~/.cursor/mcp.json"
+          code={clientConfig}
         />
         <ConfigSection
           title="Claude Code"
           subtitle="Run in a terminal"
           code={claudeCode}
-          language="bash"
-        />
-        <ConfigSection
-          title="Cursor"
-          subtitle="Settings → MCP → New MCP server (or edit ~/.cursor/mcp.json)"
-          code={cursor}
-          language="json"
-        />
-        <ConfigSection
-          title="OpenClaw (CLI)"
-          subtitle="Adds the server to ~/.openclaw/openclaw.json"
-          code={openclawCli}
-          language="bash"
-        />
-        <ConfigSection
-          title="OpenClaw (manual config)"
-          subtitle="Merge into ~/.openclaw/openclaw.json"
-          code={openclawJson}
-          language="json"
         />
       </div>
 
@@ -246,7 +181,6 @@ function ConfigSection({
   title: string
   subtitle: string
   code: string
-  language: string
 }) {
   return (
     <div className="mt-4 first:mt-0">
