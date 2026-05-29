@@ -106,3 +106,22 @@ def get_configured_durations() -> dict[str, int]:
     return {
         "briefing": settings.briefing_duration_minutes,
     }
+
+
+WORDS_PER_MINUTE = 150
+
+
+def target_words_for_duration(duration_minutes: int) -> int:
+    """Approximate spoken word count for a briefing of the given length."""
+    return int(duration_minutes) * WORDS_PER_MINUTE
+
+
+def tokens_for_duration(duration_minutes: int) -> int:
+    """max_tokens budget for a script of the given length.
+
+    ~1.5 tokens/word for English, plus headroom for the title and markup.
+    Clamped to a sane [1024, 16384] range.
+    """
+    words = target_words_for_duration(duration_minutes)
+    tokens = int(words * 1.5) + 512
+    return max(1024, min(tokens, 16384))

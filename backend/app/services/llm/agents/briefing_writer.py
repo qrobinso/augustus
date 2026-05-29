@@ -6,6 +6,8 @@ from app.services.llm.base import LLMProvider
 from app.services.llm.prompts import (
     COMPLEXITY_LEVELS,
     get_complexity_instruction,
+    tokens_for_duration,
+    target_words_for_duration,
 )
 from app.services.llm.personalities import get_personality
 
@@ -600,6 +602,8 @@ Last script transcript:
 Remember: This is for reference only. Create fresh content that builds on this foundation without repeating it.
 """
         
+        word_target = target_words_for_duration(duration)
+
         prompt = f"""Create an engaging {duration}-minute daily briefing podcast script from the news below.
 
 {content}
@@ -620,6 +624,7 @@ REQUIREMENTS:
 3. Weave in the additional quantifiable facts above (when provided) for the matching article - ground the discussion in real numbers.
 4. Have hosts ask insightful questions and offer distinct perspectives; present multiple viewpoints on contested topics.
 5. End by recapping the key stories and takeaways.
+6. Aim for roughly {word_target} words of spoken dialogue (~{duration} minutes at a natural pace).
 
 Follow the title, chapter, transition, format, and language rules from the system instructions. Output the TITLE line, then the dialogue, and nothing else.
 
@@ -690,7 +695,7 @@ Generate the podcast script now:"""
         response = await self.llm.generate(
             prompt=user_prompt,
             system_prompt=system_prompt,
-            max_tokens=4096,
+            max_tokens=tokens_for_duration(duration),
             temperature=0.7,
             briefing_id=briefing_id,
         )
