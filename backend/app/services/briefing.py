@@ -35,7 +35,7 @@ from app.services.cancellation import (
     is_cancelled as cancel_is_cancelled,
 )
 from app.services.search import SearchService
-from app.services.web_research import select_stories_for_research, merge_sources, combine_host_sources
+from app.services.web_research import select_stories_for_research, merge_sources
 
 settings = get_settings()
 
@@ -489,6 +489,8 @@ class BriefingService:
             await self._check_cancelled(briefing_id)
 
             host_research = None
+            raw_facts_response = ""
+            facts_usage = {}
             if get_settings().host_research_enabled and len(cast_members) >= 1:
                 print("[Briefing] Per-host research enabled — gathering host-specific research...")
                 stories_for_research = [item.to_dict() for item in ranked_items]
