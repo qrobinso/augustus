@@ -77,6 +77,7 @@ export interface BriefingExtraData {
   stories_selected?: number
   topic_ids?: string[]
   cast_name?: string
+  chapter_sources?: Record<string, Array<{ name: string; url: string }>>
 }
 
 export interface Briefing {
@@ -270,12 +271,13 @@ export interface Profile {
 // API functions
 export const briefingsApi = {
   list: async (
-    limit = 10, 
-    offset = 0, 
+    limit = 10,
+    offset = 0,
     listened?: boolean,
     cast_id?: string,
     topic_ids?: string[],
-    favorite?: boolean
+    favorite?: boolean,
+    q?: string
   ) => {
     const params = new URLSearchParams({
       limit: String(limit),
@@ -292,6 +294,9 @@ export const briefingsApi = {
     }
     if (favorite !== undefined) {
       params.set('favorite', String(favorite))
+    }
+    if (q && q.trim()) {
+      params.set('q', q.trim())
     }
     const { data } = await api.get<{ briefings: Briefing[]; total: number }>(
       `/api/briefings?${params}`

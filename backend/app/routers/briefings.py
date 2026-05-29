@@ -72,6 +72,7 @@ async def list_briefings(
     cast_id: Optional[str] = None,
     topic_ids: Optional[list[str]] = Query(None),
     favorite: Optional[bool] = None,
+    q: Optional[str] = None,
     user: User = Depends(get_current_user),
     profile: Profile = Depends(get_current_profile),
     db: AsyncSession = Depends(get_db),
@@ -81,12 +82,13 @@ async def list_briefings(
     briefings, total = await service.list_briefings(
         user.id,
         profile_id=profile.id,
-        limit=limit, 
-        offset=offset, 
+        limit=limit,
+        offset=offset,
         listened=listened,
         cast_id=cast_id,
         topic_ids=topic_ids,
         favorite=favorite,
+        q=q,
     )
     
     return BriefingListResponse(

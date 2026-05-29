@@ -148,7 +148,7 @@ async def convert_to_mp3(
             "-acodec", "libmp3lame", "-b:a", bitrate,
             str(output_path),
         ]
-        
+
         # Use subprocess.run wrapped in asyncio.to_thread for Windows compatibility
         def run_ffmpeg():
             return subprocess.run(
@@ -157,9 +157,74 @@ async def convert_to_mp3(
                 stderr=subprocess.PIPE,
                 text=True,
             )
-        
+
         result = await asyncio.to_thread(run_ffmpeg)
         return result.returncode == 0
     except Exception:
+        return False
+
+
+def embed_chapters_in_mp3(filepath, chapters: list, title: Optional[str] = None) -> bool:
+    """Embed ID3v2 CHAP/CTOC chapter frames into an MP3 so external players show chapters.
+
+    Args:
+        filepath: Path to the MP3 file (str or Path).
+        chapters: list of {"title", "start_time", "end_time"} (seconds).
+        title: Optional track title to set (TIT2).
+
+    Returns:
+        True if chapters were embedded; False on no-op or failure (never raises).
+    """
+    from mutagen.mp3 import MP3
+    from mutagen.id3 import ID3, CHAP, CTOC, TIT2, CTOCFlags
+
+    try:
+        path = str(filepath)
+        if not path.lower().endswith(".mp3"):
+            return False
+
+        audio = MP3(path, ID3=ID3)
+        if audio.tags is None:
+            audio.add_tags()
+        tags = audio.tags
+
+        # Clear any existing chapter frames so this is idempotent.
+        for key in list(tags.keys()):
+            if key.startswith("CHAP") or key.startswith("CTOC"):
+                del tags[key]
+
+        if not chapters:
+            audio.save()
+            return False
+
+        child_ids = []
+        for i, ch in enumerate(chapters):
+            element_id = f"chp{i}"
+            child_ids.append(element_id)
+            start_ms = int(float(ch.get("start_time") or 0) * 1000)
+            end_raw = ch.get("end_time")
+            end_ms = int(float(end_raw) * 1000) if end_raw is not None else start_ms
+            chap_title = ch.get("title") or f"Chapter {i + 1}"
+            tags.add(CHAP(
+                element_id=element_id,
+                start_time=start_ms,
+                end_time=end_ms,
+                sub_frames=[TIT2(encoding=3, text=[chap_title])],
+            ))
+
+        tags.add(CTOC(
+            element_id="toc",
+            flags=CTOCFlags.TOP_LEVEL | CTOCFlags.ORDERED,
+            child_element_ids=child_ids,
+            sub_frames=[TIT2(encoding=3, text=["Chapters"])],
+        ))
+
+        if title:
+            tags.add(TIT2(encoding=3, text=[title]))
+
+        audio.save()
+        return True
+    except Exception as e:
+        print(f"[Audio] Failed to embed chapters into {filepath}: {e}")
         return False
 

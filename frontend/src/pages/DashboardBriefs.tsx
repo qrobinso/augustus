@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { 
+import {
   Play,
   Pause,
-  Loader2, 
-  Clock, 
+  Loader2,
+  Clock,
   Calendar,
   Trash2,
   AlertCircle,
@@ -14,11 +14,15 @@ import {
   XCircle,
   Tag,
   Waves,
-  Heart
+  Heart,
+  ListPlus,
+  CornerUpRight,
+  Search
 } from 'lucide-react'
 import clsx from 'clsx'
 import { briefingsApi, settingsApi, topicsApi, castsApi, Briefing, Topic, Cast } from '../api/client'
 import { useStore } from '../store/useStore'
+import type { QueueItem } from '../store/queue'
 import { formatCompactDate } from '../utils/timezone'
 import { useProfileNavigate } from '../utils/profileSlug'
 
@@ -29,6 +33,17 @@ export default function DashboardBriefs() {
   const isPlaying = useStore((s) => s.isPlaying)
   const playAudio = useStore((s) => s.playAudio)
   const togglePlayPause = useStore((s) => s.togglePlayPause)
+  const addToQueue = useStore((s) => s.addToQueue)
+  const playNext = useStore((s) => s.playNext)
+
+  const toQueueItem = (b: Briefing): QueueItem => ({
+    id: b.id,
+    type: 'briefing',
+    title: b.title,
+    audioUrl: b.audio_url!,
+    transcript: b.transcript,
+    chapters: b.chapters,
+  })
   
   const [listenedFilter, setListenedFilter] = useState<boolean | undefined>(undefined)
   const [filterCastId, setFilterCastId] = useState<string | undefined>(undefined)
@@ -37,7 +52,15 @@ export default function DashboardBriefs() {
   const [currentPage, setCurrentPage] = useState(0)
   const [isMobile, setIsMobile] = useState(false)
   const pageSize = 10
-  
+
+  const [searchInput, setSearchInput] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
+
+  useEffect(() => {
+    const t = setTimeout(() => setSearchQuery(searchInput), 300)
+    return () => clearTimeout(t)
+  }, [searchInput])
+
   // Detect mobile screen size
   useEffect(() => {
     const checkMobile = () => {
@@ -63,24 +86,25 @@ export default function DashboardBriefs() {
     briefings?.some((b) => b.status === 'pending' || b.status === 'generating' || b.status === 'queued')
   
   const { data, isLoading, error } = useQuery({
-    queryKey: ['briefings', listenedFilter, filterCastId, filterTopicIds, favoriteFilter, currentPage],
+    queryKey: ['briefings', listenedFilter, filterCastId, filterTopicIds, favoriteFilter, currentPage, searchQuery],
     queryFn: () => briefingsApi.list(
-      pageSize, 
-      currentPage * pageSize, 
+      pageSize,
+      currentPage * pageSize,
       listenedFilter,
       filterCastId,
       filterTopicIds.length > 0 ? filterTopicIds : undefined,
-      favoriteFilter
+      favoriteFilter,
+      searchQuery || undefined
     ),
     refetchInterval: (query) => {
       return hasBriefingInProgress(query.state.data?.briefings) ? 2000 : 10000
     },
   })
   
-  // Reset to first page when filter changes
+  // Reset to first page when filter or search changes
   useEffect(() => {
     setCurrentPage(0)
-  }, [listenedFilter, filterCastId, filterTopicIds, favoriteFilter])
+  }, [listenedFilter, filterCastId, filterTopicIds, favoriteFilter, searchQuery])
   
   // Fetch settings for timezone
   const { data: settings } = useQuery({
@@ -559,6 +583,34 @@ export default function DashboardBriefs() {
            </button>
          )}
          
+         {/* Queue action buttons for completed briefings with audio */}
+         {briefing.status === 'completed' && briefing.audio_url && (
+           <div className="absolute top-4 right-4 flex items-center gap-1 z-10">
+             <button
+               onClick={(e) => {
+                 e.stopPropagation()
+                 playNext(toQueueItem(briefing))
+               }}
+               className="btn-icon btn btn-ghost p-1.5 sm:p-2 min-h-[36px] min-w-[36px] text-augustus-400 hover:text-white backdrop-blur-sm"
+               title="Play next"
+               aria-label="Play next"
+             >
+               <CornerUpRight className="w-4 h-4 sm:w-5 sm:h-5" />
+             </button>
+             <button
+               onClick={(e) => {
+                 e.stopPropagation()
+                 addToQueue(toQueueItem(briefing))
+               }}
+               className="btn-icon btn btn-ghost p-1.5 sm:p-2 min-h-[36px] min-w-[36px] text-augustus-400 hover:text-white backdrop-blur-sm"
+               title="Add to queue"
+               aria-label="Add to queue"
+             >
+               <ListPlus className="w-4 h-4 sm:w-5 sm:h-5" />
+             </button>
+           </div>
+         )}
+
          {/* Delete button for failed, cancelled, or errored briefings */}
          {(briefing.status === 'failed' || briefing.status === 'cancelled' || briefing.error_message) && (
            <button
@@ -581,6 +633,28 @@ export default function DashboardBriefs() {
 
   return (
     <div className="space-y-3 sm:space-y-4">
+      {/* Search bar */}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-augustus-500 pointer-events-none" />
+        <input
+          type="search"
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
+          placeholder="Search briefings…"
+          className="w-full bg-augustus-900 border border-augustus-800 rounded-xl pl-10 pr-10 py-2.5 text-sm text-white placeholder-augustus-500 focus:outline-none focus:border-accent transition-colors"
+          aria-label="Search briefings"
+        />
+        {searchInput && (
+          <button
+            onClick={() => setSearchInput('')}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-augustus-500 hover:text-white transition-colors"
+            aria-label="Clear search"
+          >
+            <XCircle className="w-4 h-4" />
+          </button>
+        )}
+      </div>
+
       {/* Filter controls */}
       <div className="card mb-6 sm:mb-8">
         <button
@@ -812,7 +886,9 @@ export default function DashboardBriefs() {
         <div className="card text-center py-10 sm:py-12">
           <Calendar className="w-10 sm:w-12 h-10 sm:h-12 text-augustus-600 mx-auto mb-3 sm:mb-4" />
           <p className="text-sm sm:text-base text-augustus-400">
-            {favoriteFilter === true
+            {searchQuery.trim()
+              ? `No briefings match "${searchQuery}"`
+              : favoriteFilter === true
               ? 'No favorite briefings found.'
               : listenedFilter === true
               ? 'No listened briefings found.'
@@ -823,9 +899,21 @@ export default function DashboardBriefs() {
         </div>
       ) : (
         (() => {
-          const shouldGroupByListened = listenedFilter === undefined
           const briefings = data?.briefings || []
-          
+
+          // When searching, render a flat list without grouping
+          if (searchQuery.trim()) {
+            return briefings.map((briefing) => {
+              const isCurrentlyPlaying = currentAudio?.id === briefing.id && isPlaying
+              const isLatest = false
+              const briefingTopicIds = (briefing.extra_data?.topic_ids as string[]) || []
+              const briefingTopics = topics.filter((t) => briefingTopicIds.includes(t.id))
+              return renderBriefingCard(briefing, isLatest, isCurrentlyPlaying, briefingTopics)
+            })
+          }
+
+          const shouldGroupByListened = listenedFilter === undefined
+
           if (shouldGroupByListened) {
             const notListened = briefings.filter(b => !b.listened)
             const listened = briefings.filter(b => b.listened)

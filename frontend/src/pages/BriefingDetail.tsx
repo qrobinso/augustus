@@ -1,11 +1,11 @@
 import { useParams, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useRef, useEffect, useState, useCallback, useMemo } from 'react'
-import { 
-  ArrowLeft, 
-  Play, 
+import {
+  ArrowLeft,
+  Play,
   Pause,
-  Clock, 
+  Clock,
   Calendar,
   Loader2,
   AlertCircle,
@@ -26,11 +26,14 @@ import {
   Trash2,
   CalendarClock,
   Download,
-  Move
+  Move,
+  ListPlus,
+  CornerUpRight
 } from 'lucide-react'
 import clsx from 'clsx'
 import { briefingsApi, settingsApi, castsApi, scheduledBriefingsApi, topicsApi, SegmentTiming } from '../api/client'
 import { useStore } from '../store/useStore'
+import type { QueueItem } from '../store/queue'
 import { formatFullDate } from '../utils/timezone'
 import { audioManager } from '../utils/audioManager'
 import { useProfileNavigate } from '../utils/profileSlug'
@@ -49,6 +52,17 @@ export default function BriefingDetail() {
   const setIsPlaying = useStore((s) => s.setIsPlaying)
   const playAudio = useStore((s) => s.playAudio)
   const togglePlayPause = useStore((s) => s.togglePlayPause)
+  const addToQueue = useStore((s) => s.addToQueue)
+  const playNext = useStore((s) => s.playNext)
+
+  const toQueueItem = (b: NonNullable<typeof briefing>): QueueItem => ({
+    id: b.id,
+    type: 'briefing',
+    title: b.title,
+    audioUrl: b.audio_url!,
+    transcript: b.transcript,
+    chapters: b.chapters,
+  })
   
   // Track active segment for highlighting
   const [activeSegmentIndex, setActiveSegmentIndex] = useState<number | null>(null)
@@ -440,6 +454,9 @@ export default function BriefingDetail() {
     return formatFullDate(dateStr, timezone)
   }
   
+  // Derive per-chapter sources map from extra_data
+  const chapterSources = briefing?.extra_data?.chapter_sources
+
   // Get transcript as plain text for copying
   const getTranscriptText = () => {
     // If we have segment timings, format them as text
@@ -626,6 +643,22 @@ export default function BriefingDetail() {
                   {formatTimestamp(chapterForSegment.start_time)}
                 </button>
               </div>
+              {chapterIndex !== null && chapterSources?.[String(chapterIndex)]?.length ? (
+                <div className="mt-1 flex flex-wrap gap-2">
+                  {chapterSources[String(chapterIndex)].map((s, i) => (
+                    <a
+                      key={i}
+                      href={s.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-accent hover:underline inline-flex items-center gap-1"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <ExternalLink className="w-3 h-3" /> {s.name}
+                    </a>
+                  ))}
+                </div>
+              ) : null}
             </div>
           )
         }
@@ -960,7 +993,29 @@ export default function BriefingDetail() {
               <Download className="w-4 h-4" />
               <span className="hidden sm:inline">Download</span>
             </button>
-            
+
+            {briefing.status === 'completed' && briefing.audio_url && (
+              <>
+                <button
+                  onClick={() => playNext(toQueueItem(briefing))}
+                  className="btn btn-ghost flex items-center gap-2 text-sm"
+                  title="Play next"
+                >
+                  <CornerUpRight className="w-4 h-4" />
+                  <span className="hidden sm:inline">Play Next</span>
+                </button>
+
+                <button
+                  onClick={() => addToQueue(toQueueItem(briefing))}
+                  className="btn btn-ghost flex items-center gap-2 text-sm"
+                  title="Add to queue"
+                >
+                  <ListPlus className="w-4 h-4" />
+                  <span className="hidden sm:inline">Add to Queue</span>
+                </button>
+              </>
+            )}
+
             <button
               onClick={() => listenedMutation.mutate({ listened: !briefing.listened })}
               disabled={listenedMutation.isPending}

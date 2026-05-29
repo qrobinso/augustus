@@ -111,6 +111,12 @@ class Settings(BaseSettings):
     # Onboarding State
     onboarding_completed: bool = False  # Whether onboarding has been completed
     onboarding_skipped: bool = False  # Whether onboarding was skipped
+
+    # Web Research Gap-Fill
+    web_research_enabled: bool = True
+    web_research_min_content_chars: int = 600
+    web_research_min_facts: int = 2
+    web_research_max_stories: int = 3
     
     @property
     def rss_feed_list(self) -> list[str]:

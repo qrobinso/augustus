@@ -26,6 +26,7 @@ from app.services.news import get_news_service
 from app.services.scraper import get_scraper_service
 from app.services.search import get_search_service
 from app.utils.timezone import utc_now, local_now, format_local_datetime
+from app.utils.audio import embed_chapters_in_mp3
 from app.services.cancellation import (
     BriefingCancelledException,
     BriefingTimeoutException,
@@ -33,6 +34,8 @@ from app.services.cancellation import (
     unregister as cancel_unregister,
     is_cancelled as cancel_is_cancelled,
 )
+from app.services.search import SearchService
+from app.services.web_research import select_stories_for_research, merge_sources
 
 settings = get_settings()
 
@@ -459,7 +462,10 @@ class BriefingService:
             
             # Store sources (the ranked/prioritized stories - should be 3-5)
             briefing.sources = [item.to_dict() for item in ranked_items]
-            
+
+            # NOTE: web-research sources are merged in AFTER _generate_additional_facts runs
+            # (see the merge block below, after Step 5 returns)
+
             # Save ONLY the articles that were used in the podcast script (ranked_items)
             # Group by topic_id to save efficiently
             articles_by_topic = {}
@@ -489,7 +495,16 @@ class BriefingService:
             )
             await self._check_cancelled(briefing_id)
             print(f"[Briefing] Generated facts for {len(additional_facts)} articles")
-            
+
+            # Merge any web-research sources gathered during gap-fill into briefing.sources
+            _research_sources = []
+            for _item in ranked_items:
+                for _s in getattr(_item, "research_sources", []) or []:
+                    _research_sources.append(_s)
+            if _research_sources:
+                briefing.sources = merge_sources(briefing.sources, _research_sources)
+                print(f"[Briefing] Merged {len(_research_sources)} web-research source(s) into briefing.sources")
+
             # Step 6: Load cast for this briefing
             await update_progress(6, "Loading cast configuration", 65)
             cast_service = CastService(self.db)
@@ -682,6 +697,12 @@ class BriefingService:
             
             # Update briefing
             briefing.audio_filename = audio_filename
+            # Embed ID3 chapters so external podcast players show them (new briefings only).
+            try:
+                if chapters:
+                    embed_chapters_in_mp3(audio_path, chapters, title=briefing.title)
+            except Exception as e:
+                print(f"[Briefing] Chapter embedding skipped: {e}")
             briefing.duration_seconds = tts_result.duration_seconds
             briefing.status = "completed"
             briefing.generated_at = utc_now()
@@ -708,6 +729,44 @@ class BriefingService:
             )
             costs["total"] = total_cost
             
+            # Build chapter_sources: map chapter index -> list of {name, url} for frontend
+            # Use title-based matching instead of positional alignment; chapters can include
+            # intro/outro that have no corresponding story, so positional mapping is wrong.
+            def _norm(s):
+                return (s or "").strip().lower()
+
+            def _match_story_index(chapter_title):
+                ct = _norm(chapter_title)
+                if not ct:
+                    return None
+                best_idx, best_score = None, 0
+                for si, story in enumerate(ranked_items):
+                    st = _norm(getattr(story, "title", ""))
+                    if not st:
+                        continue
+                    # substring either direction => score by overlap length
+                    if st in ct or ct in st:
+                        score = min(len(st), len(ct))
+                        if score > best_score:
+                            best_idx, best_score = si, score
+                return best_idx
+
+            chapter_sources = {}
+            for ci, _chapter in enumerate(chapters):
+                _title = _chapter.get("title") if isinstance(_chapter, dict) else getattr(_chapter, "title", None)
+                _si = _match_story_index(_title)
+                if _si is None:
+                    continue
+                _item = ranked_items[_si]
+                _srcs = []
+                _url = getattr(_item, "url", None)
+                if _url:
+                    _srcs.append({"name": getattr(_item, "source", None) or _item.title, "url": _url})
+                for _s in getattr(_item, "research_sources", []) or []:
+                    _srcs.append(_s)
+                if _srcs:
+                    chapter_sources[str(ci)] = _srcs
+
             # Reassign extra_data to ensure SQLAlchemy detects the change
             # (in-place mutations like .update() aren't detected on JSON fields)
             new_extra_data = dict(briefing.extra_data) if briefing.extra_data else {}
@@ -720,6 +779,7 @@ class BriefingService:
                 "tts_voice": tts_result.voice_id,
                 "segment_timings": segment_timings,
                 "chapters": chapters,  # Store chapters with timestamps
+                "chapter_sources": chapter_sources,  # Per-chapter source links for frontend
                 "story_analysis": analysis_summary,
                 "story_analysis_raw": raw_analysis,
                 "story_analysis_usage": story_analysis_usage,
@@ -1091,6 +1151,7 @@ class BriefingService:
         cast_id: Optional[str] = None,
         topic_ids: Optional[list[str]] = None,
         favorite: Optional[bool] = None,
+        q: Optional[str] = None,
     ) -> tuple[list[Briefing], int]:
         """List briefings for a user/profile.
         
@@ -1103,6 +1164,7 @@ class BriefingService:
             cast_id: Optional filter by cast ID
             topic_ids: Optional filter by topic IDs (briefings must contain at least one of these topics)
             favorite: Optional filter by favorite status
+            q: Optional text search across title and transcript (case-insensitive)
         """
         # Build query
         query = select(Briefing).where(Briefing.user_id == user_id)
@@ -1152,9 +1214,20 @@ class BriefingService:
                     filtered_briefings.append(briefing)
             all_briefings = filtered_briefings
         
+        # Apply text search across title + transcript if provided
+        if q and q.strip():
+            search_term = q.strip().lower()
+            filtered_by_q = []
+            for briefing in all_briefings:
+                title_match = search_term in (briefing.title or "").lower()
+                transcript_match = search_term in (briefing.transcript or "").lower()
+                if title_match or transcript_match:
+                    filtered_by_q.append(briefing)
+            all_briefings = filtered_by_q
+
         # Get total count
         total = len(all_briefings)
-        
+
         # Apply pagination
         briefings = all_briefings[offset:offset + limit]
         
@@ -1724,7 +1797,49 @@ class BriefingService:
             for idx, facts in facts_dict.items():
                 if 0 <= idx < len(ranked_items):
                     print(f"[Briefing] Generated {len(facts)} facts for article {idx + 1}: {ranked_items[idx].title[:60]}...")
-            
+
+            # Gap-fill thin stories with live web research
+            _settings = get_settings()
+            if _settings.web_research_enabled:
+                thin_indices = select_stories_for_research(
+                    ranked_items,
+                    facts_dict,
+                    min_chars=_settings.web_research_min_content_chars,
+                    min_facts=_settings.web_research_min_facts,
+                    max_stories=_settings.web_research_max_stories,
+                )
+                if thin_indices:
+                    print(f"[Briefing] {len(thin_indices)} thin story/stories identified for web research: {thin_indices}")
+                    search = SearchService()
+                    try:
+                        for idx in thin_indices:
+                            item = ranked_items[idx]
+                            try:
+                                research_text, sources = await search.research_topic(
+                                    item.title, num_sources=3
+                                )
+                            except Exception as e:
+                                print(
+                                    f"[Briefing] Web research failed for '{getattr(item, 'title', '')}': {e}"
+                                )
+                                continue
+                            if research_text:
+                                item.content = (
+                                    (getattr(item, "content", "") or "")
+                                    + "\n\n[Web research]\n"
+                                    + research_text
+                                )
+                            if sources:
+                                item.research_sources = [
+                                    {"name": s.title, "url": s.url} for s in sources
+                                ]
+                                print(
+                                    f"[Briefing] Web research added {len(sources)} sources "
+                                    f"for article {idx + 1}: {item.title[:60]}..."
+                                )
+                    finally:
+                        await search.close()
+
             return facts_dict, raw_facts_response, facts_usage
             
         except (json.JSONDecodeError, ValueError) as e:
