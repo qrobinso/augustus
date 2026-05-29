@@ -47,11 +47,22 @@ from app.services.llm.base import LLMProvider, LLMResponse
 
 
 class FakeLLM(LLMProvider):
-    """Recording fake provider. Captures call kwargs; returns canned content."""
+    """Recording fake provider. Captures call kwargs; returns canned content.
 
-    def __init__(self, response_content: str = "{}"):
-        self.response_content = response_content
+    response_content may be a single string (repeated) or a list of strings
+    returned in sequence (last entry repeats once exhausted).
+    """
+
+    def __init__(self, response_content="{}"):
+        self._responses = [response_content] if isinstance(response_content, str) else list(response_content)
         self.calls: list[dict] = []
+
+    def _next(self) -> str:
+        if not self._responses:
+            return ""
+        if len(self._responses) == 1:
+            return self._responses[0]
+        return self._responses.pop(0)
 
     async def generate(self, prompt, system_prompt=None, max_tokens=4096,
                        temperature=0.7, response_format=None, briefing_id=None):
@@ -60,7 +71,7 @@ class FakeLLM(LLMProvider):
             "max_tokens": max_tokens, "temperature": temperature,
             "response_format": response_format,
         })
-        return LLMResponse(content=self.response_content, model="fake", usage={})
+        return LLMResponse(content=self._next(), model="fake", usage={})
 
     async def generate_conversation(self, messages, max_tokens=4096,
                                    temperature=0.7, response_format=None, briefing_id=None):
@@ -68,7 +79,27 @@ class FakeLLM(LLMProvider):
             "messages": messages, "max_tokens": max_tokens,
             "temperature": temperature, "response_format": response_format,
         })
-        return LLMResponse(content=self.response_content, model="fake", usage={})
+        return LLMResponse(content=self._next(), model="fake", usage={})
 
     async def close(self):
         pass
+
+
+class FakeSearch:
+    """Fake SearchService: records queries, returns canned results/content."""
+
+    def __init__(self, results=None, page_content=None):
+        from app.services.search import SearchResult
+        self._results = results if results is not None else [
+            SearchResult("Result A", "http://a.example", "snippet a"),
+            SearchResult("Result B", "http://b.example", "snippet b"),
+        ]
+        self._page_content = page_content or ("fetched article content about the topic. " * 20)
+        self.queries: list[str] = []
+
+    async def search(self, query, num_results=3):
+        self.queries.append(query)
+        return self._results[:num_results]
+
+    async def fetch_page_content(self, url):
+        return self._page_content
