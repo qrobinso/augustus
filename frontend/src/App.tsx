@@ -19,6 +19,7 @@ import CreateSchedule from './pages/CreateSchedule'
 import ManagePersonalities from './pages/ManagePersonalities'
 import Settings from './pages/Settings'
 import About from './pages/About'
+import Mcp from './pages/Mcp'
 import Onboarding from './pages/Onboarding'
 import ProfileSwitcher from './pages/ProfileSwitcher'
 
@@ -174,6 +175,7 @@ function App() {
             <Route path="schedules/:id/edit" element={<CreateSchedule />} />
             <Route path="settings" element={<Settings />} />
             <Route path="about" element={<About />} />
+            <Route path="mcp" element={<Mcp />} />
           </Route>
         </Routes>
       </ProfileCheck>

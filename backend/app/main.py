@@ -275,7 +275,7 @@ async def health():
 # Import and include routers after app is created to avoid circular imports
 from app.routers import (
     briefings, auth, settings as settings_router,
-    topics, custom_sites, scheduled_briefings, casts, profiles
+    topics, custom_sites, scheduled_briefings, casts, profiles, mcp
 )
 
 app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
@@ -286,4 +286,5 @@ app.include_router(topics.router, prefix="/api/topics", tags=["Topics"])
 app.include_router(custom_sites.router, prefix="/api/custom-sites", tags=["Custom Sites"])
 app.include_router(scheduled_briefings.router, prefix="/api/scheduled-briefings", tags=["Scheduled Briefings"])
 app.include_router(casts.router, prefix="/api/casts", tags=["Casts"])
+app.include_router(mcp.router, prefix="/api/mcp", tags=["MCP"])
 
