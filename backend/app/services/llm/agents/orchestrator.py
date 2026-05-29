@@ -10,7 +10,7 @@ from app.services.llm.openrouter import OpenRouterProvider
 from app.services.llm.agents.story_analyzer import StoryAnalyzerAgent
 from app.services.llm.agents.facts_gatherer import FactsGathererAgent
 from app.services.llm.agents.briefing_writer import BriefingWriterAgent
-from app.services.llm.agents.host_research import HostResearchAgent, HostResearch
+from app.services.llm.agents.host_research import HostResearchAgent, HostResearch, persona_angle
 from app.services.web_research import combine_host_sources
 
 
@@ -104,13 +104,25 @@ class BriefingOrchestrator:
         ordered = sorted(cast_members, key=lambda m: m.get("order", 0))
 
         async def _one(member: dict) -> HostResearch:
+            host_name = member.get("name", "Host")
+            personality_name = member.get("personality", "Casual")
             agent = self._make_host_agent()
-            return await agent.research(
-                stories=stories,
-                host_name=member.get("name", "Host"),
-                personality_name=member.get("personality", "Casual"),
-                briefing_id=briefing_id,
-            )
+            try:
+                return await agent.research(
+                    stories=stories,
+                    host_name=host_name,
+                    personality_name=personality_name,
+                    briefing_id=briefing_id,
+                )
+            except Exception as e:
+                print(f"[Orchestrator] Host research failed for {host_name}: {e}")
+                return HostResearch(
+                    host_name=host_name,
+                    personality_name=personality_name,
+                    angle=persona_angle(personality_name),
+                    facts_by_story_index={},
+                    sources=[],
+                )
 
         research_list = await asyncio.gather(*[_one(m) for m in ordered])
         combined_sources = combine_host_sources([r.sources for r in research_list])
