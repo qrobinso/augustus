@@ -37,20 +37,54 @@ npm run dev
 
 ## Code Style
 
-- **Python**: Follow PEP 8 style guidelines
+Linting and formatting are enforced by tooling. Install the dev tools once:
+
+```bash
+# Backend (from backend/)
+pip install -r requirements-dev.txt
+
+# Frontend (from frontend/)
+npm install
+```
+
+Then run the checks before opening a PR:
+
+```bash
+# Backend — lint and format with ruff
+cd backend
+ruff check .          # lint
+ruff check . --fix    # auto-fix lint issues
+ruff format .         # format
+
+# Frontend — eslint + prettier
+cd frontend
+npm run lint          # lint
+npm run lint:fix      # auto-fix lint issues
+npm run format        # format with prettier
+```
+
+- **Python**: ruff enforces PEP 8 plus import sorting and modern-syntax rules (config in `backend/pyproject.toml`).
   - Use type hints where appropriate
   - Follow async/await patterns for database operations
-  - Use descriptive variable and function names
 
-- **TypeScript/React**: 
-  - Use ESLint configuration provided
-  - Follow React best practices
+- **TypeScript/React**:
+  - ESLint flat config + Prettier (config in `frontend/eslint.config.js` and `frontend/.prettierrc.json`)
   - Use functional components with hooks
   - Prefer TypeScript types over `any`
 
-- **Commits**: Write clear, descriptive commit messages
-  - Use present tense ("Add feature" not "Added feature")
-  - Reference issues when applicable: "Fix #123: ..."
+## Branch & Scope Conventions
+
+- **Branch names** are prefixed by type: `feature/<name>`, `fix/<name>`, `chore/<name>`, `docs/<name>`.
+- **One feature per branch.** Keep each branch focused on a single concern. If you start
+  building something unrelated (e.g. a new subsystem) while on a feature branch, cut a new
+  branch for it rather than letting two features tangle together — untangling them later is
+  error-prone and bloats the diff.
+- **Branch off `master`** unless you are intentionally stacking on in-progress work.
+- **Commit messages** follow [Conventional Commits](https://www.conventionalcommits.org/):
+  `feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:`. Use the imperative mood
+  ("add feature", not "added feature") and reference issues when applicable (`fix #123: ...`).
+- **Keep generated files out of feature diffs** where possible — regenerate lock files in
+  their own commit so they don't obscure the real changes under review.
 
 ## Pull Request Process
 
