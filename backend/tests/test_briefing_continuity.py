@@ -10,6 +10,7 @@ def test_continuity_lists_prior_titles():
 
 def test_continuity_empty_when_no_titles():
     assert build_continuity_section([]) == ""
+    assert build_continuity_section(None) == ""
 
 
 def test_disfluency_guide_is_not_aggressive():

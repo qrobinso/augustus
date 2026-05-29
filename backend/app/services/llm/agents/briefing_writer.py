@@ -17,7 +17,7 @@ NON_SPEECH_SOUNDS_GUIDE = """
 
 === NON-SPEECH SOUNDS & STYLE MARKUP ===
 
-Use these tags FREQUENTLY to add realism, natural pacing, and break up the script:
+Use these tags to add realism and natural pacing, and to break up the script:
 
 SOUNDS (audible vocalizations): [sigh], [laughing], [uhm]
 STYLE (modifies delivery): [sarcasm], [shouting], [whispering], [extremely fast]
