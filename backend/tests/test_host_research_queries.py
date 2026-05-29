@@ -8,7 +8,7 @@ STORIES = [{"title": "AI chip launch", "summary": "new accelerator", "url": "htt
 
 def test_persona_angle_is_persona_specific():
     analytical = persona_angle("Analytical")
-    skeptic = persona_angle("Skeptic")
+    skeptic = persona_angle("The Skeptic")
     assert analytical != skeptic
     assert "Analytical" in analytical
 

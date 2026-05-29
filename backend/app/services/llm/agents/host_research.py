@@ -25,7 +25,9 @@ def persona_angle(personality_name: str) -> str:
     """Short research-lens descriptor derived from the persona definition."""
     data = get_personality(personality_name).get_description()
     core = data.get("core_trait", "") or data.get("role", "")
-    return f"{personality_name} — {core}".strip(" —")
+    if not core:
+        return personality_name
+    return f"{personality_name} — {core}"
 
 
 QUERY_SCHEMA = {
