@@ -75,6 +75,34 @@ Use these SPARINGLY (2-4 instances per segment). They should feel organic, not f
 """
 
 
+def build_host_research_section(host_research, stories) -> str:
+    """Render each host's own research so the writer can stage an asymmetric debate."""
+    if not host_research:
+        return ""
+
+    def _title(idx):
+        if stories and 0 <= idx < len(stories):
+            item = stories[idx]
+            return getattr(item, "title", None) or (item.get("title") if isinstance(item, dict) else None) or f"Story {idx+1}"
+        return f"Story {idx+1}"
+
+    blocks = ["\n\n=== WHAT EACH HOST RESEARCHED (bring your own findings to the conversation) ==="]
+    for hr in host_research:
+        blocks.append(f"\n{hr.host_name} ({hr.angle}):")
+        if not hr.facts_by_story_index:
+            blocks.append("- (no distinct findings)")
+            continue
+        for idx, facts in hr.facts_by_story_index.items():
+            blocks.append(f"On \"{_title(idx)}\":")
+            for fact in facts:
+                blocks.append(f"  - {fact}")
+    blocks.append(
+        "\nEach host should speak primarily from THEIR OWN findings above. Let the differing "
+        "research drive genuine discussion - one host can raise a point the other didn't have."
+    )
+    return "\n".join(blocks)
+
+
 def build_continuity_section(prior_titles: list[str]) -> str:
     """Build the 'previously covered' section from prior story titles.
 
@@ -512,6 +540,7 @@ When specific topics are provided, make sure to cover stories from ALL of those 
         recent_articles: Optional[list[dict]] = None,
         last_script: Optional[str] = None,
         prior_titles: Optional[list[str]] = None,
+        host_research=None,
     ) -> str:
         """Build user prompt for briefing generation.
         
@@ -611,10 +640,13 @@ When specific topics are provided, make sure to cover stories from ALL of those 
         
         word_target = target_words_for_duration(duration)
 
+        host_research_section = build_host_research_section(host_research, ranked_items)
+
         prompt = f"""Create an engaging {duration}-minute daily briefing podcast script from the news below.
 
 {content}
 {additional_facts_section}
+{host_research_section}
 {recent_articles_section}
 {last_script_section}
 
@@ -655,6 +687,7 @@ Generate the podcast script now:"""
         recent_articles: Optional[list[dict]] = None,
         last_script: Optional[str] = None,
         prior_titles: Optional[list[str]] = None,
+        host_research=None,
         enable_non_speech_sounds: bool = False,
         briefing_id: Optional[str] = None,
     ):
@@ -700,6 +733,7 @@ Generate the podcast script now:"""
             recent_articles=recent_articles,
             last_script=last_script,
             prior_titles=prior_titles,
+            host_research=host_research,
         )
 
         from app.config import get_settings
