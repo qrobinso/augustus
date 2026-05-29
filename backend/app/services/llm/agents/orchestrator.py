@@ -103,6 +103,7 @@ class BriefingOrchestrator:
         briefing_title: Optional[str] = None,
         recent_articles: Optional[list[dict]] = None,
         last_script: Optional[str] = None,
+        prior_titles: Optional[list[str]] = None,
         enable_non_speech_sounds: bool = False,
         briefing_id: Optional[str] = None,
     ):
@@ -122,6 +123,7 @@ class BriefingOrchestrator:
             briefing_title: Optional briefing title
             recent_articles: List of recent articles for continuity
             last_script: Transcript from last briefing for continuity
+            prior_titles: Story titles from the last matching briefing (preferred continuity signal)
             enable_non_speech_sounds: Whether to include non-speech sounds markup
             briefing_id: Optional briefing ID for cancellation support
 
@@ -142,6 +144,7 @@ class BriefingOrchestrator:
             briefing_title=briefing_title,
             recent_articles=recent_articles,
             last_script=last_script,
+            prior_titles=prior_titles,
             enable_non_speech_sounds=enable_non_speech_sounds,
             briefing_id=briefing_id,
         )

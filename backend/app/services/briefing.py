@@ -543,14 +543,20 @@ class BriefingService:
             
             # Get last script with matching topic_ids for continuity
             last_script = None
+            prior_titles = []
             if topic_ids:
                 last_script = await self.get_last_script_for_topics(
                     user_id=briefing.user_id,
                     topic_ids=topic_ids,
                     exclude_briefing_id=briefing_id,
                 )
+                prior_titles = await self.get_last_story_titles_for_topics(
+                    user_id=briefing.user_id,
+                    topic_ids=topic_ids,
+                    exclude_briefing_id=briefing_id,
+                )
                 if last_script:
-                    print(f"[Briefing] Found last script with matching topics ({len(last_script)} chars) for continuity reference")
+                    print(f"[Briefing] Found last script with matching topics ({len(last_script)} chars), {len(prior_titles)} prior story titles for continuity")
                 else:
                     print(f"[Briefing] No previous script found with matching topics")
             
@@ -584,6 +590,7 @@ class BriefingService:
                 briefing_title=briefing.title,
                 recent_articles=recent_articles,
                 last_script=last_script,
+                prior_titles=prior_titles,
                 enable_non_speech_sounds=enable_non_speech_sounds,
                 briefing_id=briefing_id,
             )
@@ -1091,6 +1098,46 @@ class BriefingService:
         )
         return result.scalar_one_or_none()
     
+    async def _get_last_matching_briefing(
+        self,
+        user_id: str,
+        topic_ids: Optional[list[str]],
+        exclude_briefing_id: Optional[str] = None,
+    ) -> Optional[Briefing]:
+        """Find the most recent completed briefing whose topics exactly match topic_ids."""
+        if not topic_ids or len(topic_ids) == 0:
+            return None
+
+        # Get all completed briefings for this user with transcripts
+        query = select(Briefing).where(
+            Briefing.user_id == user_id,
+            Briefing.status == "completed",
+            Briefing.transcript.isnot(None),
+        )
+
+        # Exclude current briefing if provided
+        if exclude_briefing_id:
+            query = query.where(Briefing.id != exclude_briefing_id)
+
+        # Order by generated_at descending (most recent first)
+        query = query.order_by(Briefing.generated_at.desc())
+
+        result = await self.db.execute(query)
+        all_briefings = result.scalars().all()
+
+        # Filter to exact topic_ids match
+        topic_set = set(topic_ids)
+        for briefing in all_briefings:
+            briefing_topic_ids = briefing.extra_data.get("topic_ids", [])
+            if not isinstance(briefing_topic_ids, list):
+                briefing_topic_ids = []
+
+            # Check for exact match (same set of topics)
+            if set(briefing_topic_ids) == topic_set and briefing.transcript:
+                return briefing
+
+        return None
+
     async def get_last_script_for_topics(
         self,
         user_id: str,
@@ -1098,48 +1145,38 @@ class BriefingService:
         exclude_briefing_id: Optional[str] = None,
     ) -> Optional[str]:
         """Get the transcript from the most recent completed briefing with matching topic_ids.
-        
+
         Args:
             user_id: The user ID
             topic_ids: List of topic IDs to match (must match exactly)
             exclude_briefing_id: Optional briefing ID to exclude from results
-            
+
         Returns:
             The transcript text, or None if no matching briefing found
         """
-        if not topic_ids or len(topic_ids) == 0:
-            return None
-        
-        # Get all completed briefings for this user with transcripts
-        query = select(Briefing).where(
-            Briefing.user_id == user_id,
-            Briefing.status == "completed",
-            Briefing.transcript.isnot(None),
-        )
-        
-        # Exclude current briefing if provided
-        if exclude_briefing_id:
-            query = query.where(Briefing.id != exclude_briefing_id)
-        
-        # Order by generated_at descending (most recent first)
-        query = query.order_by(Briefing.generated_at.desc())
-        
-        result = await self.db.execute(query)
-        all_briefings = result.scalars().all()
-        
-        # Filter to exact topic_ids match
-        topic_set = set(topic_ids)
-        for briefing in all_briefings:
-            briefing_topic_ids = briefing.extra_data.get("topic_ids", [])
-            if not isinstance(briefing_topic_ids, list):
-                briefing_topic_ids = []
-            
-            # Check for exact match (same set of topics)
-            briefing_topic_set = set(briefing_topic_ids)
-            if briefing_topic_set == topic_set and briefing.transcript:
-                return briefing.transcript
-        
-        return None
+        briefing = await self._get_last_matching_briefing(user_id, topic_ids, exclude_briefing_id)
+        return briefing.transcript if briefing else None
+
+    async def get_last_story_titles_for_topics(
+        self,
+        user_id: str,
+        topic_ids: Optional[list[str]],
+        exclude_briefing_id: Optional[str] = None,
+    ) -> list[str]:
+        """Get the story titles covered by the most recent matching briefing.
+
+        Returns a precise list of what the previous briefing discussed (from its
+        saved sources), used to tell the writer what NOT to repeat. Preferred over
+        feeding back the raw transcript tail.
+        """
+        briefing = await self._get_last_matching_briefing(user_id, topic_ids, exclude_briefing_id)
+        if not briefing or not briefing.sources:
+            return []
+        return [
+            s["title"]
+            for s in briefing.sources
+            if isinstance(s, dict) and s.get("title")
+        ]
     
     async def list_briefings(
         self,
