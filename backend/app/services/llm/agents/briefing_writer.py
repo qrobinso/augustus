@@ -23,9 +23,9 @@ SOUNDS (audible vocalizations): [sigh], [laughing], [uhm]
 STYLE (modifies delivery): [sarcasm], [shouting], [whispering], [extremely fast]
 PAUSES: [short pause] ~250ms, [medium pause] ~500ms, [long pause] ~1s
 
-CRITICAL - USE FREQUENTLY:
-- [uhm] - Use this OFTEN (2-4 times per segment) at natural thinking/transition points to make speech feel more natural and conversational. Examples: "So... [uhm] what I think is...", "That's interesting because [uhm] it shows...", "Well [uhm] the thing is..."
-- [short pause] - Use this FREQUENTLY (3-5 times per segment) to break up sentences and create natural rhythm. Place after commas, before important points, or between thoughts. Examples: "The key point here [short pause] is that...", "So what happened [short pause] was...", "This matters because [short pause] it affects..."
+USE NATURALLY (do not overdo it):
+- [uhm] - occasionally, at genuine thinking or transition points, to soften delivery.
+- [short pause] - to break up longer sentences or set up an important point.
 
 Examples:
 - "That's... [sigh] honestly not surprising."
@@ -36,8 +36,8 @@ Examples:
 - "The data shows [uhm] [short pause] that we're seeing a significant shift."
 - "I think [uhm] the important part here [short pause] is understanding why this happened."
 
-Guidelines: 
-- Use [uhm] and [short pause] FREQUENTLY throughout each segment (not just a few times) to create natural, conversational pacing
+Guidelines:
+- Use [uhm] and [short pause] where they make speech feel natural — a few per segment, not in every sentence.
 - Place [uhm] at natural thinking points, transitions, or when a host is formulating a thought
 - Place [short pause] to break up longer sentences, emphasize points, or create natural rhythm
 - Use other sounds (sigh, laughing, etc.) sparingly and match them to the host's personality
@@ -73,6 +73,24 @@ TANGENTS & RECOVERY:
 
 Use these SPARINGLY (2-4 instances per segment). They should feel organic, not forced. The goal is texture, not chaos.
 """
+
+
+def build_continuity_section(prior_titles: list[str]) -> str:
+    """Build the 'previously covered' section from prior story titles.
+
+    Using titles (not a raw transcript tail) gives the model a precise list of
+    what to avoid repeating, without biasing toward the previous wrap-up.
+    """
+    titles = [t for t in (prior_titles or []) if t]
+    if not titles:
+        return ""
+    lines = "\n".join(f"- {t}" for t in titles)
+    return (
+        "\n\n=== ALREADY COVERED IN THE LAST BRIEFING (do not repeat) ===\n"
+        "These stories were covered last time. Do not repeat them; only reference "
+        "one if there is a genuine update or new angle.\n"
+        f"{lines}\n"
+    )
 
 
 class BriefingWriterAgent:
@@ -493,6 +511,7 @@ When specific topics are provided, make sure to cover stories from ALL of those 
         ranked_items: Optional[list] = None,
         recent_articles: Optional[list[dict]] = None,
         last_script: Optional[str] = None,
+        prior_titles: Optional[list[str]] = None,
     ) -> str:
         """Build user prompt for briefing generation.
         
@@ -580,27 +599,15 @@ When specific topics are provided, make sure to cover stories from ALL of those 
         
         # Format last script section
         last_script_section = ""
-        if last_script:
+        if prior_titles:
+            last_script_section = build_continuity_section(prior_titles)
+        elif last_script:
             script_preview = last_script[-2000:] if len(last_script) > 2000 else last_script
-            last_script_section = f"""
-
-=== LAST SCRIPT FROM PREVIOUS BRIEFING (FOR CONTINUITY REFERENCE) ===
-The following is the transcript from the last briefing generated with the same set of topics. This is provided for context, continuity, and reference.
-
-IMPORTANT INSTRUCTIONS:
-- Use this as a reference to understand what was discussed previously
-- Maintain continuity in tone, style, and approach
-- DO NOT repeat the same stories, facts, or points that were already covered
-- If referencing a previous story, provide an UPDATE or NEW ANGLE, not a rehash
-- Build on what was discussed before, don't duplicate it
-- Vary your language and phrasing - avoid using the same expressions or transitions
-- If the last script covered certain topics extensively, focus on different aspects or new developments
-
-Last script transcript:
-{script_preview}
-
-Remember: This is for reference only. Create fresh content that builds on this foundation without repeating it.
-"""
+            last_script_section = (
+                "\n\n=== LAST BRIEFING (continuity reference) ===\n"
+                "Maintain tone and continuity; do not repeat stories already covered.\n"
+                f"{script_preview}\n"
+            )
         
         word_target = target_words_for_duration(duration)
 
@@ -647,6 +654,7 @@ Generate the podcast script now:"""
         briefing_title: Optional[str] = None,
         recent_articles: Optional[list[dict]] = None,
         last_script: Optional[str] = None,
+        prior_titles: Optional[list[str]] = None,
         enable_non_speech_sounds: bool = False,
         briefing_id: Optional[str] = None,
     ):
@@ -666,6 +674,7 @@ Generate the podcast script now:"""
             briefing_title: Optional briefing title
             recent_articles: List of recent articles for continuity
             last_script: Transcript from last briefing for continuity
+            prior_titles: List of story titles covered in the last briefing (preferred over last_script)
             enable_non_speech_sounds: Whether to include non-speech sounds markup
             briefing_id: Optional briefing ID for cancellation support
 
@@ -690,6 +699,7 @@ Generate the podcast script now:"""
             ranked_items=ranked_items,
             recent_articles=recent_articles,
             last_script=last_script,
+            prior_titles=prior_titles,
         )
 
         from app.config import get_settings

@@ -1,4 +1,3 @@
-import pytest
 from app.services.llm.openrouter import cached_system_message
 
 
