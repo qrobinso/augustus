@@ -32,6 +32,7 @@ import {
 } from 'lucide-react'
 import clsx from 'clsx'
 import { briefingsApi, settingsApi, castsApi, scheduledBriefingsApi, topicsApi, SegmentTiming } from '../api/client'
+import { groupSourcesByHost } from './briefingSources'
 import { useStore } from '../store/useStore'
 import type { QueueItem } from '../store/queue'
 import { formatFullDate } from '../utils/timezone'
@@ -456,6 +457,10 @@ export default function BriefingDetail() {
   
   // Derive per-chapter sources map from extra_data
   const chapterSources = briefing?.extra_data?.chapter_sources
+
+  // Derive per-host source groups
+  const hostGroups = groupSourcesByHost(briefing?.sources ?? [])
+  const hostNames = Object.keys(hostGroups)
 
   // Get transcript as plain text for copying
   const getTranscriptText = () => {
@@ -1133,6 +1138,36 @@ export default function BriefingDetail() {
             </>
           )}
           
+          {/* Sources by host */}
+          {hostNames.length > 0 && (
+            <div className="mt-6">
+              <h3 className="text-white font-semibold mb-3">Sources by host</h3>
+              <div className="space-y-4">
+                {hostNames.map((host) => (
+                  <div key={host}>
+                    <p className="text-sm text-augustus-300 mb-1">
+                      {host} · {hostGroups[host].length} source
+                      {hostGroups[host].length === 1 ? "" : "s"}
+                    </p>
+                    <ul className="space-y-1">
+                      {hostGroups[host].map((s, i) => (
+                        <li key={`${host}-${i}`} className="text-xs text-augustus-400">
+                          {s.url ? (
+                            <a href={s.url} target="_blank" rel="noopener noreferrer" className="hover:text-accent">
+                              {s.title || s.url}
+                            </a>
+                          ) : (
+                            s.title
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Briefing Notes Accordion */}
           {(briefing.extra_data?.story_analysis_raw || briefing.extra_data?.facts_analysis_raw) && (
             <div className="mt-4 sm:mt-6 pt-4 sm:pt-6 border-t border-augustus-700">
