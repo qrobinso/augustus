@@ -58,6 +58,46 @@ QUERY_SCHEMA = {
 }
 
 
+FACTS_SCHEMA = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "host_facts",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "articles": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "article_num": {"type": "integer"},
+                            "title": {"type": "string"},
+                            "questions_and_answers": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "additionalProperties": False,
+                                    "properties": {
+                                        "question": {"type": "string"},
+                                        "answer": {"type": "string"},
+                                    },
+                                    "required": ["question", "answer"],
+                                },
+                            },
+                        },
+                        "required": ["article_num", "title", "questions_and_answers"],
+                    },
+                }
+            },
+            "required": ["articles"],
+        },
+    },
+}
+
+
 class HostResearchAgent:
     """Researches the editor's selected stories through one host's persona lens."""
 
@@ -172,3 +212,76 @@ class HostResearchAgent:
             if 0 <= idx < len(stories) and queries:
                 result[idx] = queries
         return result
+
+    def _facts_system_prompt(self, host_name: str, personality_name: str) -> str:
+        angle = persona_angle(personality_name)
+        return (
+            f"You are {host_name}, a podcast host whose perspective is: {angle}.\n"
+            "From the article content and additional sources you gathered, generate 3-5 "
+            "questions and detailed, fact-grounded answers PER article, emphasizing the "
+            "angles and evidence that fit your perspective. Prefer quantifiable data, "
+            "specific evidence, and the implications you find most important. JSON only."
+        )
+
+    def _facts_user_prompt(self, stories: list[dict], content_by_idx: dict[int, str]) -> str:
+        blocks = []
+        for i, story in enumerate(stories, 1):
+            content = content_by_idx.get(i - 1, story.get("summary", ""))
+            blocks.append(f"ARTICLE {i}: {story.get('title', 'Untitled')}\nCONTENT:\n{content[:6000]}")
+        return (
+            "\n\n".join(blocks)
+            + '\n\nOutput JSON: {"articles":[{"article_num":1,"title":"...",'
+            '"questions_and_answers":[{"question":"...","answer":"..."}]}]}'
+        )
+
+    async def _generate_facts(
+        self, stories: list[dict], content_by_idx: dict[int, str],
+        host_name: str, personality_name: str, briefing_id: Optional[str] = None,
+    ) -> dict[int, list[str]]:
+        settings = get_settings()
+        response_format = FACTS_SCHEMA if settings.llm_structured_outputs else None
+        response = await self.llm.generate(
+            prompt=self._facts_user_prompt(stories, content_by_idx),
+            system_prompt=self._facts_system_prompt(host_name, personality_name),
+            max_tokens=4096,
+            temperature=0.5,
+            response_format=response_format,
+            briefing_id=briefing_id,
+        )
+        content = response.content.strip()
+        if "```json" in content:
+            content = content.split("```json")[1].split("```")[0].strip()
+        elif "```" in content:
+            content = content.split("```")[1].split("```")[0].strip()
+        try:
+            data = json.loads(content)
+        except json.JSONDecodeError:
+            return {}
+        facts: dict[int, list[str]] = {}
+        for article in data.get("articles", []):
+            idx = article.get("article_num", 0) - 1
+            if not (0 <= idx < len(stories)):
+                continue
+            formatted = [
+                f"Question: {qa.get('question','')}\nAnswer: {qa.get('answer','')}"
+                for qa in article.get("questions_and_answers", [])
+                if qa.get("question") and qa.get("answer")
+            ]
+            if formatted:
+                facts[idx] = formatted
+        return facts
+
+    async def research(
+        self, stories: list[dict], host_name: str, personality_name: str,
+        briefing_id: Optional[str] = None,
+    ) -> HostResearch:
+        queries_by_idx = await self._generate_queries(stories, host_name, personality_name, briefing_id)
+        content_by_idx, sources = await self._gather_sources(stories, queries_by_idx, host_name)
+        facts = await self._generate_facts(stories, content_by_idx, host_name, personality_name, briefing_id)
+        return HostResearch(
+            host_name=host_name,
+            personality_name=personality_name,
+            angle=persona_angle(personality_name),
+            facts_by_story_index=facts,
+            sources=sources,
+        )
