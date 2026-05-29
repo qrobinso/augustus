@@ -5,6 +5,35 @@ from typing import Optional
 
 from app.services.llm.base import LLMProvider
 
+RANKING_SCHEMA = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "story_ranking",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "ranked_stories": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "article_num": {"type": "integer"},
+                            "priority": {"type": "integer"},
+                            "reason": {"type": "string"},
+                        },
+                        "required": ["article_num", "priority", "reason"],
+                    },
+                },
+                "summary": {"type": "string"},
+            },
+            "required": ["ranked_stories", "summary"],
+        },
+    },
+}
+
 
 class StoryAnalyzerAgent:
     """Agent responsible for analyzing and ranking news stories."""
@@ -44,7 +73,7 @@ Your task is to analyze a collection of news articles and narrow them down to 3-
 USER'S CHOSEN TOPICS: {topics_str}
 
 CRITICAL FILTERING AND PRIORITY RULES:
-1. **WEATHER STORIES ARE ALWAYS TOP PRIORITY** - Any article about weather, storms, natural disasters, or climate-related events must be ranked #1, regardless of other factors. Weather affects everyone's daily life and safety.
+1. **WEATHER & SAFETY STORIES ARE HIGH PRIORITY** - Articles about severe weather, natural disasters, or public-safety emergencies should be weighted heavily because they affect daily life and safety. Rank them among the top stories when present, but still respect the user's chosen topics below.
 
 2. **TOPIC RELEVANCE FILTERING IS MANDATORY** - The user has specifically chosen to focus on: {topics_str}
    - **FIRST STEP: FILTER OUT** articles that are clearly unrelated to these topics
@@ -172,11 +201,14 @@ CRITICAL FILTERING REQUIREMENTS:
         user_prompt = self._build_user_prompt(articles, topics, max_stories)
 
         # Call LLM to analyze and rank stories
+        from app.config import get_settings
+        response_format = RANKING_SCHEMA if get_settings().llm_structured_outputs else None
         response = await self.llm.generate(
             prompt=user_prompt,
             system_prompt=system_prompt,
             max_tokens=2048,
             temperature=0.3,  # Lower temperature for more consistent analysis
+            response_format=response_format,
             briefing_id=briefing_id,
         )
         
