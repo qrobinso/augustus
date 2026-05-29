@@ -8,6 +8,7 @@ ARTICLES = [{"title": "AI breakthrough", "summary": "x", "source": "Reuters", "c
 @pytest.mark.asyncio
 async def test_passes_response_format_when_enabled(monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "test")
+    monkeypatch.setenv("LLM_STRUCTURED_OUTPUTS", "true")
     fake = FakeLLM(response_content='{"ranked_stories": [{"article_num": 1, "priority": 9, "reason": "r"}], "summary": "s"}')
     agent = StoryAnalyzerAgent(fake)
     ranked, summary, raw, usage = await agent.analyze_and_rank(ARTICLES, ["AI"], max_stories=5)
@@ -21,6 +22,7 @@ async def test_parses_plain_json_without_fences():
     agent = StoryAnalyzerAgent(fake)
     ranked, summary, raw, usage = await agent.analyze_and_rank(ARTICLES, ["AI"])
     assert ranked == []
+    assert summary is None
 
 
 def test_system_prompt_weather_is_weighted_not_absolute():

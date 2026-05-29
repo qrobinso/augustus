@@ -3,6 +3,7 @@
 import json
 from typing import Optional
 
+from app.config import get_settings
 from app.services.llm.base import LLMProvider
 
 RANKING_SCHEMA = {
@@ -141,7 +142,7 @@ INSTRUCTIONS:
    - Not directly relevant to the user's chosen topics
    - EXCEPTION: Keep weather-related articles regardless of topic relevance
 
-2. **SECOND STEP - IDENTIFY WEATHER STORIES**: From the filtered articles, identify any weather-related stories (storms, natural disasters, weather warnings, climate events). These MUST be ranked #1.
+2. **SECOND STEP - IDENTIFY WEATHER STORIES**: From the filtered articles, identify any weather-related stories (storms, natural disasters, weather warnings, climate events). Weather/safety stories should be weighted heavily and ranked near the top when present.
 
 3. **THIRD STEP - SELECT AND RANK**: From the remaining articles (after filtering), select ONLY the TOP 3-5 most important/newsworthy stories that are DIRECTLY related to the topics ({topics_str}). Rank them in strict priority order (1 = highest priority, 2 = second priority, etc.)
 
@@ -156,7 +157,7 @@ OUTPUT FORMAT (use exactly this JSON format):
 ```json
 {{
   "ranked_stories": [
-    {{"article_num": 1, "priority": 10, "reason": "Weather story - always top priority"}},
+    {{"article_num": 1, "priority": 10, "reason": "Severe weather - high impact on daily life"}},
     {{"article_num": 5, "priority": 9, "reason": "Major breakthrough with significant implications"}},
     {{"article_num": 3, "priority": 8, "reason": "Breaking development affecting millions"}},
     ...
@@ -170,7 +171,7 @@ CRITICAL FILTERING REQUIREMENTS:
 - EXCLUDE articles with only weak/tangential connections
 - ONLY include articles that are directly relevant to the topics OR weather-related
 - If there aren't enough quality stories related to the topics, select fewer (3-4 is acceptable)
-- Weather stories MUST be ranked #1 if present
+- Weather/safety stories should be ranked near the top when present
 - Return ONLY the JSON output, no other text."""
         
         return prompt
@@ -201,7 +202,6 @@ CRITICAL FILTERING REQUIREMENTS:
         user_prompt = self._build_user_prompt(articles, topics, max_stories)
 
         # Call LLM to analyze and rank stories
-        from app.config import get_settings
         response_format = RANKING_SCHEMA if get_settings().llm_structured_outputs else None
         response = await self.llm.generate(
             prompt=user_prompt,
