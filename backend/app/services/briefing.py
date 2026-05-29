@@ -35,7 +35,7 @@ from app.services.cancellation import (
     is_cancelled as cancel_is_cancelled,
 )
 from app.services.search import SearchService
-from app.services.web_research import select_stories_for_research, merge_sources
+from app.services.web_research import select_stories_for_research, merge_sources, combine_host_sources
 
 settings = get_settings()
 
@@ -484,26 +484,42 @@ class BriefingService:
             saved_count = sum(len(items) for items in articles_by_topic.values())
             print(f"[Briefing] Saved {saved_count} articles that were used in the podcast script")
             
-            # Step 5: Gather additional facts for each article
+            # Step 5: Gather additional facts for each article (or per-host research if enabled)
             await update_progress(5, "Gathering additional facts", 60)
             await self._check_cancelled(briefing_id)
-            print("[Briefing] Generating additional facts for articles...")
-            additional_facts, raw_facts_response, facts_usage = await self._generate_additional_facts(
-                briefing_id=briefing_id,
-                ranked_items=ranked_items,
-                topics=topic_names if topic_names else ["technology", "business", "science"],
-            )
-            await self._check_cancelled(briefing_id)
-            print(f"[Briefing] Generated facts for {len(additional_facts)} articles")
 
-            # Merge any web-research sources gathered during gap-fill into briefing.sources
-            _research_sources = []
-            for _item in ranked_items:
-                for _s in getattr(_item, "research_sources", []) or []:
-                    _research_sources.append(_s)
-            if _research_sources:
-                briefing.sources = merge_sources(briefing.sources, _research_sources)
-                print(f"[Briefing] Merged {len(_research_sources)} web-research source(s) into briefing.sources")
+            host_research = None
+            if get_settings().host_research_enabled and len(cast_members) >= 1:
+                print("[Briefing] Per-host research enabled — gathering host-specific research...")
+                stories_for_research = [item.to_dict() for item in ranked_items]
+                host_research, host_sources = await self.orchestrator.gather_host_research(
+                    stories=stories_for_research,
+                    cast_members=cast_members,
+                    briefing_id=briefing_id,
+                )
+                additional_facts = {}  # writer uses host_research instead
+                briefing.sources = self._merge_sources_for_storage(
+                    [item.to_dict() for item in ranked_items], host_sources
+                )
+                print(f"[Briefing] Per-host research complete for {len(host_research)} host(s)")
+            else:
+                print("[Briefing] Generating additional facts for articles...")
+                additional_facts, raw_facts_response, facts_usage = await self._generate_additional_facts(
+                    briefing_id=briefing_id,
+                    ranked_items=ranked_items,
+                    topics=topic_names if topic_names else ["technology", "business", "science"],
+                )
+                await self._check_cancelled(briefing_id)
+                print(f"[Briefing] Generated facts for {len(additional_facts)} articles")
+
+                # Merge any web-research sources gathered during gap-fill into briefing.sources
+                _research_sources = []
+                for _item in ranked_items:
+                    for _s in getattr(_item, "research_sources", []) or []:
+                        _research_sources.append(_s)
+                if _research_sources:
+                    briefing.sources = merge_sources(briefing.sources, _research_sources)
+                    print(f"[Briefing] Merged {len(_research_sources)} web-research source(s) into briefing.sources")
 
             # Step 6: Load cast for this briefing
             await update_progress(6, "Loading cast configuration", 65)
@@ -593,6 +609,7 @@ class BriefingService:
                 prior_titles=prior_titles,
                 enable_non_speech_sounds=enable_non_speech_sounds,
                 briefing_id=briefing_id,
+                host_research=host_research,
             )
             await self._check_cancelled(briefing_id)
             
@@ -2008,12 +2025,43 @@ class BriefingService:
         
         return recent_articles
     
+    def _merge_sources_for_storage(self, editor_sources: list[dict], host_sources: list[dict]) -> list[dict]:
+        """Combine editor story sources with host-discovered sources, keyed by URL.
+
+        Editor sources are listed first; a host-discovered URL that matches an editor
+        source contributes its found_by attribution to that entry.
+        """
+        by_url: dict[str, dict] = {}
+        order: list[str] = []
+        for src in editor_sources:
+            url = src.get("url")
+            if not url:
+                continue
+            entry = dict(src)
+            entry.setdefault("found_by", list(src.get("found_by", [])))
+            by_url[url] = entry
+            order.append(url)
+        for src in host_sources:
+            url = src.get("url")
+            if not url:
+                continue
+            if url in by_url:
+                for host in src.get("found_by", []):
+                    if host not in by_url[url]["found_by"]:
+                        by_url[url]["found_by"].append(host)
+            else:
+                entry = dict(src)
+                entry["found_by"] = list(src.get("found_by", []))
+                by_url[url] = entry
+                order.append(url)
+        return [by_url[u] for u in order]
+
     def _extract_cost(self, usage: dict) -> dict:
         """Extract cost information from OpenRouter usage data.
-        
+
         Args:
             usage: OpenRouter usage dict with cost information
-            
+
         Returns:
             Dict with cost breakdown including cost, tokens, etc.
         """
