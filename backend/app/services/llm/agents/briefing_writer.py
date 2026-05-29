@@ -231,49 +231,40 @@ class BriefingWriterAgent:
             if topics:
                 topic_intro_0 = topic_intro_examples[0] if topic_intro_examples else "Let's get into it."
                 topic_intro_1 = topic_intro_examples[1] if len(topic_intro_examples) > 1 else "Let's dive in."
-                topic_intro_2 = topic_intro_examples[2] if len(topic_intro_examples) > 2 else "let's dive in."
                 intro_examples = [
                     f"'Hey, welcome back! This is {show_name}, I'm {host_names[0]}. {topic_intro_0}'",
                     f"'Good morning! Welcome to {show_name}, I'm {host_names[0]}. {topic_intro_1}'",
-                    f"'What's up everyone, welcome back to {show_name}. I'm {host_names[0]}, {topic_intro_2}'",
                 ]
             else:
                 intro_examples = [
                     f"'Hey, welcome back! This is {show_name}, I'm {host_names[0]}. Let's get into it.'",
                     f"'Good morning! Welcome to {show_name}, I'm {host_names[0]}. We've got a lot to cover today.'",
-                    f"'What's up everyone, welcome back to {show_name}. I'm {host_names[0]}, let's dive in.'",
                 ]
         elif num_hosts == 2:
             if topics:
                 topic_intro_0 = topic_intro_examples[0] if topic_intro_examples else "Let's get into it."
                 topic_intro_1 = topic_intro_examples[1] if len(topic_intro_examples) > 1 else "Good to be here."
-                topic_intro_2 = topic_intro_examples[2] if len(topic_intro_examples) > 2 else "Let's dive in."
                 intro_examples = [
                     f"'Hey, welcome back to {show_name}! I'm {host_names[0]} alongside {host_names[1]}. {topic_intro_0}'",
                     f"'Good morning everyone! This is {show_name}, I'm {host_names[0]}.' followed by '{host_names[1]}: And I'm {host_names[1]}. {topic_intro_1}'",
-                    f"'What's going on everybody, welcome to {show_name}. I'm {host_names[0]}, got {host_names[1]} with me today. {topic_intro_2}'",
                 ]
             else:
                 intro_examples = [
                     f"'Hey, welcome back to {show_name}! I'm {host_names[0]} alongside {host_names[1]}. Let's get into it.'",
                     f"'Good morning everyone! This is {show_name}, I'm {host_names[0]}.' followed by '{host_names[1]}: And I'm {host_names[1]}. Good to be here.'",
-                    f"'What's going on everybody, welcome to {show_name}. I'm {host_names[0]}, got {host_names[1]} with me today.'",
                 ]
         else:
             if topics:
                 topic_intro_0 = topic_intro_examples[0] if topic_intro_examples else "Let's get into it."
                 topic_intro_1 = topic_intro_examples[1] if len(topic_intro_examples) > 1 else "Let's dive in."
-                topic_intro_2 = topic_intro_examples[2] if len(topic_intro_examples) > 2 else "Let's get started."
                 intro_examples = [
                     f"'Hey, welcome back to {show_name}! I'm {host_names[0]} here with {other_hosts}. {topic_intro_0}'",
                     f"'Good morning everyone! This is {show_name}. I'm {host_names[0]}.' followed by the other hosts briefly greeting, then '{topic_intro_1}'",
-                    f"'What's up everybody, welcome to {show_name}. I'm {host_names[0]}, joined by {other_hosts}. {topic_intro_2}'",
                 ]
             else:
                 intro_examples = [
                     f"'Hey, welcome back to {show_name}! I'm {host_names[0]} here with {other_hosts}. Let's get into it.'",
                     f"'Good morning everyone! This is {show_name}. I'm {host_names[0]}.' followed by the other hosts briefly greeting.",
-                    f"'What's up everybody, welcome to {show_name}. I'm {host_names[0]}, joined by {other_hosts}. We've got a packed show.'",
                 ]
         
         # Build topic mention instruction
@@ -281,7 +272,7 @@ class BriefingWriterAgent:
         if topics:
             if len(topics) == 1:
                 topic_instruction = f"""
-CRITICAL: You MUST mention the topic "{topics[0]}" in the opening. Vary how you present it - don't use the same phrase every time. Examples of dynamic ways to mention it:
+In the opening, mention the topic "{topics[0]}" - vary how you present it. Examples:
 - "we're diving into {topics[0]} today"
 - "today's focus is {topics[0]}"
 - "we're covering {topics[0]}"
@@ -292,7 +283,7 @@ CRITICAL: You MUST mention the topic "{topics[0]}" in the opening. Vary how you 
 """
             elif len(topics) == 2:
                 topic_instruction = f"""
-CRITICAL: You MUST mention both topics "{topics[0]}" and "{topics[1]}" in the opening. Vary how you present them - don't use the same phrase every time. Examples of dynamic ways to mention them:
+In the opening, mention both topics "{topics[0]}" and "{topics[1]}" - vary how you present them. Examples:
 - "we're covering {topics[0]} and {topics[1]} today"
 - "today's focus is {topics[0]} and {topics[1]}"
 - "we're diving into {topics[0]} and {topics[1]}"
@@ -303,7 +294,7 @@ CRITICAL: You MUST mention both topics "{topics[0]}" and "{topics[1]}" in the op
             else:
                 topics_str = ", ".join(topics[:-1]) + f", and {topics[-1]}"
                 topic_instruction = f"""
-CRITICAL: You MUST mention all the topics ({topics_str}) in the opening. Vary how you present them - don't use the same phrase every time. Examples of dynamic ways to mention them:
+In the opening, mention all the topics ({topics_str}) - vary how you present them. Examples:
 - "we're covering {topics_str} today"
 - "today's focus is {topics_str}"
 - "we're diving into {topics_str}"
@@ -609,73 +600,28 @@ Last script transcript:
 Remember: This is for reference only. Create fresh content that builds on this foundation without repeating it.
 """
         
-        prompt = f"""Create an engaging {duration}-minute daily briefing podcast script covering the following news and information:
+        prompt = f"""Create an engaging {duration}-minute daily briefing podcast script from the news below.
 
 {content}
 {additional_facts_section}
 {recent_articles_section}
 {last_script_section}
 
-IMPORTANT CONTEXT FOR THIS BRIEFING:
-- Current date and time: {current_date_time} (based on the listener's timezone: {timezone})
+CONTEXT:
+- Current date/time: {current_date_time} (listener timezone: {timezone})
 - Listener's name: {user_name_display}
-- Topics to focus on: {topics_str}
+- Topics to cover: {topics_str}
 - Time of day: {time_of_day}
 {name_instruction}
 
-NOTE: When you need to reference dates in the briefing, use the current date provided above. Don't announce the date in the opening - weave it naturally into the content when discussing specific stories.
+REQUIREMENTS:
+1. Cover stories across ALL listed topics; lead with the most compelling one.
+2. For each major story, explain what happened, why it matters, and what it means going forward; connect related stories.
+3. Weave in the additional quantifiable facts above (when provided) for the matching article - ground the discussion in real numbers.
+4. Have hosts ask insightful questions and offer distinct perspectives; present multiple viewpoints on contested topics.
+5. End by recapping the key stories and takeaways.
 
-The hosts should clearly reference these specific topics throughout the briefing and ensure coverage across all of them.
-
-Requirements:
-1. OPENING: Keep the introduction brief (1-2 sentences max). You MUST mention the topics being covered in the opening - vary how you present them (e.g., "we're covering [topics]", "today's focus is [topics]", "let's dive into [topics]"). After mentioning the topics, IMMEDIATELY jump into the first story with concrete details. DO NOT use filler phrases like "there's a lot to unpack here" or "we've got a lot to cover" - go straight to the actual story content.
-2. HOOK: Start with the most compelling story. Be direct and clear - no need to allude or build suspense. Jump right into the details of what happened.
-3. CONTEXT: For each major story, explain:
-   - What happened (the facts)
-   - Why it matters (the significance)  
-   - What it means going forward (implications)
-   - How it connects to bigger trends or other stories
-4. ADDITIONAL FACTS: When discussing each article, incorporate the additional quantifiable facts provided above that correspond to that specific article. These facts should be woven naturally into the conversation to provide concrete data and evidence, making the discussion more informative and less "fluffy". Use these facts to ground the conversation in real numbers and statistics when covering each story.
-5. ANALYSIS: Have hosts ask insightful questions and offer unique perspectives
-6. DEPTH: Go beyond surface-level reporting - help listeners truly understand the stories
-7. CONNECTIONS: Draw connections between different stories when relevant
-8. BALANCE: Present multiple viewpoints on controversial topics
-9. CHAPTER TRANSITIONS: Before each new chapter marker, add a natural transition phrase that signals a topic change (e.g., "Alright, let's shift gears here...", "Moving on to something completely different...", "Now, switching topics entirely...", "Let's talk about something else now..."). Vary these transitions - don't repeat the same phrase. Immediately after the transition phrase, add [medium pause] to create a clear break before the chapter marker.
-10. WRAP-UP: At the end, work backwards to summarize what topics were discussed. Recap the key stories and takeaways, reinforcing what listeners learned.
-
-CRITICAL LANGUAGE GUIDELINES:
-- Use clear, direct language - avoid fluffy filler words and unnecessary embellishment
-- Present facts accurately without catastrophizing or exaggerating severity
-- Avoid sensationalism - stick to measured, factual analysis
-- Don't use dramatic language unless the situation genuinely warrants it
-- Be informative and engaging without being hyperbolic or alarmist
-- Keep it substantive and insightful - listeners should come away feeling smarter about the world, not anxious or misled
-
-Total speaking time: approximately {duration} minutes
-
-OUTPUT FORMAT:
-1. First, provide a short, glanceable podcast title (max 60 characters) that includes the key topics being discussed. Format: TITLE: [title here]
-2. Then, provide the podcast script dialogue between the hosts.
-
-Example:
-TITLE: Tech & Business Update - Jan 15
-HOST1: Good morning! Welcome back to the show.
-HOST2: Good to be here.
-Alright, let's dive into the tech news. [medium pause]
-[CHAPTER: Tech News]
-HOST1: First up, [Company] just announced [specific detail]...
-HOST2: That's interesting because...
-[After discussing tech news, transition to next chapter]
-HOST1: Moving on to something completely different now. [medium pause]
-[CHAPTER: Business Update]
-HOST2: So in business news today...
-
-REMEMBER: 
-- The title should be short, glanceable, and include key topics
-- Add natural transition phrases before each chapter marker, followed by [medium pause]
-- Use varied transition phrases - don't repeat the same one
-- Output ONLY the title line and spoken dialogue - no stage directions, no music cues (except [medium pause] before chapters)
-- Start directly with the TITLE line, then the first host speaking
+Follow the title, chapter, transition, format, and language rules from the system instructions. Output the TITLE line, then the dialogue, and nothing else.
 
 Generate the podcast script now:"""
         
