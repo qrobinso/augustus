@@ -191,3 +191,7 @@ settings.local.*
 # Backup files
 *.backup
 *.old
+
+# Local tool/session artifacts
+.claude/
+.playwright-mcp/

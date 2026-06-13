@@ -57,6 +57,10 @@ class Settings(BaseSettings):
     llm_structured_outputs: bool = True
     llm_prompt_cache: bool = False
 
+    host_research_enabled: bool = True
+    host_research_max_sources_per_story: int = 3
+    host_research_queries_per_story: int = 2
+
     # TTS Providers
     tts_provider: str = "piper"  # "piper", "elevenlabs", or "gemini"
     

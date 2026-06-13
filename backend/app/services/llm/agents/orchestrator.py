@@ -1,5 +1,6 @@
 """Briefing Orchestrator - coordinates all agents for briefing generation."""
 
+import asyncio
 import os
 from typing import Optional
 
@@ -9,6 +10,8 @@ from app.services.llm.openrouter import OpenRouterProvider
 from app.services.llm.agents.story_analyzer import StoryAnalyzerAgent
 from app.services.llm.agents.facts_gatherer import FactsGathererAgent
 from app.services.llm.agents.briefing_writer import BriefingWriterAgent
+from app.services.llm.agents.host_research import HostResearchAgent, HostResearch, persona_angle
+from app.services.web_research import combine_host_sources
 
 
 class BriefingOrchestrator:
@@ -88,6 +91,43 @@ class BriefingOrchestrator:
             briefing_id=briefing_id,
         )
     
+    def _make_host_agent(self) -> HostResearchAgent:
+        return HostResearchAgent(self.llm)
+
+    async def gather_host_research(
+        self,
+        stories: list[dict],
+        cast_members: list[dict],
+        briefing_id: Optional[str] = None,
+    ) -> tuple[list[HostResearch], list[dict]]:
+        """Run one persona-driven research pass per host, concurrently."""
+        ordered = sorted(cast_members, key=lambda m: m.get("order", 0))
+
+        async def _one(member: dict) -> HostResearch:
+            host_name = member.get("name", "Host")
+            personality_name = member.get("personality", "Casual")
+            agent = self._make_host_agent()
+            try:
+                return await agent.research(
+                    stories=stories,
+                    host_name=host_name,
+                    personality_name=personality_name,
+                    briefing_id=briefing_id,
+                )
+            except Exception as e:
+                print(f"[Orchestrator] Host research failed for {host_name}: {e}")
+                return HostResearch(
+                    host_name=host_name,
+                    personality_name=personality_name,
+                    angle=persona_angle(personality_name),
+                    facts_by_story_index={},
+                    sources=[],
+                )
+
+        research_list = await asyncio.gather(*[_one(m) for m in ordered])
+        combined_sources = combine_host_sources([r.sources for r in research_list])
+        return list(research_list), combined_sources
+
     async def write_briefing_script(
         self,
         content: str,
@@ -104,6 +144,7 @@ class BriefingOrchestrator:
         recent_articles: Optional[list[dict]] = None,
         last_script: Optional[str] = None,
         prior_titles: Optional[list[str]] = None,
+        host_research: Optional[list] = None,
         enable_non_speech_sounds: bool = False,
         briefing_id: Optional[str] = None,
     ):
@@ -145,6 +186,7 @@ class BriefingOrchestrator:
             recent_articles=recent_articles,
             last_script=last_script,
             prior_titles=prior_titles,
+            host_research=host_research,
             enable_non_speech_sounds=enable_non_speech_sounds,
             briefing_id=briefing_id,
         )

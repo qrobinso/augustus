@@ -40,3 +40,28 @@ def merge_sources(existing: list, new: list) -> list:
             seen.add(url)
             merged.append(s)
     return merged
+
+
+def combine_host_sources(source_lists: list[list[dict]]) -> list[dict]:
+    """Flatten per-host source lists, dedupe by URL, union the found_by host names.
+
+    Order follows first appearance across the lists.
+    """
+    by_url: dict[str, dict] = {}
+    order: list[str] = []
+    for sources in source_lists:
+        for src in sources:
+            url = src.get("url")
+            if not url:
+                continue
+            if url not in by_url:
+                merged = dict(src)
+                merged["found_by"] = list(src.get("found_by", []))
+                by_url[url] = merged
+                order.append(url)
+            else:
+                existing = by_url[url]
+                for host in src.get("found_by", []):
+                    if host not in existing["found_by"]:
+                        existing["found_by"].append(host)
+    return [by_url[u] for u in order]
