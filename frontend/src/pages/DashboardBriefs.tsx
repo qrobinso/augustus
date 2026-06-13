@@ -595,6 +595,19 @@ export default function DashboardBriefs() {
                       </div>
                     )}
                   </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      if (confirm('Delete this briefing?')) {
+                        deleteMutation.mutate(briefing.id)
+                      }
+                    }}
+                    className="p-2 min-h-[44px] min-w-[44px] sm:min-h-[36px] sm:min-w-[36px] flex items-center justify-center text-augustus-600 hover:text-red-400 transition-colors flex-shrink-0"
+                    aria-label="Delete briefing"
+                    title="Delete briefing"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
                   <div className="flex flex-col flex-shrink-0" onClick={(e) => e.stopPropagation()}>
                     <button
                       onClick={() => moveStackItem(briefing.id, -1)}
