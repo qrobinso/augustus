@@ -55,7 +55,7 @@ export default function GenerateSheet({ open, onClose }: GenerateSheetProps) {
             </div>
           </div>
           <div className="px-4 sm:px-6 pb-6 -mt-2">
-            <DashboardGenerate />
+            <DashboardGenerate onGenerateStarted={onClose} />
           </div>
         </div>
       </div>

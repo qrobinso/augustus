@@ -76,15 +76,26 @@ export default function DashboardBriefs() {
   }, [filtersExpanded])
   
   // Check if there's a briefing in progress to determine poll interval
-  const hasBriefingInProgress = (briefings: Briefing[] | undefined) => 
+  const hasBriefingInProgress = (briefings: Briefing[] | undefined) =>
     briefings?.some((b) => b.status === 'pending' || b.status === 'generating' || b.status === 'queued')
-  
+
+  const hasActiveFilters =
+    listenedFilter !== undefined ||
+    filterCastId !== undefined ||
+    filterTopicIds.length > 0 ||
+    favoriteFilter !== undefined
+
+  // Default view: stack on top, listened-only History below. Searching or
+  // touching any filter switches the list to the full library.
+  const defaultMode = !searchQuery.trim() && !hasActiveFilters
+  const effectiveListened = defaultMode ? true : listenedFilter
+
   const { data, isLoading, error } = useQuery({
-    queryKey: ['briefings', listenedFilter, filterCastId, filterTopicIds, favoriteFilter, currentPage, searchQuery],
+    queryKey: ['briefings', effectiveListened, filterCastId, filterTopicIds, favoriteFilter, currentPage, searchQuery],
     queryFn: () => briefingsApi.list(
       pageSize,
       currentPage * pageSize,
-      listenedFilter,
+      effectiveListened,
       filterCastId,
       filterTopicIds.length > 0 ? filterTopicIds : undefined,
       favoriteFilter,
@@ -162,12 +173,11 @@ export default function DashboardBriefs() {
     rest.forEach((b) => addToQueue(toQueueItem(b)))
   }
 
-  const hasActiveFilters =
-    listenedFilter !== undefined ||
-    filterCastId !== undefined ||
-    filterTopicIds.length > 0 ||
-    favoriteFilter !== undefined
-  
+  // Failed/cancelled briefs surfaced in the "Needs attention" strip (default view)
+  const needsAttention = (stackData?.briefings || []).filter(
+    (b) => b.status === 'failed' || b.status === 'cancelled' || (!!b.error_message && b.status !== 'completed')
+  )
+
   // Fetch settings for timezone
   const { data: settings } = useQuery({
     queryKey: ['settings'],
@@ -247,6 +257,22 @@ export default function DashboardBriefs() {
     return formatCompactDate(dateStr, timezone)
   }
   
+  // Day-level date for stack rows: Today / Yesterday / "May 25"
+  const formatStackDate = (dateStr: string) => {
+    const dayFormatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      month: 'short',
+      day: 'numeric',
+    })
+    const day = dayFormatter.format(new Date(dateStr))
+    const now = new Date()
+    if (day === dayFormatter.format(now)) return 'Today'
+    const yesterday = new Date(now)
+    yesterday.setDate(yesterday.getDate() - 1)
+    if (day === dayFormatter.format(yesterday)) return 'Yesterday'
+    return day
+  }
+
   // Helper function to render a briefing card
   const renderBriefingCard = (briefing: Briefing, isCurrentlyPlaying: boolean, briefingTopics: Topic[]) => {
     const isLatest = false
@@ -554,6 +580,11 @@ export default function DashboardBriefs() {
                       ) : (
                         <span>{formatDuration(briefing.duration_seconds)}</span>
                       )}
+                      {!inProgress && !queued && (
+                        <span className="flex-shrink-0">
+                          {formatStackDate(briefing.generated_at || briefing.created_at)}
+                        </span>
+                      )}
                     </div>
                     {progressPercent !== null && (
                       <div className="h-0.5 bg-augustus-800 rounded-full overflow-hidden mt-1.5 max-w-[200px]">
@@ -586,6 +617,44 @@ export default function DashboardBriefs() {
               )
             })}
           </ol>
+        </div>
+      )}
+
+      {/* Needs attention: failed/cancelled generations */}
+      {defaultMode && needsAttention.length > 0 && (
+        <div className="rounded-xl border border-dashed border-red-500/30 bg-red-500/5 overflow-hidden">
+          <div className="flex items-center gap-2 px-4 py-2.5 border-b border-red-500/20">
+            <AlertCircle className="w-4 h-4 text-red-400" />
+            <span className="text-xs font-semibold uppercase tracking-wider text-red-400">
+              Needs attention
+            </span>
+          </div>
+          {needsAttention.map((briefing) => (
+            <div
+              key={briefing.id}
+              onClick={() => navigate(`/briefing/${briefing.id}`)}
+              className="flex items-center gap-3 px-4 py-2.5 border-b border-red-500/10 last:border-b-0 cursor-pointer hover:bg-red-500/10 transition-colors"
+            >
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-white truncate">{briefing.title}</p>
+                <p className="text-xs text-red-400/80 truncate">
+                  {briefing.status === 'cancelled' ? 'Cancelled' : briefing.error_message || 'Failed'}
+                </p>
+              </div>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  if (confirm('Delete this failed briefing?')) {
+                    deleteMutation.mutate(briefing.id)
+                  }
+                }}
+                className="p-2 min-h-[44px] min-w-[44px] sm:min-h-[36px] sm:min-w-[36px] flex items-center justify-center text-red-400/70 hover:text-red-300 transition-colors flex-shrink-0"
+                aria-label="Delete briefing"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </div>
+          ))}
         </div>
       )}
 
@@ -850,85 +919,27 @@ export default function DashboardBriefs() {
               ? 'No listened briefings found.'
               : listenedFilter === false
               ? 'No Not Listened briefings found.'
+              : defaultMode && stack.length > 0
+              ? 'Nothing in your history yet — finish a brief from the stack above.'
               : 'No briefings yet. Generate your first one!'}
           </p>
         </div>
       ) : (
-        (() => {
-          const briefings = data?.briefings || []
+        <>
+          {defaultMode && (
+            <div className="flex items-center gap-2 pt-2 pb-1">
+              <CheckCircle className="w-5 h-5 text-accent" />
+              <h2 className="text-base sm:text-lg font-semibold text-white">History</h2>
+            </div>
+          )}
+          {(data?.briefings || []).map((briefing) => {
+            const isCurrentlyPlaying = currentAudio?.id === briefing.id && isPlaying
+            const briefingTopicIds = (briefing.extra_data?.topic_ids as string[]) || []
+            const briefingTopics = topics.filter((t) => briefingTopicIds.includes(t.id))
 
-          // When searching, render a flat list without grouping
-          if (searchQuery.trim()) {
-            return briefings.map((briefing) => {
-              const isCurrentlyPlaying = currentAudio?.id === briefing.id && isPlaying
-              const briefingTopicIds = (briefing.extra_data?.topic_ids as string[]) || []
-              const briefingTopics = topics.filter((t) => briefingTopicIds.includes(t.id))
-              return renderBriefingCard(briefing, isCurrentlyPlaying, briefingTopics)
-            })
-          }
-
-          const shouldGroupByListened = listenedFilter === undefined
-
-          if (shouldGroupByListened) {
-            const notListened = briefings.filter(b => !b.listened)
-            const listened = briefings.filter(b => b.listened)
-            
-            return (
-              <>
-                {notListened.length > 0 && (
-                  <>
-                    <div className="sticky top-0 z-30 -mx-4 sm:-mx-6 px-4 sm:px-6 py-3 sm:py-4 mb-4 sm:mb-6 bg-augustus-950/95 backdrop-blur-sm border-b border-augustus-800/50">
-                      <div className="flex items-center gap-2">
-                        <Circle className="w-5 h-5 text-augustus-400" />
-                        <h2 className="text-base sm:text-lg font-semibold text-white">
-                          Unplayed ({notListened.length})
-                        </h2>
-                      </div>
-                    </div>
-                    {notListened.map((briefing) => {
-                      const isCurrentlyPlaying = currentAudio?.id === briefing.id && isPlaying
-                      const briefingTopicIds = (briefing.extra_data?.topic_ids as string[]) || []
-                      const briefingTopics = topics.filter((t) => briefingTopicIds.includes(t.id))
-                      
-                      return renderBriefingCard(briefing, isCurrentlyPlaying, briefingTopics)
-                    })}
-                  </>
-                )}
-                
-                {listened.length > 0 && (
-                  <>
-                    <div className={clsx(
-                      "sticky top-0 z-30 -mx-4 sm:-mx-6 px-4 sm:px-6 py-3 sm:py-4 mb-4 sm:mb-6 bg-augustus-950/95 backdrop-blur-sm border-b border-augustus-800/50",
-                      notListened.length > 0 && "mt-6 sm:mt-8"
-                    )}>
-                      <div className="flex items-center gap-2">
-                        <CheckCircle className="w-5 h-5 text-accent" />
-                        <h2 className="text-base sm:text-lg font-semibold text-white">
-                          Listened
-                        </h2>
-                      </div>
-                    </div>
-                    {listened.map((briefing) => {
-                      const isCurrentlyPlaying = currentAudio?.id === briefing.id && isPlaying
-                      const briefingTopicIds = (briefing.extra_data?.topic_ids as string[]) || []
-                      const briefingTopics = topics.filter((t) => briefingTopicIds.includes(t.id))
-                      
-                      return renderBriefingCard(briefing, isCurrentlyPlaying, briefingTopics)
-                    })}
-                  </>
-                )}
-              </>
-            )
-          } else {
-            return briefings.map((briefing) => {
-              const isCurrentlyPlaying = currentAudio?.id === briefing.id && isPlaying
-              const briefingTopicIds = (briefing.extra_data?.topic_ids as string[]) || []
-              const briefingTopics = topics.filter((t) => briefingTopicIds.includes(t.id))
-              
-              return renderBriefingCard(briefing, isCurrentlyPlaying, briefingTopics)
-            })
-          }
-        })()
+            return renderBriefingCard(briefing, isCurrentlyPlaying, briefingTopics)
+          })}
+        </>
       )}
       
       {/* Pagination */}

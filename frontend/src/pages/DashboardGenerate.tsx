@@ -29,7 +29,12 @@ const PRESET_COLORS = [
   '#84CC16', // Lime
 ]
 
-export default function DashboardGenerate() {
+interface DashboardGenerateProps {
+  /** Called once generation has been kicked off (used by the sheet to dismiss itself). */
+  onGenerateStarted?: () => void
+}
+
+export default function DashboardGenerate({ onGenerateStarted }: DashboardGenerateProps) {
   const navigate = useProfileNavigate()
   const queryClient = useQueryClient()
   const setCurrentAudio = useStore((s) => s.setCurrentAudio)
@@ -313,12 +318,14 @@ export default function DashboardGenerate() {
           topicIds: finalTopicIds.length > 0 ? finalTopicIds : undefined,
           castId: selectedCastId,
         })
+        onGenerateStarted?.()
       } else {
         // No prompt, just generate with selected topics
         generateMutation.mutate({
           topicIds: selectedTopicIds.length > 0 ? selectedTopicIds : undefined,
           castId: selectedCastId,
         })
+        onGenerateStarted?.()
       }
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to create topic from prompt'
