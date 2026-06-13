@@ -1758,12 +1758,13 @@ class BriefingService:
                     used_indices.add(idx)
                     print(f"[Briefing]   #{len(ranked_items)}: {news_items[idx].title[:60]}... (priority: {story.get('priority', '?')})")
             
-            # If we didn't get enough ranked items, fall back to original order
-            if len(ranked_items) < max_stories:
-                print(f"[Briefing] Warning: Only got {len(ranked_items)} ranked items, padding with remaining stories")
-                for i, item in enumerate(news_items):
-                    if i not in used_indices and len(ranked_items) < max_stories:
-                        ranked_items.append(item)
+            # Respect the editor's judgment: selecting fewer than max_stories is
+            # deliberate (quality gate), so never pad with rejected stories.
+            # Only fall back to original order when the ranking came back empty,
+            # which indicates a formatting flake rather than editorial intent.
+            if not ranked_items:
+                print(f"[Briefing] Warning: Story ranking came back empty, falling back to original order")
+                ranked_items = list(news_items)
             
             return ranked_items[:max_stories], summary, raw_response, usage
             
