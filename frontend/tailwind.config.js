@@ -44,8 +44,18 @@ export default {
         'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
         'waveform': 'waveform 1.5s ease-in-out infinite',
         'spotlight': 'spotlight 8s ease-in-out infinite',
+        'fade-in': 'fade-in 0.2s ease-out',
+        'sheet-up': 'sheet-up 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
       },
       keyframes: {
+        'fade-in': {
+          from: { opacity: '0' },
+          to: { opacity: '1' },
+        },
+        'sheet-up': {
+          from: { transform: 'translateY(24px)', opacity: '0' },
+          to: { transform: 'translateY(0)', opacity: '1' },
+        },
         waveform: {
           '0%, 100%': { transform: 'scaleY(0.5)' },
           '50%': { transform: 'scaleY(1)' },
