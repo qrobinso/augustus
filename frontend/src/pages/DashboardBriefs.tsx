@@ -27,6 +27,9 @@ import type { QueueItem } from '../store/queue'
 import { formatCompactDate } from '../utils/timezone'
 import { useProfileNavigate } from '../utils/profileSlug'
 
+// Completed briefings older than this stay out of Today's Stack (archive only)
+const STACK_RECENCY_DAYS = 7
+
 export default function DashboardBriefs() {
   const navigate = useProfileNavigate()
   const queryClient = useQueryClient()
@@ -35,6 +38,7 @@ export default function DashboardBriefs() {
   const playAudio = useStore((s) => s.playAudio)
   const togglePlayPause = useStore((s) => s.togglePlayPause)
   const addToQueue = useStore((s) => s.addToQueue)
+  const removeFromQueue = useStore((s) => s.removeFromQueue)
   const playNext = useStore((s) => s.playNext)
   const clearQueue = useStore((s) => s.clearQueue)
 
@@ -85,10 +89,11 @@ export default function DashboardBriefs() {
     filterTopicIds.length > 0 ||
     favoriteFilter !== undefined
 
-  // Default view: stack on top, listened-only History below. Searching or
-  // touching any filter switches the list to the full library.
+  // Default view: stack on top, full Library below (listened state shown per
+  // card — otherwise unlistened briefs older than the stack window would be
+  // invisible). Searching or filtering replaces the default layout.
   const defaultMode = !searchQuery.trim() && !hasActiveFilters
-  const effectiveListened = defaultMode ? true : listenedFilter
+  const effectiveListened = listenedFilter
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['briefings', effectiveListened, filterCastId, filterTopicIds, favoriteFilter, currentPage, searchQuery],
@@ -111,24 +116,34 @@ export default function DashboardBriefs() {
     setCurrentPage(0)
   }, [listenedFilter, filterCastId, filterTopicIds, favoriteFilter, searchQuery])
 
-  // Today's Stack: unplayed briefings (incl. in-progress), independent of archive filters/paging
+  // Today's Stack: recent unplayed briefings (incl. in-progress), independent of
+  // archive filters/paging. Fetched without the listened filter so the currently
+  // playing briefing can stay in the stack after it's auto-marked listened.
   const { data: stackData } = useQuery({
     queryKey: ['briefings', 'stack'],
-    queryFn: () => briefingsApi.list(20, 0, false),
+    queryFn: () => briefingsApi.list(50, 0, undefined),
     refetchInterval: (query) => {
       return hasBriefingInProgress(query.state.data?.briefings) ? 2000 : 10000
     },
   })
 
+  const currentBriefingId = currentAudio?.type === 'briefing' ? currentAudio.id : undefined
+  const playbackQueue = useStore((s) => s.queue)
+  const queuedIds = useMemo(() => new Set(playbackQueue.map((q) => q.id)), [playbackQueue])
+
   const stack = useMemo(() => {
+    const cutoff = Date.now() - STACK_RECENCY_DAYS * 24 * 60 * 60 * 1000
     // Failed/cancelled briefs stay out of the stack; they're handled in the archive
-    const briefings = (stackData?.briefings || []).filter(
-      (b) =>
-        (b.status === 'completed' && b.audio_url) ||
-        b.status === 'pending' ||
-        b.status === 'generating' ||
-        b.status === 'queued'
-    )
+    const briefings = (stackData?.briefings || []).filter((b) => {
+      if (b.status === 'pending' || b.status === 'generating' || b.status === 'queued') return true
+      if (b.status !== 'completed' || !b.audio_url) return false
+      // Keep the currently playing briefing around even once it's marked
+      // listened; it drops out when playback moves on. Briefings in the
+      // playback queue are explicit intent-to-listen, so they stay too.
+      if (b.id === currentBriefingId || queuedIds.has(b.id)) return true
+      if (b.listened) return false
+      return new Date(b.created_at).getTime() >= cutoff
+    })
     const byId = new Map(briefings.map((b) => [b.id, b]))
     const ordered: Briefing[] = []
     for (const id of stackOrder) {
@@ -142,7 +157,7 @@ export default function DashboardBriefs() {
       if (byId.has(b.id)) ordered.push(b)
     }
     return ordered
-  }, [stackData?.briefings, stackOrder])
+  }, [stackData?.briefings, stackOrder, currentBriefingId, queuedIds])
 
   const stackPlayable = stack.filter((b) => b.status === 'completed' && b.audio_url)
   const stackTotalMins = Math.round(
@@ -203,7 +218,14 @@ export default function DashboardBriefs() {
   
   const deleteMutation = useMutation({
     mutationFn: (id: string) => briefingsApi.delete(id),
-    onSuccess: () => {
+    onSuccess: (_data, id) => {
+      // Deleted audio is gone from disk — drop it from the playback queue and
+      // stop the player if it was the active item.
+      removeFromQueue(id)
+      const { currentAudio, clearAudio } = useStore.getState()
+      if (currentAudio?.type === 'briefing' && currentAudio.id === id) {
+        clearAudio()
+      }
       queryClient.invalidateQueries({ queryKey: ['briefings'] })
     },
   })
@@ -276,6 +298,22 @@ export default function DashboardBriefs() {
   // Helper function to render a briefing card
   const renderBriefingCard = (briefing: Briefing, isCurrentlyPlaying: boolean, briefingTopics: Topic[]) => {
     const isLatest = false
+    const listenedBadge = briefing.status === 'completed' && (
+      <span className={clsx(
+        'flex items-center gap-1.5 px-2 py-0.5 rounded-full font-medium flex-shrink-0',
+        isLatest ? 'text-sm sm:text-base' : 'text-xs',
+        briefing.listened
+          ? 'bg-accent/20 text-accent'
+          : 'bg-augustus-700 text-augustus-400'
+      )}>
+        {briefing.listened ? (
+          <CheckCircle className={clsx(isLatest ? 'w-4 h-4 sm:w-5 sm:h-5' : 'w-3 h-3')} />
+        ) : (
+          <Circle className={clsx(isLatest ? 'w-4 h-4 sm:w-5 sm:h-5' : 'w-3 h-3')} />
+        )}
+        <span className={isLatest ? '' : 'hidden sm:inline'}>{briefing.listened ? 'Listened' : 'Not Listened'}</span>
+      </span>
+    )
     return (
       <div
         key={briefing.id}
@@ -322,6 +360,9 @@ export default function DashboardBriefs() {
           
           {briefing.status === 'completed' && (briefing.extra_data as any)?.story_analysis ? (
             <div className="space-y-1">
+              <div className={clsx('flex items-center', isLatest ? 'mb-1.5' : 'mb-1')}>
+                {listenedBadge}
+              </div>
               <p className={clsx(
                 'text-augustus-300 leading-relaxed',
                 isLatest ? 'text-base sm:text-lg' : 'text-sm sm:text-base'
@@ -351,22 +392,7 @@ export default function DashboardBriefs() {
                 <Calendar className={clsx(isLatest ? 'w-4 h-4 sm:w-5 sm:h-5' : 'w-3.5 h-3.5')} />
                 {formatDate(briefing.created_at)}
               </span>
-              {briefing.status === 'completed' && (
-                <span className={clsx(
-                  'flex items-center gap-1.5 px-2 py-0.5 rounded-full font-medium',
-                  isLatest ? 'text-sm sm:text-base' : 'text-xs',
-                  briefing.listened 
-                    ? 'bg-accent/20 text-accent' 
-                    : 'bg-augustus-700 text-augustus-400'
-                )}>
-                  {briefing.listened ? (
-                    <CheckCircle className={clsx(isLatest ? 'w-4 h-4 sm:w-5 sm:h-5' : 'w-3 h-3')} />
-                  ) : (
-                    <Circle className={clsx(isLatest ? 'w-4 h-4 sm:w-5 sm:h-5' : 'w-3 h-3')} />
-                  )}
-                  <span className={isLatest ? '' : 'hidden sm:inline'}>{briefing.listened ? 'Listened' : 'Not Listened'}</span>
-                </span>
-              )}
+              {listenedBadge}
             </div>
           )}
           
@@ -452,6 +478,17 @@ export default function DashboardBriefs() {
              >
                <ListPlus className="w-4 h-4 sm:w-5 sm:h-5" />
              </button>
+             <button
+               onClick={(e) => {
+                 e.stopPropagation()
+                 deleteMutation.mutate(briefing.id)
+               }}
+               className="btn-icon btn btn-ghost p-1.5 sm:p-2 min-h-[36px] min-w-[36px] text-augustus-400 hover:text-red-400 backdrop-blur-sm"
+               title="Delete briefing"
+               aria-label="Delete briefing"
+             >
+               <Trash2 className="w-4 h-4 sm:w-5 sm:h-5" />
+             </button>
            </div>
          )}
 
@@ -460,10 +497,7 @@ export default function DashboardBriefs() {
            <button
              onClick={(e) => {
                e.stopPropagation()
-               const statusText = briefing.status === 'cancelled' ? 'cancelled' : 'failed'
-               if (confirm(`Are you sure you want to delete this ${statusText} briefing?`)) {
-                 deleteMutation.mutate(briefing.id)
-               }
+               deleteMutation.mutate(briefing.id)
              }}
              className="absolute top-4 right-4 w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center flex-shrink-0 transition-all z-10 bg-red-500/20 hover:bg-red-500/40 text-red-400 hover:text-red-300 backdrop-blur-sm"
              title="Delete briefing"
@@ -598,9 +632,7 @@ export default function DashboardBriefs() {
                   <button
                     onClick={(e) => {
                       e.stopPropagation()
-                      if (confirm('Delete this briefing?')) {
-                        deleteMutation.mutate(briefing.id)
-                      }
+                      deleteMutation.mutate(briefing.id)
                     }}
                     className="p-2 min-h-[44px] min-w-[44px] sm:min-h-[36px] sm:min-w-[36px] flex items-center justify-center text-augustus-600 hover:text-red-400 transition-colors flex-shrink-0"
                     aria-label="Delete briefing"
@@ -930,8 +962,6 @@ export default function DashboardBriefs() {
               ? 'No listened briefings found.'
               : listenedFilter === false
               ? 'No Not Listened briefings found.'
-              : defaultMode && stack.length > 0
-              ? 'Nothing in your history yet — finish a brief from the stack above.'
               : 'No briefings yet. Generate your first one!'}
           </p>
         </div>
@@ -939,8 +969,8 @@ export default function DashboardBriefs() {
         <>
           {defaultMode && (
             <div className="flex items-center gap-2 pt-2 pb-1">
-              <CheckCircle className="w-5 h-5 text-accent" />
-              <h2 className="text-base sm:text-lg font-semibold text-white">History</h2>
+              <Calendar className="w-5 h-5 text-accent" />
+              <h2 className="text-base sm:text-lg font-semibold text-white">Library</h2>
             </div>
           )}
           {(data?.briefings || []).map((briefing) => {

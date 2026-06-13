@@ -147,6 +147,13 @@ export default function BriefingDetail() {
   const deleteMutation = useMutation({
     mutationFn: () => briefingsApi.delete(id!),
     onSuccess: () => {
+      // Deleted audio is gone from disk — drop it from the playback queue and
+      // stop the player if it was the active item.
+      const { removeFromQueue, currentAudio, clearAudio } = useStore.getState()
+      removeFromQueue(id!)
+      if (currentAudio?.type === 'briefing' && currentAudio.id === id) {
+        clearAudio()
+      }
       queryClient.invalidateQueries({ queryKey: ['briefings'] })
       navigate('/dashboard')
     },
