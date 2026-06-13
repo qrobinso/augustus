@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Play,
@@ -9,15 +9,16 @@ import {
   Trash2,
   AlertCircle,
   ChevronDown,
+  ChevronUp,
   CheckCircle,
   Circle,
   XCircle,
   Tag,
-  Waves,
   Heart,
   ListPlus,
   CornerUpRight,
-  Search
+  Search,
+  ListMusic
 } from 'lucide-react'
 import clsx from 'clsx'
 import { briefingsApi, settingsApi, topicsApi, castsApi, Briefing, Topic, Cast } from '../api/client'
@@ -35,6 +36,7 @@ export default function DashboardBriefs() {
   const togglePlayPause = useStore((s) => s.togglePlayPause)
   const addToQueue = useStore((s) => s.addToQueue)
   const playNext = useStore((s) => s.playNext)
+  const clearQueue = useStore((s) => s.clearQueue)
 
   const toQueueItem = (b: Briefing): QueueItem => ({
     id: b.id,
@@ -50,26 +52,18 @@ export default function DashboardBriefs() {
   const [filterTopicIds, setFilterTopicIds] = useState<string[]>([])
   const [favoriteFilter, setFavoriteFilter] = useState<boolean | undefined>(undefined)
   const [currentPage, setCurrentPage] = useState(0)
-  const [isMobile, setIsMobile] = useState(false)
   const pageSize = 10
 
   const [searchInput, setSearchInput] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
 
+  // User-chosen play order for Today's Stack (ids; session-local)
+  const [stackOrder, setStackOrder] = useState<string[]>([])
+
   useEffect(() => {
     const t = setTimeout(() => setSearchQuery(searchInput), 300)
     return () => clearTimeout(t)
   }, [searchInput])
-
-  // Detect mobile screen size
-  useEffect(() => {
-    const checkMobile = () => {
-      setIsMobile(window.innerWidth < 640)
-    }
-    checkMobile()
-    window.addEventListener('resize', checkMobile)
-    return () => window.removeEventListener('resize', checkMobile)
-  }, [])
   
   // Filters accordion state - persisted to localStorage
   const [filtersExpanded, setFiltersExpanded] = useState(() => {
@@ -105,6 +99,74 @@ export default function DashboardBriefs() {
   useEffect(() => {
     setCurrentPage(0)
   }, [listenedFilter, filterCastId, filterTopicIds, favoriteFilter, searchQuery])
+
+  // Today's Stack: unplayed briefings (incl. in-progress), independent of archive filters/paging
+  const { data: stackData } = useQuery({
+    queryKey: ['briefings', 'stack'],
+    queryFn: () => briefingsApi.list(20, 0, false),
+    refetchInterval: (query) => {
+      return hasBriefingInProgress(query.state.data?.briefings) ? 2000 : 10000
+    },
+  })
+
+  const stack = useMemo(() => {
+    // Failed/cancelled briefs stay out of the stack; they're handled in the archive
+    const briefings = (stackData?.briefings || []).filter(
+      (b) =>
+        (b.status === 'completed' && b.audio_url) ||
+        b.status === 'pending' ||
+        b.status === 'generating' ||
+        b.status === 'queued'
+    )
+    const byId = new Map(briefings.map((b) => [b.id, b]))
+    const ordered: Briefing[] = []
+    for (const id of stackOrder) {
+      const b = byId.get(id)
+      if (b) {
+        ordered.push(b)
+        byId.delete(id)
+      }
+    }
+    for (const b of briefings) {
+      if (byId.has(b.id)) ordered.push(b)
+    }
+    return ordered
+  }, [stackData?.briefings, stackOrder])
+
+  const stackPlayable = stack.filter((b) => b.status === 'completed' && b.audio_url)
+  const stackTotalMins = Math.round(
+    stackPlayable.reduce((sum, b) => {
+      const remaining = (b.duration_seconds || 0) - (b.playback_position || 0)
+      return sum + Math.max(0, remaining)
+    }, 0) / 60
+  )
+
+  const moveStackItem = (id: string, direction: -1 | 1) => {
+    const ids = stack.map((b) => b.id)
+    const from = ids.indexOf(id)
+    const to = from + direction
+    if (from < 0 || to < 0 || to >= ids.length) return
+    const next = [...ids]
+    ;[next[from], next[to]] = [next[to], next[from]]
+    setStackOrder(next)
+  }
+
+  const handlePlayAll = () => {
+    if (stackPlayable.length === 0) return
+    const [first, ...rest] = stackPlayable
+    playAudio({
+      ...toQueueItem(first),
+      initialPosition: first.playback_position || undefined,
+    })
+    clearQueue()
+    rest.forEach((b) => addToQueue(toQueueItem(b)))
+  }
+
+  const hasActiveFilters =
+    listenedFilter !== undefined ||
+    filterCastId !== undefined ||
+    filterTopicIds.length > 0 ||
+    favoriteFilter !== undefined
   
   // Fetch settings for timezone
   const { data: settings } = useQuery({
@@ -185,253 +247,9 @@ export default function DashboardBriefs() {
     return formatCompactDate(dateStr, timezone)
   }
   
-  const formatRelativeTime = (dateStr: string) => {
-    const date = new Date(dateStr)
-    const now = new Date()
-    const diffMs = now.getTime() - date.getTime()
-    const diffMins = Math.floor(diffMs / 1000 / 60)
-    
-    const dateInTz = new Date(dateStr)
-    const nowInTz = new Date()
-    
-    const timeFormatter = new Intl.DateTimeFormat('en-US', {
-      timeZone: timezone,
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true,
-    })
-    
-    const dateFormatter = new Intl.DateTimeFormat('en-US', {
-      timeZone: timezone,
-      month: 'short',
-      day: 'numeric',
-    })
-    
-    const dateStrInTz = dateFormatter.format(dateInTz)
-    const nowStrInTz = dateFormatter.format(nowInTz)
-    
-    if (dateStrInTz === nowStrInTz) {
-      const timeStr = timeFormatter.format(dateInTz)
-      if (diffMins < 1) {
-        return `Just now (${timeStr})`
-      }
-      if (diffMins < 60) {
-        return `${diffMins} minute${diffMins === 1 ? '' : 's'} ago (${timeStr})`
-      }
-      return `at ${timeStr} today`
-    }
-    
-    const yesterday = new Date(nowInTz)
-    yesterday.setDate(yesterday.getDate() - 1)
-    const yesterdayStr = dateFormatter.format(yesterday)
-    if (dateStrInTz === yesterdayStr) {
-      const timeStr = timeFormatter.format(dateInTz)
-      return `at ${timeStr} yesterday`
-    }
-    
-    const timeStr = timeFormatter.format(dateInTz)
-    return `${dateFormatter.format(dateInTz)} at ${timeStr}`
-  }
-
   // Helper function to render a briefing card
-  const renderBriefingCard = (briefing: Briefing, isLatest: boolean, isCurrentlyPlaying: boolean, briefingTopics: Topic[]) => {
-    if (isLatest) {
-      return (
-        <div
-          key={briefing.id}
-          onClick={() => navigate(`/briefing/${briefing.id}`)}
-          className="relative group cursor-pointer overflow-hidden rounded-[2rem] bg-augustus-900 border border-augustus-800/50 shadow-2xl transition-all hover:border-augustus-700 active:scale-[0.99] min-h-[380px] sm:min-h-[450px] flex flex-col p-6 sm:p-10"
-        >
-          <div className="absolute inset-0 bg-gradient-to-br from-accent/10 via-transparent to-transparent opacity-50" />
-          <div className="absolute -right-20 -top-20 w-96 h-96 bg-accent/25 rounded-full blur-[100px] animate-spotlight pointer-events-none" />
-          
-          {briefing.chapters && briefing.chapters.length > 0 && (
-            <div className="absolute inset-0 overflow-visible pointer-events-none">
-              <div
-                className="absolute font-black text-white uppercase tracking-tighter opacity-5 text-8xl sm:text-[12rem] top-1/2 -translate-y-1/2 left-0 -translate-x-8 w-[150%] text-left leading-[0.9]"
-                style={{ textShadow: '0 0 20px rgba(255,255,255,0.1)' }}
-              >
-                {briefing.chapters.map(c => c.title).join(' ')}
-              </div>
-            </div>
-          )}
-          
-          <div className="relative z-10 flex flex-col h-full justify-between flex-1">
-            <div className="flex justify-between items-start mb-6">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 rounded-xl bg-augustus-800 flex items-center justify-center border border-augustus-700 shadow-lg">
-                  <Waves className="w-6 h-6 text-accent" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2 mb-0.5">
-                    <span className="w-2 h-2 rounded-full bg-accent animate-pulse" />
-                    <p className="text-[10px] text-augustus-500 font-black">
-                      Generated {formatRelativeTime(briefing.generated_at || briefing.created_at)}
-                    </p>
-                  </div>
-                  {(briefing.extra_data?.cast_name as string) && (
-                    <p className="text-white text-base font-bold">{(briefing.extra_data?.cast_name as string)}</p>
-                  )}
-                </div>
-              </div>
-              
-              {/* Show delete button for all briefings, but especially for failed/cancelled/errored ones */}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  const statusText = briefing.status === 'cancelled' ? 'cancelled' : 
-                                   briefing.status === 'failed' ? 'failed' : 
-                                   briefing.error_message ? 'errored' : ''
-                  const confirmText = statusText 
-                    ? `Are you sure you want to delete this ${statusText} briefing?`
-                    : 'Are you sure you want to delete this briefing?'
-                  if (confirm(confirmText)) {
-                    deleteMutation.mutate(briefing.id)
-                  }
-                }}
-                className="btn btn-ghost p-2 text-augustus-500 hover:text-red-400 flex-shrink-0"
-                title="Delete"
-              >
-                <Trash2 className="w-5 h-5 sm:w-6 sm:h-6" />
-              </button>
-            </div>
-
-            <div className="mb-8 mt-2 sm:mt-4">
-              <div className="flex flex-wrap gap-2 mb-6 sm:mb-8">
-                {briefingTopics.map((topic) => (
-                  <span
-                    key={topic.id}
-                    className="px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest bg-white/10 text-white/90 border border-white/10 backdrop-blur-md"
-                  >
-                    {topic.name}
-                  </span>
-                ))}
-              </div>
-              
-              <h2 className="text-4xl sm:text-6xl font-display font-black text-white leading-[0.85] tracking-tighter group-hover:text-accent transition-colors">
-                {briefing.title}
-              </h2>
-              
-              {briefing.status === 'queued' && (
-                <div className="mt-4 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
-                  <div className="flex items-center gap-2 text-blue-400">
-                    <Clock className="w-4 h-4" />
-                    <span className="text-sm font-medium">Queued</span>
-                  </div>
-                  <p className="text-xs text-blue-300/70 mt-1">
-                    Another briefing is being generated. Yours will start automatically when ready.
-                  </p>
-                </div>
-              )}
-              
-              {(briefing.status === 'generating' || briefing.status === 'pending') && briefing.extra_data?.progress && (
-                <div className="mt-4 space-y-2">
-                  <div className="flex justify-between text-xs sm:text-sm">
-                    <span className="text-augustus-300 truncate mr-2">
-                      Step {briefing.extra_data.progress.step}/{briefing.extra_data.progress.total_steps}: {briefing.extra_data.progress.step_name}
-                    </span>
-                    <span className="text-augustus-400 flex-shrink-0">
-                      {briefing.extra_data.progress.percent}%
-                    </span>
-                  </div>
-                  <div className="h-2 bg-augustus-800/50 rounded-full overflow-hidden">
-                    <div 
-                      className="h-full bg-yellow-500 rounded-full transition-all duration-500"
-                      style={{ width: `${briefing.extra_data.progress.percent}%` }}
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {briefing.status === 'completed' && (briefing.extra_data as any)?.story_analysis ? (
-              <div className="mt-auto flex flex-col sm:flex-row sm:items-end justify-between gap-6 sm:gap-8">
-                <div className="flex-1">
-                  <p className="text-base sm:text-lg text-augustus-300 leading-relaxed">
-                    <span className="text-augustus-400">
-                      {formatDateShort(briefing.created_at)} • {formatDurationLong(briefing.duration_seconds)} • 
-                    </span>{' '}
-                    <span className="text-augustus-200">
-                      {(() => {
-                        const summary = ((briefing.extra_data as any)?.story_analysis as string) || ''
-                        const maxLength = 300
-                        return summary.length > maxLength ? summary.substring(0, maxLength).trim() + '...' : summary
-                      })()}
-                    </span>
-                  </p>
-                </div>
-                
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    handlePlayPause(briefing, e)
-                  }}
-                  disabled={briefing.status !== 'completed'}
-                  className={clsx(
-                    'w-20 h-20 sm:w-28 sm:h-28 rounded-full flex items-center justify-center transition-all active:scale-95 flex-shrink-0 relative overflow-hidden group/btn shadow-2xl',
-                    briefing.status === 'completed'
-                      ? 'bg-accent hover:bg-accent-600 text-white hover:scale-105'
-                      : 'bg-augustus-800 text-augustus-500'
-                  )}
-                >
-                  <div className="absolute inset-0 bg-gradient-to-br from-white/20 to-transparent opacity-0 group-hover/btn:opacity-100 transition-opacity" />
-                  {isCurrentlyPlaying ? (
-                    <Pause className="w-10 h-10 sm:w-14 sm:h-14 fill-current relative z-10" />
-                  ) : (
-                    <Play className="w-10 h-10 sm:w-14 sm:h-14 fill-current ml-1.5 relative z-10" />
-                  )}
-                </button>
-              </div>
-            ) : (
-              <div className="mt-auto flex flex-col sm:flex-row sm:items-end justify-between gap-8">
-                <div className="flex gap-12 items-end flex-1 min-w-0">
-                  <div className="flex flex-col">
-                    <div className="h-[2em] sm:h-[2.5em] flex items-end">
-                      <span className="text-4xl sm:text-5xl font-black text-white leading-none tracking-tighter">
-                        {formatDuration(briefing.duration_seconds)}
-                      </span>
-                    </div>
-                    <span className="text-[9px] uppercase tracking-[0.2em] text-augustus-500 font-black mt-3">Duration</span>
-                  </div>
-                  
-                  <div className="hidden sm:flex flex-col">
-                    <div className="h-[2.5em] flex items-end">
-                      <span className="text-4xl sm:text-5xl font-black text-white leading-none tracking-tighter uppercase">
-                        {new Intl.DateTimeFormat('en-US', { timeZone: timezone, month: 'short', day: 'numeric' }).format(new Date(briefing.created_at))}
-                      </span>
-                    </div>
-                    <span className="text-[9px] uppercase tracking-[0.2em] text-augustus-500 font-black mt-3">Released</span>
-                  </div>
-                </div>
-
-                <button
-                  onClick={(e) => handlePlayPause(briefing, e)}
-                  disabled={briefing.status !== 'completed'}
-                  className={clsx(
-                    'w-20 h-20 sm:w-28 sm:h-28 rounded-full flex items-center justify-center transition-all active:scale-95 flex-shrink-0 relative overflow-hidden group/btn shadow-2xl',
-                    briefing.status === 'completed'
-                      ? 'bg-accent hover:bg-accent-600 text-white hover:scale-105'
-                      : 'bg-augustus-800 text-augustus-500'
-                  )}
-                >
-                  <div className="absolute inset-0 bg-gradient-to-br from-white/20 to-transparent opacity-0 group-hover/btn:opacity-100 transition-opacity" />
-                  {briefing.status === 'queued' ? (
-                    <Clock className="w-10 h-10 text-blue-400" />
-                  ) : briefing.status === 'generating' || briefing.status === 'pending' ? (
-                    <Loader2 className="w-10 h-10 animate-spin" />
-                  ) : isCurrentlyPlaying ? (
-                    <Pause className="w-10 h-10 sm:w-14 sm:h-14 fill-current relative z-10" />
-                  ) : (
-                    <Play className="w-10 h-10 sm:w-14 sm:h-14 fill-current ml-1.5 relative z-10" />
-                  )}
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      )
-    }
-
+  const renderBriefingCard = (briefing: Briefing, isCurrentlyPlaying: boolean, briefingTopics: Topic[]) => {
+    const isLatest = false
     return (
       <div
         key={briefing.id}
@@ -633,6 +451,144 @@ export default function DashboardBriefs() {
 
   return (
     <div className="space-y-3 sm:space-y-4">
+      {/* Today's Stack — curated unplayed queue, hidden while searching/filtering */}
+      {!searchQuery.trim() && !hasActiveFilters && stack.length > 0 && (
+        <div className="card p-0 overflow-hidden mb-6 sm:mb-8">
+          <div className="flex items-center justify-between gap-3 px-4 sm:px-6 py-4 border-b border-augustus-800/60">
+            <div className="min-w-0">
+              <h2 className="text-base sm:text-lg font-semibold text-white flex items-center gap-2">
+                <ListMusic className="w-5 h-5 text-accent" />
+                Today's Stack
+              </h2>
+              <p className="text-xs sm:text-sm text-augustus-500 mt-0.5">
+                {stackPlayable.length} brief{stackPlayable.length === 1 ? '' : 's'} · {stackTotalMins} min left
+              </p>
+            </div>
+            <button
+              onClick={handlePlayAll}
+              disabled={stackPlayable.length === 0}
+              className="btn btn-primary flex items-center gap-2 flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
+            >
+              <Play className="w-4 h-4 fill-current" />
+              Play all
+            </button>
+          </div>
+          <ol>
+            {stack.map((briefing, index) => {
+              const isCurrent = currentAudio?.id === briefing.id
+              const isCurrentlyPlaying = isCurrent && isPlaying
+              const inProgress = briefing.status === 'pending' || briefing.status === 'generating'
+              const queued = briefing.status === 'queued'
+              const playable = briefing.status === 'completed' && !!briefing.audio_url
+              const firstTopicId = ((briefing.extra_data?.topic_ids as string[]) || [])[0]
+              const firstTopic = topics.find((t) => t.id === firstTopicId)
+              const minsLeft =
+                playable && briefing.playback_position && briefing.duration_seconds
+                  ? Math.max(1, Math.ceil((briefing.duration_seconds - briefing.playback_position) / 60))
+                  : null
+              const progressPercent =
+                playable && briefing.playback_position && briefing.duration_seconds
+                  ? Math.min(100, (briefing.playback_position / briefing.duration_seconds) * 100)
+                  : null
+
+              return (
+                <li
+                  key={briefing.id}
+                  onClick={() => navigate(`/briefing/${briefing.id}`)}
+                  className={clsx(
+                    'group flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2.5 sm:py-3 border-b border-augustus-800/40 last:border-b-0 cursor-pointer transition-colors hover:bg-augustus-800/30',
+                    isCurrent && 'bg-accent/5'
+                  )}
+                >
+                  <span className="w-5 text-center text-xs font-mono text-augustus-500 flex-shrink-0">
+                    {index + 1}
+                  </span>
+                  <button
+                    onClick={(e) => handlePlayPause(briefing, e)}
+                    disabled={!playable}
+                    className={clsx(
+                      'w-10 h-10 sm:w-11 sm:h-11 rounded-full flex items-center justify-center flex-shrink-0 transition-all',
+                      isCurrentlyPlaying
+                        ? 'bg-accent text-white'
+                        : playable
+                        ? 'bg-augustus-800 text-augustus-300 hover:bg-augustus-700 hover:text-white'
+                        : 'bg-augustus-800/50 text-augustus-500'
+                    )}
+                    aria-label={isCurrentlyPlaying ? 'Pause' : 'Play'}
+                  >
+                    {inProgress ? (
+                      <Loader2 className="w-4 h-4 animate-spin text-yellow-400" />
+                    ) : queued ? (
+                      <Clock className="w-4 h-4 text-blue-400" />
+                    ) : isCurrentlyPlaying ? (
+                      <Pause className="w-4 h-4 fill-current" />
+                    ) : (
+                      <Play className="w-4 h-4 fill-current ml-0.5" />
+                    )}
+                  </button>
+                  <div className="flex-1 min-w-0">
+                    <p className={clsx(
+                      'text-sm sm:text-base font-medium truncate transition-colors',
+                      isCurrent ? 'text-accent' : 'text-white group-hover:text-accent'
+                    )}>
+                      {briefing.title}
+                    </p>
+                    <div className="flex items-center gap-2 text-xs text-augustus-500 mt-0.5">
+                      {firstTopic && (
+                        <span className="flex items-center gap-1 truncate">
+                          <span
+                            className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                            style={{ backgroundColor: firstTopic.color || '#3B82F6' }}
+                          />
+                          {firstTopic.name}
+                        </span>
+                      )}
+                      {inProgress && briefing.extra_data?.progress ? (
+                        <span className="text-yellow-400 truncate">
+                          {briefing.extra_data.progress.step_name} · {briefing.extra_data.progress.percent}%
+                        </span>
+                      ) : queued ? (
+                        <span className="text-blue-400">Queued</span>
+                      ) : minsLeft !== null ? (
+                        <span className="text-accent font-medium">{minsLeft} min left</span>
+                      ) : (
+                        <span>{formatDuration(briefing.duration_seconds)}</span>
+                      )}
+                    </div>
+                    {progressPercent !== null && (
+                      <div className="h-0.5 bg-augustus-800 rounded-full overflow-hidden mt-1.5 max-w-[200px]">
+                        <div
+                          className="h-full bg-accent rounded-full"
+                          style={{ width: `${progressPercent}%` }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex flex-col flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      onClick={() => moveStackItem(briefing.id, -1)}
+                      disabled={index === 0}
+                      className="p-1 text-augustus-500 hover:text-white disabled:opacity-30 disabled:hover:text-augustus-500 transition-colors"
+                      aria-label="Move up"
+                    >
+                      <ChevronUp className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => moveStackItem(briefing.id, 1)}
+                      disabled={index === stack.length - 1}
+                      className="p-1 text-augustus-500 hover:text-white disabled:opacity-30 disabled:hover:text-augustus-500 transition-colors"
+                      aria-label="Move down"
+                    >
+                      <ChevronDown className="w-4 h-4" />
+                    </button>
+                  </div>
+                </li>
+              )
+            })}
+          </ol>
+        </div>
+      )}
+
       {/* Search bar */}
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-augustus-500 pointer-events-none" />
@@ -905,10 +861,9 @@ export default function DashboardBriefs() {
           if (searchQuery.trim()) {
             return briefings.map((briefing) => {
               const isCurrentlyPlaying = currentAudio?.id === briefing.id && isPlaying
-              const isLatest = false
               const briefingTopicIds = (briefing.extra_data?.topic_ids as string[]) || []
               const briefingTopics = topics.filter((t) => briefingTopicIds.includes(t.id))
-              return renderBriefingCard(briefing, isLatest, isCurrentlyPlaying, briefingTopics)
+              return renderBriefingCard(briefing, isCurrentlyPlaying, briefingTopics)
             })
           }
 
@@ -932,11 +887,10 @@ export default function DashboardBriefs() {
                     </div>
                     {notListened.map((briefing) => {
                       const isCurrentlyPlaying = currentAudio?.id === briefing.id && isPlaying
-                      const isLatest = isMobile && notListened.length > 0
                       const briefingTopicIds = (briefing.extra_data?.topic_ids as string[]) || []
                       const briefingTopics = topics.filter((t) => briefingTopicIds.includes(t.id))
                       
-                      return renderBriefingCard(briefing, isLatest, isCurrentlyPlaying, briefingTopics)
+                      return renderBriefingCard(briefing, isCurrentlyPlaying, briefingTopics)
                     })}
                   </>
                 )}
@@ -956,11 +910,10 @@ export default function DashboardBriefs() {
                     </div>
                     {listened.map((briefing) => {
                       const isCurrentlyPlaying = currentAudio?.id === briefing.id && isPlaying
-                      const isLatest = false
                       const briefingTopicIds = (briefing.extra_data?.topic_ids as string[]) || []
                       const briefingTopics = topics.filter((t) => briefingTopicIds.includes(t.id))
                       
-                      return renderBriefingCard(briefing, isLatest, isCurrentlyPlaying, briefingTopics)
+                      return renderBriefingCard(briefing, isCurrentlyPlaying, briefingTopics)
                     })}
                   </>
                 )}
@@ -969,11 +922,10 @@ export default function DashboardBriefs() {
           } else {
             return briefings.map((briefing) => {
               const isCurrentlyPlaying = currentAudio?.id === briefing.id && isPlaying
-              const isLatest = isMobile && !briefing.listened
               const briefingTopicIds = (briefing.extra_data?.topic_ids as string[]) || []
               const briefingTopics = topics.filter((t) => briefingTopicIds.includes(t.id))
               
-              return renderBriefingCard(briefing, isLatest, isCurrentlyPlaying, briefingTopics)
+              return renderBriefingCard(briefing, isCurrentlyPlaying, briefingTopics)
             })
           }
         })()
