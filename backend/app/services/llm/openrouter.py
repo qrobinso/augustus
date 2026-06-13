@@ -109,30 +109,6 @@ class OpenRouterProvider(LLMProvider):
             payload["response_format"] = response_format
         return payload
 
-    def _extract_content(self, data: dict) -> str:
-        """Pull the message content out of an OpenRouter response.
-
-        Some models/providers return content: null or empty (reasoning models,
-        filtered completions, max_tokens exhausted before any output). Raise a
-        clear, actionable error instead of letting None propagate.
-        """
-        choices = data.get("choices") or []
-        if not choices:
-            api_error = (data.get("error") or {}).get("message", "no choices in response")
-            raise ValueError(f"LLM returned no completion: {api_error}")
-        choice = choices[0]
-        content = (choice.get("message") or {}).get("content")
-        if not content or not content.strip():
-            finish_reason = choice.get("finish_reason", "unknown")
-            raise ValueError(
-                f"LLM ({self.model}) returned empty content "
-                f"(finish_reason: {finish_reason}). "
-                "This can happen with reasoning models or when max_tokens is "
-                "exhausted before any output — try a different model or a "
-                "shorter prompt."
-            )
-        return content
-
     async def generate(
         self,
         prompt: str,
@@ -196,8 +172,8 @@ class OpenRouterProvider(LLMProvider):
         response.raise_for_status()
         
         data = response.json()
-
-        result_content = self._extract_content(data)
+        
+        result_content = data["choices"][0]["message"]["content"]
         usage = data.get("usage", {})
         
         # Log the response
