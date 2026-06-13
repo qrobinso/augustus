@@ -484,8 +484,35 @@ class BriefingService:
             saved_count = sum(len(items) for items in articles_by_topic.values())
             print(f"[Briefing] Saved {saved_count} articles that were used in the podcast script")
             
-            # Step 5: Gather additional facts for each article (or per-host research if enabled)
-            await update_progress(5, "Gathering additional facts", 60)
+            # Step 5: Load cast for this briefing (needed by per-host research below)
+            await update_progress(5, "Loading cast configuration", 60)
+            cast_service = CastService(self.db)
+            if briefing.cast_id:
+                cast = await cast_service.get_cast(briefing.cast_id, briefing.user_id, briefing.profile_id)
+                if not cast:
+                    print(f"[Briefing] Cast {briefing.cast_id} not found, using default")
+                    cast = await cast_service.get_default_cast(briefing.user_id, briefing.profile_id)
+            else:
+                cast = await cast_service.get_default_cast(briefing.user_id, briefing.profile_id)
+
+            # Save the cast_id to the briefing so it can be looked up later
+            if cast and not briefing.cast_id:
+                briefing.cast_id = cast.id
+
+            # Prepare cast members for prompt
+            cast_members = []
+            for member in sorted(cast.members, key=lambda m: m.order):
+                cast_members.append({
+                    "name": member.name,
+                    "personality": member.personality,
+                    "voice_id": member.voice_id,
+                    "order": member.order,
+                })
+
+            print(f"[Briefing] Using cast '{cast.name}' with {len(cast_members)} member(s)")
+
+            # Step 6: Gather additional facts for each article (or per-host research if enabled)
+            await update_progress(6, "Gathering additional facts", 65)
             await self._check_cancelled(briefing_id)
 
             host_research = None
@@ -523,33 +550,6 @@ class BriefingService:
                     briefing.sources = merge_sources(briefing.sources, _research_sources)
                     print(f"[Briefing] Merged {len(_research_sources)} web-research source(s) into briefing.sources")
 
-            # Step 6: Load cast for this briefing
-            await update_progress(6, "Loading cast configuration", 65)
-            cast_service = CastService(self.db)
-            if briefing.cast_id:
-                cast = await cast_service.get_cast(briefing.cast_id, briefing.user_id, briefing.profile_id)
-                if not cast:
-                    print(f"[Briefing] Cast {briefing.cast_id} not found, using default")
-                    cast = await cast_service.get_default_cast(briefing.user_id, briefing.profile_id)
-            else:
-                cast = await cast_service.get_default_cast(briefing.user_id, briefing.profile_id)
-            
-            # Save the cast_id to the briefing so it can be looked up later
-            if cast and not briefing.cast_id:
-                briefing.cast_id = cast.id
-            
-            # Prepare cast members for prompt
-            cast_members = []
-            for member in sorted(cast.members, key=lambda m: m.order):
-                cast_members.append({
-                    "name": member.name,
-                    "personality": member.personality,
-                    "voice_id": member.voice_id,
-                    "order": member.order,
-                })
-            
-            print(f"[Briefing] Using cast '{cast.name}' with {len(cast_members)} member(s)")
-            
             # Get recent articles for continuity context (not used in script, but for context)
             recent_articles = []
             if topic_ids:
