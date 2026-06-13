@@ -114,15 +114,25 @@ class HostResearchAgent:
             f"{guidelines_text}\n\n"
             "For each news story, propose web search queries that would surface sources "
             "matching YOUR perspective and the way you think about problems — the angles, "
-            "evidence, and viewpoints you would personally dig into. Return JSON only."
+            "evidence, and viewpoints you would personally dig into. Every query must stay "
+            "on the specific story's subject; do not broaden into adjacent topics, however "
+            "interesting. Return JSON only."
         )
 
-    def _query_user_prompt(self, stories: list[dict], queries_per_story: int) -> str:
+    def _query_user_prompt(
+        self, stories: list[dict], queries_per_story: int, topics: Optional[list[str]] = None,
+    ) -> str:
         lines = []
         for i, s in enumerate(stories, 1):
-            lines.append(f"ARTICLE {i}: {s.get('title', 'Untitled')}\nSummary: {s.get('summary', '')[:200]}")
+            category = s.get("category")
+            category_line = f"\nCategory: {category}" if category else ""
+            lines.append(
+                f"ARTICLE {i}: {s.get('title', 'Untitled')}{category_line}\nSummary: {s.get('summary', '')[:200]}"
+            )
+        topics_line = f"Briefing topics: {', '.join(topics)}\n\n" if topics else ""
         return (
-            f"Propose up to {queries_per_story} search queries per article, from your perspective.\n\n"
+            topics_line
+            + f"Propose up to {queries_per_story} search queries per article, from your perspective.\n\n"
             + "\n\n".join(lines)
             + '\n\nOutput JSON: {"articles":[{"article_num":1,"queries":["..."]}]}'
         )
@@ -184,12 +194,12 @@ class HostResearchAgent:
 
     async def _generate_queries(
         self, stories: list[dict], host_name: str, personality_name: str,
-        briefing_id: Optional[str] = None,
+        briefing_id: Optional[str] = None, topics: Optional[list[str]] = None,
     ) -> dict[int, list[str]]:
         settings = get_settings()
         response_format = QUERY_SCHEMA if settings.llm_structured_outputs else None
         response = await self.llm.generate(
-            prompt=self._query_user_prompt(stories, settings.host_research_queries_per_story),
+            prompt=self._query_user_prompt(stories, settings.host_research_queries_per_story, topics),
             system_prompt=self._query_system_prompt(host_name, personality_name),
             max_tokens=1024,
             temperature=0.5,
@@ -220,7 +230,9 @@ class HostResearchAgent:
             "From the article content and additional sources you gathered, generate 3-5 "
             "questions and detailed, fact-grounded answers PER article, emphasizing the "
             "angles and evidence that fit your perspective. Prefer quantifiable data, "
-            "specific evidence, and the implications you find most important. JSON only."
+            "specific evidence, and the implications you find most important. Only report "
+            "facts about the story itself — if a gathered source turned out to be about "
+            "something else, ignore it. JSON only."
         )
 
     def _facts_user_prompt(self, stories: list[dict], content_by_idx: dict[int, str]) -> str:
@@ -273,9 +285,9 @@ class HostResearchAgent:
 
     async def research(
         self, stories: list[dict], host_name: str, personality_name: str,
-        briefing_id: Optional[str] = None,
+        briefing_id: Optional[str] = None, topics: Optional[list[str]] = None,
     ) -> HostResearch:
-        queries_by_idx = await self._generate_queries(stories, host_name, personality_name, briefing_id)
+        queries_by_idx = await self._generate_queries(stories, host_name, personality_name, briefing_id, topics)
         content_by_idx, sources = await self._gather_sources(stories, queries_by_idx, host_name)
         facts = await self._generate_facts(stories, content_by_idx, host_name, personality_name, briefing_id)
         return HostResearch(

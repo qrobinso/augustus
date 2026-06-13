@@ -125,3 +125,17 @@ def tokens_for_duration(duration_minutes: int) -> int:
     words = target_words_for_duration(duration_minutes)
     tokens = int(words * 1.5) + 512
     return max(1024, min(tokens, 16384))
+
+
+def target_story_count(duration_minutes: int) -> int:
+    """How many stories a briefing of this length can cover with real depth.
+
+    Roughly one story per 3 minutes, clamped to 1-6. Overridable via the
+    stories_per_briefing setting; the analyzer treats this as a ceiling,
+    not a quota.
+    """
+    from app.config import get_settings
+    override = get_settings().stories_per_briefing
+    if override:
+        return max(1, min(6, int(override)))
+    return max(1, min(6, round(int(duration_minutes) / 3)))

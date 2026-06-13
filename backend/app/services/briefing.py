@@ -36,6 +36,7 @@ from app.services.cancellation import (
 )
 from app.services.search import SearchService
 from app.services.web_research import select_stories_for_research, merge_sources
+from app.services.llm.prompts import target_story_count
 
 settings = get_settings()
 
@@ -316,18 +317,24 @@ class BriefingService:
             print(f"[Briefing] Topics: {topic_names}")
             print(f"[Briefing] Topics with NewsAPI enabled: {newsapi_topic_names}")
             
-            # Step 1: Fetch news from RSS feeds (only if at least one topic has use_newsapi=True)
-            # RSS feeds are external sources like NewsAPI, so they should be excluded when user wants only custom sites
+            # Step 1: Fetch news from global RSS feeds.
+            # Global feeds carry no topic metadata, so when the user selected
+            # topics they only pollute the candidate pool with off-topic
+            # stories. Fetch them only when no topics are selected (they are
+            # then the only generic source), or when explicitly re-enabled.
             rss_items = []
-            if any_use_newsapi:
+            include_global_rss = (
+                not topics_data or get_settings().rss_global_with_topics
+            ) and any_use_newsapi
+            if include_global_rss:
                 await update_progress(1, "Fetching RSS feeds", 5)
                 await self._check_cancelled(briefing_id)
                 print("[Briefing] Fetching news from RSS feeds...")
                 rss_items = await self.news.fetch_all_feeds()
                 await self._check_cancelled(briefing_id)
             else:
-                await update_progress(1, "Skipping RSS feeds (only using custom sites)", 5)
-                print("[Briefing] Skipping RSS feeds - all topics have use_newsapi=False (using custom sites only)")
+                await update_progress(1, "Skipping global RSS feeds", 5)
+                print("[Briefing] Skipping global RSS feeds (topic-scoped sources only)")
             
             # Step 2: Fetch from NewsAPI (only if at least one topic has use_newsapi=True)
             newsapi_items = []
@@ -383,12 +390,9 @@ class BriefingService:
                     if topic_id:
                         url_to_topic_id[item.url] = topic_id
             
-            # Map RSS items to first topic (if available)
-            default_topic_id = topics_data[0].id if topics_data else None
-            for item in rss_items:
-                if item.url and default_topic_id:
-                    url_to_topic_id[item.url] = default_topic_id
-            
+            # Global RSS items have no topic affiliation; leave them unmapped
+            # (articles_by_topic handles a None topic_id when saving).
+
             # Check for duplicates by URL in database
             urls = [item.url for item in all_items if item.url]
             existing_urls = await self._get_existing_article_urls(urls)
@@ -413,31 +417,29 @@ class BriefingService:
             
             print(f"[Briefing] Total unique news items after deduplication: {len(news_items)} (filtered {len(all_items) - len(news_items)} duplicates)")
             
-            # News editor should filter by topic relevance and narrow down to 3-5 articles, stack-ranked in priority order
-            # Weather stories are always top priority
-            target_story_count = 5  # Aim for 5, but allow 3-5 range
-            print(f"[Briefing] Target: 3-5 stories (stack-ranked in priority order, weather stories top priority)")
-            
-            # Step 4: Analyze and rank stories with LLM to filter by topic relevance and narrow down to 3-5 top stories
+            # Story count scales with duration so each story gets real depth
+            # (a quota of 5 regardless of length pressured the editor to pad
+            # with marginal stories). The analyzer treats this as a ceiling.
+            story_count_cap = target_story_count(max_duration_minutes)
+            print(f"[Briefing] Target: up to {story_count_cap} stories for a {max_duration_minutes}-minute briefing (quality-gated, fewer is fine)")
+            if not topic_names:
+                print("[Briefing] No topics selected — running as general news briefing")
+
+            # Step 4: Analyze and rank stories with LLM to filter by topic relevance
             # CRITICAL: Always call story analysis when we have 2+ articles to ensure topic relevance filtering happens
             # The senior news editor prompt will filter out articles that don't relate to the chosen topics
             await update_progress(4, "Analyzing and ranking stories", 50)
             await self._check_cancelled(briefing_id)
             if len(news_items) > 1:
-                # Always use story analysis when we have 2+ articles to:
-                # 1. Filter out articles that don't relate to the chosen topics (CRITICAL - ensures topic relevance)
-                # 2. Rank articles by importance and topic relevance
-                # 3. Narrow down to 3-5 top stories (or fewer if not enough relevant articles)
-                print(f"[Briefing] Analyzing {len(news_items)} stories with senior news editor to filter by topic relevance and narrow down to 3-5 top stories...")
+                print(f"[Briefing] Analyzing {len(news_items)} stories with senior news editor (topic relevance filter, up to {story_count_cap} stories)...")
                 ranked_items, analysis_summary, raw_analysis, story_analysis_usage = await self._analyze_and_rank_stories(
                     briefing_id=briefing_id,
                     news_items=news_items,
-                    topics=topic_names if topic_names else ["technology", "business", "science"],
-                    max_stories=target_story_count,
+                    topics=topic_names,
+                    max_stories=story_count_cap,
                 )
                 await self._check_cancelled(briefing_id)
-                # Ensure we have 3-5 stories (take top 5 max)
-                ranked_items = ranked_items[:5]
+                ranked_items = ranked_items[:story_count_cap]
                 print(f"[Briefing] Selected {len(ranked_items)} top stories after topic relevance filtering (stack-ranked in priority order)")
                 if analysis_summary:
                     print(f"[Briefing] Analysis: {analysis_summary}")
@@ -525,6 +527,7 @@ class BriefingService:
                     stories=stories_for_research,
                     cast_members=cast_members,
                     briefing_id=briefing_id,
+                    topics=topic_names,
                 )
                 additional_facts = {}  # writer uses host_research instead
                 briefing.sources = self._merge_sources_for_storage(
@@ -536,7 +539,7 @@ class BriefingService:
                 additional_facts, raw_facts_response, facts_usage = await self._generate_additional_facts(
                     briefing_id=briefing_id,
                     ranked_items=ranked_items,
-                    topics=topic_names if topic_names else ["technology", "business", "science"],
+                    topics=topic_names,
                 )
                 await self._check_cancelled(briefing_id)
                 print(f"[Briefing] Generated facts for {len(additional_facts)} articles")
@@ -596,7 +599,7 @@ class BriefingService:
             # Use orchestrator to write the briefing script
             response = await self.orchestrator.write_briefing_script(
                 content=news_content,
-                topics=topic_names if topic_names else ["technology", "business", "science"],
+                topics=topic_names,
                 cast_members=cast_members,
                 duration=max_duration_minutes,
                 user_name=user_name,
@@ -1870,9 +1873,13 @@ class BriefingService:
                     try:
                         for idx in thin_indices:
                             item = ranked_items[idx]
+                            # Anchor the search to the story's topic so broad
+                            # DuckDuckGo results don't drift off-subject.
+                            scope = getattr(item, "category", None) or ", ".join(topics or [])
+                            query = f"{item.title} ({scope})" if scope else item.title
                             try:
                                 research_text, sources = await search.research_topic(
-                                    item.title, num_sources=3
+                                    query, num_sources=3
                                 )
                             except Exception as e:
                                 print(
