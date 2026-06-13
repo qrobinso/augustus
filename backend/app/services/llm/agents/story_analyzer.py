@@ -47,13 +47,12 @@ class StoryAnalyzerAgent:
         """
         self.llm = llm
     
-    def _build_system_prompt(self, topics: list[str], max_stories: int = 5) -> str:
+    def _build_system_prompt(self, topics: list[str]) -> str:
         """Build story analysis system prompt with topic-specific instructions.
-
+        
         Args:
             topics: List of topics the user has chosen to focus on
-            max_stories: Ceiling on how many stories to select
-
+            
         Returns:
             System prompt string with topic-specific guidance
         """
@@ -67,17 +66,34 @@ class StoryAnalyzerAgent:
                 topics_str = ", ".join(topics[:-1]) + f", and {topics[-1]}"
         else:
             topics_str = "general news"
+        
+        prompt = f"""You are a senior news editor with expertise in identifying the most important and newsworthy stories.
 
-        prompt = f"""You are a senior news editor selecting stories for a short podcast briefing.
+Your task is to analyze a collection of news articles and narrow them down to 3-5 top stories, stack-ranked in priority order.
 
 USER'S CHOSEN TOPICS: {topics_str}
 
-Selection rules:
-- Only stories directly relevant to the chosen topics qualify. Discard everything else, including stories with merely tangential connections.
-- Select up to {max_stories} stories, but only stories that genuinely merit discussion: directly on-topic, substantial enough to talk about for two minutes, and newsworthy today. If only one or two qualify, return only those. Never include a marginal story just to fill a slot — a short briefing about real news beats a long one padded with filler.
-- Rank the selected stories by relevance to the chosen topics, impact, timeliness, and substance.
-- When several topics are requested, prefer a selection that spans them — but never at the cost of including a weak story."""
+CRITICAL FILTERING AND PRIORITY RULES:
+1. **WEATHER & SAFETY STORIES ARE HIGH PRIORITY** - Articles about severe weather, natural disasters, or public-safety emergencies should be weighted heavily because they affect daily life and safety. Rank them among the top stories when present, but still respect the user's chosen topics below.
 
+2. **TOPIC RELEVANCE FILTERING IS MANDATORY** - The user has specifically chosen to focus on: {topics_str}
+   - **FIRST STEP: FILTER OUT** articles that are clearly unrelated to these topics
+   - **EXCLUDE** articles that have no meaningful connection to the user's chosen topics
+   - **EXCLUDE** articles that are only tangentially related (weak connection, not directly relevant)
+   - **ONLY INCLUDE** articles that are directly related to the chosen topics OR weather-related
+   - Articles that don't align with the user's chosen topics should be EXCLUDED entirely unless they are weather-related
+
+3. **AFTER FILTERING**, rank the remaining articles using these factors:
+   a. TOPIC RELEVANCE: How directly does this article relate to the user's chosen topics ({topics_str})? This is the primary factor.
+   b. IMPACT: How many people does this affect? What are the consequences?
+   c. TIMELINESS: Is this breaking news or a developing story?
+   d. SIGNIFICANCE: Does this represent a major shift, breakthrough, or turning point?
+   e. UNIQUENESS: Is this a fresh story or just rehashing known information?
+   f. STORY QUALITY: Does the article have enough substance to discuss meaningfully?
+   g. TOPIC BALANCE: When multiple topics are requested, ensure the final selection includes important stories from EACH topic. Don't let one dominant topic crowd out others.
+
+Be ruthless in your filtering and ranking - not all stories are equal. Exclude articles that don't relate to the user's topics. Your goal is to select ONLY the 3-5 most important stories that are DIRECTLY related to the user's chosen topics."""
+        
         return prompt
     
     def _build_user_prompt(
@@ -111,7 +127,7 @@ Summary: {article.get('summary', 'No summary available')[:300]}
         topics_str = ", ".join(topics) if topics else "general news"
         topic_count = len(topics) if topics else 1
         
-        prompt = f"""Select and rank the briefing stories from the articles below.
+        prompt = f"""Analyze the following news articles and narrow them down to 3-5 top stories, stack-ranked in priority order.
 
 Topics of interest: {topics_str}
 Number of topics: {topic_count}
@@ -120,14 +136,28 @@ ARTICLES TO ANALYZE:
 {"---".join(articles_text)}
 
 INSTRUCTIONS:
-1. Discard articles unrelated (or only tangentially related) to the topics above.
-2. From what remains, select up to {max_stories} stories that genuinely merit discussion, ranked in strict priority order. Selecting fewer than {max_stories} is the right call whenever the remaining articles are weak — never pad the list.
-3. For each selected story provide the article number, a priority score (1-10), and one sentence on why it matters to the chosen topics.
+1. **FIRST STEP - FILTER BY TOPIC RELEVANCE**: Review all {len(articles)} articles and EXCLUDE articles that are:
+   - Clearly unrelated to the topics listed above ({topics_str})
+   - Only tangentially connected (weak or indirect connection)
+   - Not directly relevant to the user's chosen topics
+   - EXCEPTION: Keep weather-related articles regardless of topic relevance
+
+2. **SECOND STEP - IDENTIFY WEATHER STORIES**: From the filtered articles, identify any weather-related stories (storms, natural disasters, weather warnings, climate events). Weather/safety stories should be weighted heavily and ranked near the top when present.
+
+3. **THIRD STEP - SELECT AND RANK**: From the remaining articles (after filtering), select ONLY the TOP 3-5 most important/newsworthy stories that are DIRECTLY related to the topics ({topics_str}). Rank them in strict priority order (1 = highest priority, 2 = second priority, etc.)
+
+4. **TOPIC BALANCE**: If multiple topics are listed above, ensure your selection includes important stories from EACH topic when possible. Don't let one topic dominate the selection - the user wants coverage across all their chosen topics.
+
+5. For each selected story, provide:
+   - The article number (from the list above)
+   - A priority score (1-10, where 10 is highest priority)
+   - A brief reason why this story matters and how it relates to the chosen topics (1 sentence)
 
 OUTPUT FORMAT (use exactly this JSON format):
 ```json
 {{
   "ranked_stories": [
+    {{"article_num": 1, "priority": 10, "reason": "Severe weather - high impact on daily life"}},
     {{"article_num": 5, "priority": 9, "reason": "Major breakthrough with significant implications"}},
     {{"article_num": 3, "priority": 8, "reason": "Breaking development affecting millions"}},
     ...
@@ -136,8 +166,14 @@ OUTPUT FORMAT (use exactly this JSON format):
 }}
 ```
 
-Return ONLY the JSON output, no other text."""
-
+CRITICAL FILTERING REQUIREMENTS: 
+- EXCLUDE articles that don't relate to the chosen topics ({topics_str})
+- EXCLUDE articles with only weak/tangential connections
+- ONLY include articles that are directly relevant to the topics OR weather-related
+- If there aren't enough quality stories related to the topics, select fewer (3-4 is acceptable)
+- Weather/safety stories should be ranked near the top when present
+- Return ONLY the JSON output, no other text."""
+        
         return prompt
     
     async def analyze_and_rank(
@@ -162,7 +198,7 @@ Return ONLY the JSON output, no other text."""
             raw_response: Raw LLM response content
             usage: LLM usage data including cost information
         """
-        system_prompt = self._build_system_prompt(topics, max_stories)
+        system_prompt = self._build_system_prompt(topics)
         user_prompt = self._build_user_prompt(articles, topics, max_stories)
 
         # Call LLM to analyze and rank stories

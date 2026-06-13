@@ -98,8 +98,7 @@ def build_host_research_section(host_research, stories) -> str:
                 blocks.append(f"  - {fact}")
     blocks.append(
         "\nEach host should speak primarily from THEIR OWN findings above. Let the differing "
-        "research drive genuine discussion - one host can raise a point the other didn't have. "
-        "When your findings conflict with your co-host's, say so on air and hash it out briefly."
+        "research drive genuine discussion - one host can raise a point the other didn't have."
     )
     return "\n".join(blocks)
 
@@ -143,35 +142,8 @@ class BriefingWriterAgent:
         complexity: int = 3,
         enable_non_speech_sounds: bool = False,
     ) -> str:
-        """Build the writer system prompt (v2 by default; v1 via writer_prompt_v2=False)."""
-        from app.config import get_settings
-        builder = (
-            self._build_system_prompt_v2
-            if get_settings().writer_prompt_v2
-            else self._build_system_prompt_v1
-        )
-        return builder(
-            cast_members=cast_members,
-            cast_name=cast_name,
-            cast_description=cast_description,
-            topics=topics,
-            briefing_title=briefing_title,
-            complexity=complexity,
-            enable_non_speech_sounds=enable_non_speech_sounds,
-        )
-
-    def _build_system_prompt_v1(
-        self,
-        cast_members: list[dict],
-        cast_name: Optional[str] = None,
-        cast_description: Optional[str] = None,
-        topics: Optional[list[str]] = None,
-        briefing_title: Optional[str] = None,
-        complexity: int = 3,
-        enable_non_speech_sounds: bool = False,
-    ) -> str:
-        """Original (v1) system prompt, kept temporarily for A/B comparison.
-
+        """Build briefing system prompt dynamically based on cast members.
+        
         Args:
             cast_members: List of dicts with 'name' and 'personality' keys, sorted by order
             cast_name: Optional name of the cast
@@ -180,7 +152,7 @@ class BriefingWriterAgent:
             briefing_title: Optional briefing title (e.g., "Morning X" for scheduled briefings)
             complexity: Conversation complexity level 1-5
             enable_non_speech_sounds: Whether to include non-speech sounds markup guide
-
+            
         Returns:
             System prompt string
         """
@@ -556,154 +528,7 @@ When specific topics are provided, make sure to cover stories from ALL of those 
         )
 
         return prompt + complexity_instruction + non_speech_sounds_section + attribution_guidance
-
-    def _build_system_prompt_v2(
-        self,
-        cast_members: list[dict],
-        cast_name: Optional[str] = None,
-        cast_description: Optional[str] = None,
-        topics: Optional[list[str]] = None,
-        briefing_title: Optional[str] = None,
-        complexity: int = 3,
-        enable_non_speech_sounds: bool = False,
-    ) -> str:
-        """Lean system prompt: strict output contract, personalities do the styling.
-
-        Style quotas and example menus are deliberately absent — the per-host
-        personalities and research provide the character, and the model is
-        trusted to pace the conversation itself.
-        """
-        num_hosts = len(cast_members)
-        show_name = cast_name or "the show"
-
-        # Hosts: name, personality essentials, behavioral guidelines.
-        host_names = []
-        host_blocks = []
-        for i, member in enumerate(cast_members):
-            name = member.get("name", f"HOST{i+1}")
-            personality_name = member.get("personality", "Casual")
-            personality = get_personality(personality_name)
-            data = personality.get_description()
-            host_names.append(name)
-            guidelines = personality.get_behavioral_guidelines() or []
-            guidelines_text = "".join(f"\n  - {g}" for g in guidelines)
-            host_blocks.append(
-                f"{name} — {data.get('core_trait', '')}. Voice: {data.get('voice', '')}. "
-                f"Role: {data.get('role', '')}.{guidelines_text}"
-            )
-
-        personality_additions = []
-        for i, member in enumerate(cast_members):
-            personality = get_personality(member.get("personality", "Casual"))
-            addition = personality.get_system_prompt_addition(
-                member.get("name", f"HOST{i+1}"), i, num_hosts
-            )
-            if addition:
-                personality_additions.append(addition)
-        personality_additions_text = (
-            "\n" + "\n".join(personality_additions) if personality_additions else ""
-        )
-        cast_description_text = f"\nAbout this cast: {cast_description}" if cast_description else ""
-
-        if topics:
-            topics_str = (
-                topics[0] if len(topics) == 1
-                else " and ".join(topics) if len(topics) == 2
-                else ", ".join(topics[:-1]) + f", and {topics[-1]}"
-            )
-        else:
-            topics_str = "general news"
-        episode_name = briefing_title or f"your {topics_str} briefing"
-
-        # Identity line + format example per host count (example is load-bearing
-        # for output parsing — keep it concrete).
-        other_hosts = ", ".join(host_names[1:]) if len(host_names) > 1 else ""
-        if num_hosts == 1:
-            identity = (
-                f"You are {host_names[0]}, host of {show_name}, recording today's "
-                f"episode of {episode_name} for one listener."
-            )
-            format_example = (
-                f"TITLE: Tech & Business Update - Dec 15\n"
-                f"{host_names[0]}: Hey, welcome back to {show_name}! I'm {host_names[0]}. We're diving into tech today.\n"
-                f"[CHAPTER: Tech News]\n"
-                f"{host_names[0]}: First up, let's talk about..."
-            )
-        elif num_hosts == 2:
-            identity = (
-                f"You are {host_names[0]} and {host_names[1]}, co-hosts of {show_name}, "
-                f"recording today's episode of {episode_name} for one listener."
-            )
-            format_example = (
-                f"TITLE: Tech & Business Update - Dec 15\n"
-                f"{host_names[0]}: Hey everyone, welcome back to {show_name}! I'm {host_names[0]} here with {host_names[1]}. We're covering tech and business today.\n"
-                f"{host_names[1]}: Good to be here. Did you see that [Company] announcement this morning?\n"
-                f"{host_names[0]}: Oh yeah, we're definitely getting into that. I have thoughts.\n"
-                f"[CHAPTER: Tech News]\n"
-                f"{host_names[0]}: Alright, so [Company] just announced [specific detail]..."
-            )
-        else:
-            identity = (
-                f"You are {', '.join(host_names[:-1])}, and {host_names[-1]}, the hosts of "
-                f"{show_name}, recording today's episode of {episode_name} for one listener."
-            )
-            format_example = (
-                f"TITLE: Tech & Business Update - Dec 15\n"
-                f"{host_names[0]}: What's up everybody, welcome back to {show_name}! I'm {host_names[0]}, got {other_hosts} with me.\n"
-                f"{host_names[1]}: Good to be here.\n"
-                f"{host_names[2]}: I've been waiting to talk about that first story all morning.\n"
-                f"[CHAPTER: Tech News]\n"
-                f"{host_names[1]}: So [Company] just announced [specific detail]..."
-            )
-
-        conversation_section = (
-            "THE CONVERSATION:\n"
-            "Talk like real co-hosts, not script readers: react to each other, push back "
-            "when your own research points elsewhere, ask the question a curious listener "
-            "would ask, admit what you don't know, and build on each other's points. "
-            "Concrete facts and numbers beat adjectives. Plain, direct language — no hype, "
-            "no doom, no filler like \"there's a lot to unpack here\"."
-            if num_hosts >= 2
-            else
-            "THE NARRATION:\n"
-            "Talk like a knowledgeable friend, not a newsreader: explain why each story "
-            "matters, think out loud, and admit what's uncertain. Concrete facts and "
-            "numbers beat adjectives. Plain, direct language — no hype, no doom, no "
-            "filler like \"there's a lot to unpack here\"."
-        )
-
-        prompt = f"""{identity}
-
-HOSTS:
-{chr(10).join(host_blocks)}{personality_additions_text}{cast_description_text}
-
-{conversation_section}
-
-MATERIAL DISCIPLINE:
-Discuss ONLY the stories and research notes provided in the user message. Do not introduce other news, events, or examples from memory. Depth over breadth: a sharp discussion of two stories beats a shallow tour of five.
-
-OPENING & CLOSING:
-Open with a natural greeting — welcome the listener, name the show and hosts, and mention today's topics ({topics_str}). You may lead with a single attention-grabbing line about the top story before the greeting. A beat of banter is welcome when it's grounded in an actual story — then get into it. Close briefly by calling back to the episode's most memorable moment; no formal recap.
-
-CRITICAL OUTPUT RULES:
-- FIRST: Output a short, glanceable podcast title (max 60 characters) that includes the key topics. Format: TITLE: [title here]
-- THEN: Output ONLY spoken dialogue - what the hosts actually say out loud
-- INCLUDE chapter markers to break up the content into logical sections. Format: [CHAPTER: Short Title Here] where the title is no more than 5 words. Place chapter markers at natural transition points; each chapter is one distinct story.
-- BEFORE EACH CHAPTER MARKER: a brief, varied spoken transition, then [medium pause].
-- DO NOT include stage directions, sound effects, or production notes like [MUSIC], [INTRO], [OUTRO], etc. (except [medium pause] which is allowed before chapter markers)
-- DO NOT include asterisks or brackets with instructions like *laughs*, *sighs*, [clears throat]
-- DO NOT include timestamps or other section headers
-
-Format your response EXACTLY like this:
-{format_example}
-
-If a listener name is provided, greet them by name once, naturally. Match the greeting to the time of day. Don't state the date in the opening line; weave it in only if a story needs it.
-- When you state a key fact or figure, attribute it to its source naturally in speech (e.g. "according to Reuters"). Attribute the most important claims, not every sentence."""
-
-        complexity_instruction = get_complexity_instruction(complexity)
-        non_speech_sounds_section = NON_SPEECH_SOUNDS_GUIDE if enable_non_speech_sounds else ""
-        return prompt + complexity_instruction + non_speech_sounds_section
-
+    
     def _build_user_prompt(
         self,
         content: str,
@@ -833,12 +658,12 @@ CONTEXT:
 {name_instruction}
 
 REQUIREMENTS:
-1. Discuss ONLY the stories above; lead with the most compelling one. Every chapter must correspond to one of them - do not add stories, background topics, or examples that are not in the provided material.
+1. Cover stories across ALL listed topics; lead with the most compelling one.
 2. For each major story, explain what happened, why it matters, and what it means going forward; connect related stories.
 3. Weave in the additional quantifiable facts above (when provided) for the matching article - ground the discussion in real numbers.
 4. Have hosts ask insightful questions and offer distinct perspectives; present multiple viewpoints on contested topics.
-5. Close briefly - a short callback beats a formal recap.
-6. Target about {duration} minutes (~{word_target} words), but treat this as a ceiling shaped by the material: go deeper on the strongest story rather than stretching the weakest. If you run out of substance, end the episode early - never pad with generalities or repeated recaps.
+5. End by recapping the key stories and takeaways.
+6. Aim for roughly {word_target} words of spoken dialogue (~{duration} minutes at a natural pace).
 
 Follow the title, chapter, transition, format, and language rules from the system instructions. Output the TITLE line, then the dialogue, and nothing else.
 

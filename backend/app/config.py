@@ -82,14 +82,6 @@ class Settings(BaseSettings):
     
     # Content Duration Settings (in minutes)
     briefing_duration_minutes: int = 5  # Daily briefing duration
-
-    # Story selection: override the duration-derived story count (None = auto:
-    # roughly one story per 3 minutes, clamped to 1-6)
-    stories_per_briefing: Optional[int] = None
-
-    # Briefing writer system prompt: v2 is the leaner rewrite; set False to
-    # fall back to the original (v1) prompt for A/B comparison.
-    writer_prompt_v2: bool = True
     
     # Conversation Complexity (1-5 scale)
     # 1 = Casual/High School - simple language, everyday analogies
@@ -108,10 +100,6 @@ class Settings(BaseSettings):
     # News Sources
     news_api_key: Optional[str] = None
     rss_feeds: str = "https://feeds.bbci.co.uk/news/technology/rss.xml,https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml"
-    # Include the global rss_feeds in the candidate pool even when topics are
-    # selected (legacy behavior; global feeds carry no topic metadata and can
-    # leak off-topic stories into briefings).
-    rss_global_with_topics: bool = False
     
     # Resend Email
     resend_api_key: Optional[str] = None

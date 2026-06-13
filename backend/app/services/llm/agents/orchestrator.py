@@ -99,7 +99,6 @@ class BriefingOrchestrator:
         stories: list[dict],
         cast_members: list[dict],
         briefing_id: Optional[str] = None,
-        topics: Optional[list[str]] = None,
     ) -> tuple[list[HostResearch], list[dict]]:
         """Run one persona-driven research pass per host, concurrently."""
         ordered = sorted(cast_members, key=lambda m: m.get("order", 0))
@@ -114,7 +113,6 @@ class BriefingOrchestrator:
                     host_name=host_name,
                     personality_name=personality_name,
                     briefing_id=briefing_id,
-                    topics=topics,
                 )
             except Exception as e:
                 print(f"[Orchestrator] Host research failed for {host_name}: {e}")

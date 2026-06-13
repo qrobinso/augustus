@@ -151,11 +151,8 @@ OUTPUT FORMAT (JSON only):
         title = story.get('title', '')
         if title:
             try:
-                # Search for articles about this story; include the story's
-                # category so results stay anchored to the briefing's subject.
-                category = story.get('category')
-                scope = f" {category}" if category else ""
-                search_query = f"{title}{scope} {story.get('summary', '')[:100]}"
+                # Search for articles about this story
+                search_query = f"{title} {story.get('summary', '')[:100]}"
                 search_results = await self.search_service.search(search_query, num_results=3)
                 
                 # Try to fetch content from alternative articles
