@@ -2,7 +2,7 @@
 
 from abc import ABC, abstractmethod
 from typing import Optional
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -13,6 +13,7 @@ class LLMResponse:
     usage: dict
     raw_response: Optional[dict] = None
     finish_reason: Optional[str] = None  # "length" means output hit max_tokens
+    annotations: list = field(default_factory=list)  # e.g. url_citation entries from web search plugins
 
 
 class LLMProvider(ABC):
@@ -27,6 +28,7 @@ class LLMProvider(ABC):
         temperature: float = 0.7,
         response_format: Optional[dict] = None,
         briefing_id: Optional[str] = None,
+        plugins: Optional[list[dict]] = None,
     ) -> LLMResponse:
         """Generate text from prompt.
         
@@ -49,6 +51,7 @@ class LLMProvider(ABC):
         temperature: float = 0.7,
         response_format: Optional[dict] = None,
         briefing_id: Optional[str] = None,
+        plugins: Optional[list[dict]] = None,
     ) -> LLMResponse:
         """Generate response for a conversation.
         

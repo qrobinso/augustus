@@ -58,6 +58,9 @@ class Settings(BaseSettings):
     llm_prompt_cache: bool = False
 
     host_research_enabled: bool = True
+    # Use OpenRouter's web search plugin (one model call per host per story, the
+    # model searches itself) instead of DuckDuckGo scraping + page fetches.
+    host_research_web_plugin: bool = True
     host_research_max_sources_per_story: int = 3
     host_research_queries_per_story: int = 2
 

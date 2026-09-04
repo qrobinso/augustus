@@ -1,6 +1,8 @@
 """Host Research Agent - persona-driven, per-host source research."""
 
+import asyncio
 import json
+import re
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -101,9 +103,131 @@ FACTS_SCHEMA = {
 class HostResearchAgent:
     """Researches the editor's selected stories through one host's persona lens."""
 
-    def __init__(self, llm: LLMProvider, search_service=None):
+    def __init__(self, llm: LLMProvider, search_service=None, use_web_plugin: Optional[bool] = None):
         self.llm = llm
         self.search_service = search_service or get_search_service()
+        self.use_web_plugin = (
+            use_web_plugin if use_web_plugin is not None else get_settings().host_research_web_plugin
+        )
+
+    # ---------------------------------------------------------------- online path
+
+    def _online_system_prompt(self, host_name: str, personality_name: str) -> str:
+        personality = get_personality(personality_name)
+        guidelines = "\n".join(f"- {g}" for g in (personality.get_behavioral_guidelines() or [])[:4])
+        stance = personality.stance or persona_angle(personality_name)
+        return (
+            f"You are {host_name}, a podcast host ({personality_name}). Your stance: {stance}\n{guidelines}\n\n"
+            "You have web search. Research the story below the way YOU would: look for the "
+            "evidence, numbers, precedents, and angles your stance cares about, and for anything "
+            "that would make you push back on the headline. Prefer primary sources and recent "
+            "coverage. Then write 3-5 question/answer pairs you would bring to the conversation. "
+            "Answers must be specific and grounded in what you found, with numbers where they exist.\n\n"
+            'Output JSON only: {"questions_and_answers":[{"question":"...","answer":"..."}]}'
+        )
+
+    @staticmethod
+    def _online_user_prompt(story: dict) -> str:
+        return (
+            f"STORY: {story.get('title', 'Untitled')}\n"
+            f"Source: {story.get('source', 'unknown')}\n"
+            f"URL: {story.get('url', 'unknown')}\n"
+            f"Summary: {(story.get('summary') or '')[:600]}"
+        )
+
+    @staticmethod
+    def _extract_json_object(text: str) -> Optional[dict]:
+        """Pull the first JSON object out of a response that may include prose or fences."""
+        if not text:
+            return None
+        candidate = text
+        if "```" in text:
+            m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+            if m:
+                candidate = m.group(1)
+        else:
+            start, end = text.find("{"), text.rfind("}")
+            if start != -1 and end > start:
+                candidate = text[start:end + 1]
+        try:
+            data = json.loads(candidate)
+        except json.JSONDecodeError:
+            return None
+        return data if isinstance(data, dict) else None
+
+    @staticmethod
+    def _sources_from_annotations(annotations: list, host_name: str, story_index: int) -> list[dict]:
+        sources = []
+        for ann in annotations or []:
+            cite = ann.get("url_citation") if isinstance(ann, dict) else None
+            if not cite or not cite.get("url"):
+                continue
+            sources.append({
+                "title": cite.get("title") or cite["url"],
+                "url": cite["url"],
+                "snippet": (cite.get("content") or "")[:300],
+                "found_by": [host_name],
+                "story_index": story_index,
+            })
+        return sources
+
+    async def _research_story_online(
+        self, idx: int, story: dict, host_name: str, personality_name: str,
+        briefing_id: Optional[str],
+    ) -> tuple[int, list[str], list[dict]]:
+        settings = get_settings()
+        plugins = [{"id": "web", "max_results": settings.host_research_max_sources_per_story}]
+        try:
+            response = await self.llm.generate(
+                prompt=self._online_user_prompt(story),
+                system_prompt=self._online_system_prompt(host_name, personality_name),
+                max_tokens=2048,
+                temperature=0.5,
+                briefing_id=briefing_id,
+                plugins=plugins,
+            )
+        except Exception as e:
+            print(f"[HostResearch:{host_name}] online research failed for story {idx + 1}: {e!r}")
+            return idx, [], []
+
+        data = self._extract_json_object(response.content) or {}
+        facts = [
+            f"Question: {qa.get('question', '')}\nAnswer: {qa.get('answer', '')}"
+            for qa in data.get("questions_and_answers", [])
+            if isinstance(qa, dict) and qa.get("question") and qa.get("answer")
+        ]
+        sources = self._sources_from_annotations(getattr(response, "annotations", None), host_name, idx)
+        if not facts:
+            print(f"[HostResearch:{host_name}] no usable facts for story {idx + 1} (content: {response.content[:120]!r})")
+        return idx, facts, sources
+
+    async def _research_online(
+        self, stories: list[dict], host_name: str, personality_name: str,
+        briefing_id: Optional[str] = None,
+    ) -> HostResearch:
+        results = await asyncio.gather(*[
+            self._research_story_online(i, story, host_name, personality_name, briefing_id)
+            for i, story in enumerate(stories)
+        ])
+        facts_by_idx: dict[int, list[str]] = {}
+        sources: list[dict] = []
+        seen: set[str] = set()
+        for idx, facts, story_sources in results:
+            if facts:
+                facts_by_idx[idx] = facts
+            for src in story_sources:
+                if src["url"] not in seen:
+                    seen.add(src["url"])
+                    sources.append(src)
+        return HostResearch(
+            host_name=host_name,
+            personality_name=personality_name,
+            angle=persona_angle(personality_name),
+            facts_by_story_index=facts_by_idx,
+            sources=sources,
+        )
+
+    # ---------------------------------------------------------------- legacy path (DuckDuckGo)
 
     def _query_system_prompt(self, host_name: str, personality_name: str) -> str:
         angle = persona_angle(personality_name)
@@ -275,6 +399,8 @@ class HostResearchAgent:
         self, stories: list[dict], host_name: str, personality_name: str,
         briefing_id: Optional[str] = None,
     ) -> HostResearch:
+        if self.use_web_plugin:
+            return await self._research_online(stories, host_name, personality_name, briefing_id)
         queries_by_idx = await self._generate_queries(stories, host_name, personality_name, briefing_id)
         content_by_idx, sources = await self._gather_sources(stories, queries_by_idx, host_name)
         facts = await self._generate_facts(stories, content_by_idx, host_name, personality_name, briefing_id)

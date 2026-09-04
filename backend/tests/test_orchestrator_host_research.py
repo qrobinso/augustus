@@ -20,6 +20,7 @@ async def test_gather_host_research_runs_one_pass_per_host():
     orch._make_host_agent = lambda: HostResearchAgent(
         FakeLLM(response_content=[q, f]),
         search_service=FakeSearch(results=[SearchResult("R", "http://r.example", "s")]),
+        use_web_plugin=False,
     )
     research_list, sources = await orch.gather_host_research(STORIES, CAST)
     assert [r.host_name for r in research_list] == ["Alex", "Sam"]
@@ -41,7 +42,8 @@ async def test_gather_host_research_survives_one_host_failure():
     agents = iter([
         BoomAgent(),
         HostResearchAgent(FakeLLM(response_content=[good_q, good_f]),
-                          search_service=FakeSearch(results=[SearchResult("R", "http://r.example", "s")])),
+                          search_service=FakeSearch(results=[SearchResult("R", "http://r.example", "s")]),
+                          use_web_plugin=False),
     ])
     orch._make_host_agent = lambda: next(agents)
 

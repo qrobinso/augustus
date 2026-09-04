@@ -98,7 +98,7 @@ class OpenRouterProvider(LLMProvider):
         
         return self._client
     
-    def _build_payload(self, messages, max_tokens, temperature, response_format=None):
+    def _build_payload(self, messages, max_tokens, temperature, response_format=None, plugins=None):
         payload = {
             "model": self.model,
             "messages": messages,
@@ -107,6 +107,9 @@ class OpenRouterProvider(LLMProvider):
         }
         if response_format is not None:
             payload["response_format"] = response_format
+        if plugins:
+            # e.g. [{"id": "web", "max_results": 5}] enables OpenRouter's web search plugin
+            payload["plugins"] = plugins
         return payload
 
     async def generate(
@@ -117,6 +120,7 @@ class OpenRouterProvider(LLMProvider):
         temperature: float = 0.7,
         response_format: Optional[dict] = None,
         briefing_id: Optional[str] = None,
+        plugins: Optional[list[dict]] = None,
     ) -> LLMResponse:
         """Generate text from prompt using OpenRouter."""
         messages = []
@@ -132,6 +136,7 @@ class OpenRouterProvider(LLMProvider):
             temperature=temperature,
             response_format=response_format,
             briefing_id=briefing_id,
+            plugins=plugins,
         )
     
     async def generate_conversation(
@@ -141,9 +146,10 @@ class OpenRouterProvider(LLMProvider):
         temperature: float = 0.7,
         response_format: Optional[dict] = None,
         briefing_id: Optional[str] = None,
+        plugins: Optional[list[dict]] = None,
     ) -> LLMResponse:
         """Generate response for a conversation."""
-        payload = self._build_payload(messages, max_tokens, temperature, response_format)
+        payload = self._build_payload(messages, max_tokens, temperature, response_format, plugins)
 
         # Log the request
         _log_separator(f"LLM REQUEST to {self.model}")
@@ -174,7 +180,8 @@ class OpenRouterProvider(LLMProvider):
         data = response.json()
         
         choice = data["choices"][0]
-        result_content = choice["message"]["content"]
+        result_content = choice["message"]["content"] or ""
+        annotations = choice["message"].get("annotations") or []
         usage = data.get("usage", {})
         finish_reason = choice.get("finish_reason") or choice.get("native_finish_reason")
         if finish_reason == "length":
@@ -201,6 +208,7 @@ class OpenRouterProvider(LLMProvider):
             usage=usage,
             raw_response=data,
             finish_reason=finish_reason,
+            annotations=annotations,
         )
     
     async def close(self):

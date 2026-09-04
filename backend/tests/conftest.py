@@ -54,32 +54,39 @@ class FakeLLM(LLMProvider):
     """
 
     def __init__(self, response_content="{}"):
-        self._responses = [response_content] if isinstance(response_content, str) else list(response_content)
+        self._responses = [response_content] if isinstance(response_content, (str, LLMResponse)) else list(response_content)
         self.calls: list[dict] = []
 
-    def _next(self) -> str:
+    def _next(self):
         if not self._responses:
             return ""
         if len(self._responses) == 1:
             return self._responses[0]
         return self._responses.pop(0)
 
+    def _response(self) -> LLMResponse:
+        # Entries may be plain strings or full LLMResponse objects (e.g. with annotations).
+        nxt = self._next()
+        if isinstance(nxt, LLMResponse):
+            return nxt
+        return LLMResponse(content=nxt, model="fake", usage={})
+
     async def generate(self, prompt, system_prompt=None, max_tokens=4096,
-                       temperature=0.7, response_format=None, briefing_id=None):
+                       temperature=0.7, response_format=None, briefing_id=None, plugins=None):
         self.calls.append({
             "prompt": prompt, "system_prompt": system_prompt,
             "max_tokens": max_tokens, "temperature": temperature,
-            "response_format": response_format,
+            "response_format": response_format, "plugins": plugins,
         })
-        return LLMResponse(content=self._next(), model="fake", usage={})
+        return self._response()
 
     async def generate_conversation(self, messages, max_tokens=4096,
-                                   temperature=0.7, response_format=None, briefing_id=None):
+                                   temperature=0.7, response_format=None, briefing_id=None, plugins=None):
         self.calls.append({
             "messages": messages, "max_tokens": max_tokens,
-            "temperature": temperature, "response_format": response_format,
+            "temperature": temperature, "response_format": response_format, "plugins": plugins,
         })
-        return LLMResponse(content=self._next(), model="fake", usage={})
+        return self._response()
 
     async def close(self):
         pass
