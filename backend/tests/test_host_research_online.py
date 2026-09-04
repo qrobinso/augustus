@@ -60,6 +60,8 @@ async def test_online_research_one_call_per_story_with_web_plugin():
 
     assert len(fake.calls) == 2
     assert all(c["plugins"][0]["id"] == "web" for c in fake.calls)
+    assert all(c["plugins"][0]["engine"] for c in fake.calls)   # engine is explicit, not provider default
+    assert all(c["max_tokens"] >= 4096 for c in fake.calls)     # room for reasoning + search excerpts
     assert "Skeptic" in fake.calls[0]["system_prompt"]
     assert "AI chip launch" in fake.calls[0]["prompt"]
     assert "Rate cut" in fake.calls[1]["prompt"]
@@ -92,3 +94,8 @@ async def test_legacy_path_still_used_when_plugin_disabled():
     research = await agent.research(STORIES[:1], "Alex", "Casual")
     assert research.facts_by_story_index[0]
     assert all(not c.get("plugins") for c in fake.calls)
+
+
+def test_markdown_links_in_answers_become_plain_text():
+    out = HostResearchAgent._plain_text("According to [cnbc.com](https://www.cnbc.com/2026/x) the price was $13B.")
+    assert out == "According to cnbc.com the price was $13B."

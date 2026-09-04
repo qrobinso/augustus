@@ -100,6 +100,9 @@ FACTS_SCHEMA = {
 }
 
 
+ONLINE_RESEARCH_MAX_TOKENS = 6144
+
+
 class HostResearchAgent:
     """Researches the editor's selected stories through one host's persona lens."""
 
@@ -155,6 +158,13 @@ class HostResearchAgent:
             return None
         return data if isinstance(data, dict) else None
 
+    _MD_LINK = re.compile(r"\[([^\]]+)\]\((?:https?://)[^)]+\)")
+
+    @classmethod
+    def _plain_text(cls, text: str) -> str:
+        """Markdown links become their label; the URL would otherwise be read aloud."""
+        return cls._MD_LINK.sub(r"\1", text or "").strip()
+
     @staticmethod
     def _sources_from_annotations(annotations: list, host_name: str, story_index: int) -> list[dict]:
         sources = []
@@ -176,12 +186,18 @@ class HostResearchAgent:
         briefing_id: Optional[str],
     ) -> tuple[int, list[str], list[dict]]:
         settings = get_settings()
-        plugins = [{"id": "web", "max_results": settings.host_research_max_sources_per_story}]
+        plugins = [{
+            "id": "web",
+            "engine": settings.host_research_search_engine,
+            "max_results": settings.host_research_max_sources_per_story,
+        }]
         try:
             response = await self.llm.generate(
                 prompt=self._online_user_prompt(story),
                 system_prompt=self._online_system_prompt(host_name, personality_name),
-                max_tokens=2048,
+                # Reasoning models spend thinking tokens from this budget on top of the
+                # search excerpts they read; 2048 was observed to truncate the answer.
+                max_tokens=ONLINE_RESEARCH_MAX_TOKENS,
                 temperature=0.5,
                 briefing_id=briefing_id,
                 plugins=plugins,
@@ -192,7 +208,7 @@ class HostResearchAgent:
 
         data = self._extract_json_object(response.content) or {}
         facts = [
-            f"Question: {qa.get('question', '')}\nAnswer: {qa.get('answer', '')}"
+            f"Question: {self._plain_text(qa.get('question', ''))}\nAnswer: {self._plain_text(qa.get('answer', ''))}"
             for qa in data.get("questions_and_answers", [])
             if isinstance(qa, dict) and qa.get("question") and qa.get("answer")
         ]

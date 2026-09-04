@@ -61,6 +61,9 @@ class Settings(BaseSettings):
     # Use OpenRouter's web search plugin (one model call per host per story, the
     # model searches itself) instead of DuckDuckGo scraping + page fetches.
     host_research_web_plugin: bool = True
+    # OpenRouter web plugin engine. "exa" returns direct URLs with excerpts (~$0.007/request);
+    # "native" uses the model provider's own search (Google grounding returns redirect URLs).
+    host_research_search_engine: str = "exa"
     host_research_max_sources_per_story: int = 3
     host_research_queries_per_story: int = 2
 
