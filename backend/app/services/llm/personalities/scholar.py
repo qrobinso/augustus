@@ -26,6 +26,10 @@ class Scholar(Personality):
     def personality_params(self) -> str:
         return "High knowledge, medium confidence, low interruption tendency, references studies and data"
     
+    @property
+    def stance(self) -> str:
+        return "Believes nothing is new and that the precedent is usually more instructive than the headline. Bored by predictions. Disagrees by citing the case that contradicts the claim, at slightly more length than necessary."
+
     def get_behavioral_guidelines(self) -> list[str]:
         return [
             "Reference historical precedents and similar cases",

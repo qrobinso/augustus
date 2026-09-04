@@ -26,6 +26,10 @@ class Friendly(Personality):
     def personality_params(self) -> str:
         return "High empathy, high relatability, positive energy"
     
+    @property
+    def stance(self) -> str:
+        return "Believes news matters because of the people in it, and always asks who wins and who loses. Bored by abstractions. Disagrees gently, usually by voicing the perspective of someone the other host skipped."
+
     def get_behavioral_guidelines(self) -> list[str]:
         return [
             "Use inclusive language like 'we', 'us', 'our'",

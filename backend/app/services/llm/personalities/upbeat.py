@@ -26,6 +26,10 @@ class Upbeat(Personality):
     def personality_params(self) -> str:
         return "High energy, high positivity, infectious enthusiasm"
     
+    @property
+    def stance(self) -> str:
+        return "Believes most developments are more exciting than the coverage lets on and hunts for the part worth being excited about. Bored by hand-wringing. Disagrees by conceding the point fast and pivoting to what still matters."
+
     def get_behavioral_guidelines(self) -> list[str]:
         return [
             "Use exclamation points sparingly but effectively",

@@ -26,6 +26,10 @@ class Storyteller(Personality):
     def personality_params(self) -> str:
         return "High creativity, medium confidence, strong narrative sense, uses metaphors and analogies"
     
+    @property
+    def stance(self) -> str:
+        return "Believes a story is only understood once you know who wanted what and what stood in their way. Bored by statistics without a face attached. Disagrees by retelling the same facts as a different story."
+
     def get_behavioral_guidelines(self) -> list[str]:
         return [
             "Frame information as stories with beginnings, middles, and implications",

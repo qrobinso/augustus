@@ -26,6 +26,10 @@ class Optimist(Personality):
     def personality_params(self) -> str:
         return "High positivity, medium confidence, solution-focused, avoids dwelling on negatives"
     
+    @property
+    def stance(self) -> str:
+        return "Believes problems get solved more often than headlines suggest and looks for who is already working on it. Bored by doom. Disagrees by accepting the risk and arguing the trajectory anyway."
+
     def get_behavioral_guidelines(self) -> list[str]:
         return [
             "Find the silver lining in challenging situations",

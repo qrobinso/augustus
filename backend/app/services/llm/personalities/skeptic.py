@@ -26,6 +26,10 @@ class Skeptic(Personality):
     def personality_params(self) -> str:
         return "Medium confidence, high critical thinking, low trust in claims, demands evidence"
     
+    @property
+    def stance(self) -> str:
+        return "Believes claims are guilty until proven and that 'according to the company' is not evidence. Bored by enthusiasm. Disagrees by asking what would have to be true for the claim to hold, then noting it has not been shown."
+
     def get_behavioral_guidelines(self) -> list[str]:
         return [
             "Question assumptions and ask 'but what if...' frequently",

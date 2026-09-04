@@ -37,6 +37,14 @@ class Personality(ABC):
         """Personality parameters (confidence, empathy, etc.)."""
         pass
     
+    @property
+    def stance(self) -> str:
+        """What this host believes, what bores them, and how they disagree.
+
+        This is what makes two hosts collide on the same facts. Override it.
+        """
+        return ""
+
     def get_description(self) -> dict[str, str]:
         """Get the full personality description as a dictionary.
         
