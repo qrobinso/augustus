@@ -12,6 +12,7 @@ class LLMResponse:
     model: str
     usage: dict
     raw_response: Optional[dict] = None
+    finish_reason: Optional[str] = None  # "length" means output hit max_tokens
 
 
 class LLMProvider(ABC):

@@ -173,8 +173,17 @@ class OpenRouterProvider(LLMProvider):
         
         data = response.json()
         
-        result_content = data["choices"][0]["message"]["content"]
+        choice = data["choices"][0]
+        result_content = choice["message"]["content"]
         usage = data.get("usage", {})
+        finish_reason = choice.get("finish_reason") or choice.get("native_finish_reason")
+        if finish_reason == "length":
+            reasoning = (usage.get("completion_tokens_details") or {}).get("reasoning_tokens", 0)
+            print(
+                f"[LLM WARNING] {self.model} hit max_tokens={max_tokens} "
+                f"(completion_tokens={usage.get('completion_tokens')}, reasoning_tokens={reasoning}); "
+                "output was truncated."
+            )
         
         # Log the response
         _log_separator("LLM RESPONSE")
@@ -191,6 +200,7 @@ class OpenRouterProvider(LLMProvider):
             model=data.get("model", self.model),
             usage=usage,
             raw_response=data,
+            finish_reason=finish_reason,
         )
     
     async def close(self):
