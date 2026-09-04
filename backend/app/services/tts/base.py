@@ -66,6 +66,7 @@ class TTSProvider(ABC):
         output_path: Path,
         voice_map: Optional[dict[str, str]] = None,
         briefing_id: Optional[str] = None,
+        style_prompt: Optional[str] = None,
     ) -> TTSResult:
         """Synthesize a multi-speaker conversation.
         

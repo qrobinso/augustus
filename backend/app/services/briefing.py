@@ -22,6 +22,7 @@ from app.services.cast import CastService
 from app.services.llm.openrouter import get_llm_provider
 from app.services.llm.agents.orchestrator import BriefingOrchestrator
 from app.services.tts.factory import TTSFactory
+from app.services.tts.style import build_delivery_style, strip_inert_tags
 from app.services.news import get_news_service, filter_stale_items
 from app.services.scraper import get_scraper_service
 from app.services.search import get_search_service
@@ -643,6 +644,9 @@ class BriefingService:
             # Extract chapters from script, or derive from stories if none found
             chapters = self._extract_chapters(script)
             
+            # Drop markup no provider can voice (pause tags always; sound tags unless enabled)
+            script = strip_inert_tags(script, keep_sounds=enable_non_speech_sounds)
+
             # Remove chapter markers from transcript before storing (keep clean transcript for display)
             clean_transcript = re.sub(r'\[CHAPTER:\s*.+?\]', '', script).strip()
             briefing.transcript = clean_transcript
@@ -681,6 +685,7 @@ class BriefingService:
                     output_path=audio_path,
                     voice_map=voice_map,  # Use cast voice IDs
                     briefing_id=briefing_id,
+                    style_prompt=build_delivery_style(cast_members, cast.description),
                 )
                 await self._check_cancelled(briefing_id)
             except BriefingCancelledException:
@@ -882,9 +887,12 @@ class BriefingService:
                     text = match[1].strip()
                     if text:
                         # Map cast member name to HOST identifier for TTS
-                        host_id = name_to_host.get(speaker_name, "HOST1")
+                        # Case-insensitive match back to the canonical cast name
+                        canonical = next((n for n in name_to_host if n.lower() == speaker_name.lower()), speaker_name)
+                        host_id = name_to_host.get(canonical, "HOST1")
                         segments.append({
                             "speaker": host_id,
+                            "name": canonical,
                             "text": text,
                         })
             else:
