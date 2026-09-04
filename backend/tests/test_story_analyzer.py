@@ -25,8 +25,10 @@ async def test_parses_plain_json_without_fences():
     assert summary is None
 
 
-def test_system_prompt_weather_is_weighted_not_absolute():
+def test_system_prompt_has_no_topic_bypass():
+    # Weather used to be exempt from topic filtering; that let storm stories
+    # outrank the listener's actual topics. There is no exemption now.
     agent = StoryAnalyzerAgent(FakeLLM())
     sp = agent._build_system_prompt(["AI"])
-    assert "regardless of other factors" not in sp
-    assert "weather" in sp.lower()
+    assert "weather" not in sp.lower()
+    assert "Fewer is better" in sp

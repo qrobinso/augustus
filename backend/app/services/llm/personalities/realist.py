@@ -26,6 +26,10 @@ class Realist(Personality):
     def personality_params(self) -> str:
         return "Medium confidence, high pragmatism, low tolerance for fluff, focuses on what actually matters"
     
+    @property
+    def stance(self) -> str:
+        return "Believes most announcements change nothing for most people and wants to know what is different next Tuesday. Bored by hype and doom in equal measure. Disagrees by asking what concretely changes, and when."
+
     def get_behavioral_guidelines(self) -> list[str]:
         return [
             "Cut through hype and get to what actually matters",

@@ -116,12 +116,20 @@ def target_words_for_duration(duration_minutes: int) -> int:
     return int(duration_minutes) * WORDS_PER_MINUTE
 
 
+# Reasoning models (Gemini 3.x, DeepSeek) spend "thinking" tokens out of the
+# same max_tokens budget as the visible script. Observed runs burned 1.3k-1.9k
+# reasoning tokens on a 7-minute briefing, so the budget must leave room for
+# that on top of the script itself or the transcript is cut off mid-sentence.
+REASONING_HEADROOM_TOKENS = 4096
+TOKENS_PER_WORD = 2.0  # observed ~1.4 for spoken text; extra covers labels/markup
+
+
 def tokens_for_duration(duration_minutes: int) -> int:
     """max_tokens budget for a script of the given length.
 
-    ~1.5 tokens/word for English, plus headroom for the title and markup.
-    Clamped to a sane [1024, 16384] range.
+    This is a safety ceiling, not a pacing lever: the word-count target in the
+    prompt controls length. Clamped to a sane [4096, 16384] range.
     """
     words = target_words_for_duration(duration_minutes)
-    tokens = int(words * 1.5) + 512
-    return max(1024, min(tokens, 16384))
+    tokens = int(words * TOKENS_PER_WORD) + REASONING_HEADROOM_TOKENS
+    return max(4096, min(tokens, 16384))

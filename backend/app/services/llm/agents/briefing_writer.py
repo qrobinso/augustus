@@ -44,37 +44,6 @@ Guidelines:
 - The goal is to make the dialogue feel like a real conversation, not a script being read
 """
 
-# Conversational dynamics for natural multi-host dialogue
-CONVERSATIONAL_DYNAMICS = """
-=== CONVERSATIONAL DYNAMICS ===
-
-Real conversations aren't perfectly choreographed. Add these natural patterns throughout:
-
-FRICTION & PUSHBACK:
-- One host challenges an assumption: "Wait, doesn't that contradict what they said last quarter?"
-- Genuine skepticism: "I don't know, I'm not totally sold on that read..."
-- Requesting clarification: "Hang on, walk me through that again—why would they do that?"
-- Mild disagreement: "See, I read that differently..." or "I think that's only half the story."
-
-INCOMPLETE THOUGHTS & CALLBACKS:
-- Start a point, get interrupted, return to it: "Actually—going back to what I was saying about [X]..."
-- Callbacks to earlier in the conversation: "This connects to that [topic] thing we mentioned earlier..."
-- Self-revision: "Wait, actually... let me rephrase that."
-- Building on partner's point: "To add to that..." or "That reminds me..."
-
-KNOWLEDGE ASYMMETRY:
-- One host genuinely learns something: "Oh, I didn't realize that. So basically..."
-- Admitting uncertainty: "I'm not sure I fully understand their angle here..."
-- Asking for the other's take: "What's your read on this?"
-
-TANGENTS & RECOVERY:
-- Brief tangent that gets pulled back: "—anyway, that's a whole other thing. Point is..."
-- Catching yourself: "Sorry, I'm going down a rabbit hole. The main takeaway is..."
-
-Use these SPARINGLY (2-4 instances per segment). They should feel organic, not forced. The goal is texture, not chaos.
-"""
-
-
 def build_host_research_section(host_research, stories) -> str:
     """Render each host's own research so the writer can stage an asymmetric debate."""
     if not host_research:
@@ -97,8 +66,8 @@ def build_host_research_section(host_research, stories) -> str:
             for fact in facts:
                 blocks.append(f"  - {fact}")
     blocks.append(
-        "\nEach host should speak primarily from THEIR OWN findings above. Let the differing "
-        "research drive genuine discussion - one host can raise a point the other didn't have."
+        "\nEach host knows only their own findings above. Let one host be surprised or "
+        "corrected by something the other found; do not have both recite the same facts."
     )
     return "\n".join(blocks)
 
@@ -157,378 +126,85 @@ class BriefingWriterAgent:
             System prompt string
         """
         num_hosts = len(cast_members)
-        
-        # Build host descriptions
-        host_descriptions = []
-        host_names = []
-        
-        for i, member in enumerate(cast_members):
-            name = member.get("name", f"HOST{i+1}")
-            personality_name = member.get("personality", "Casual")
-            
-            # Get personality instance
-            personality = get_personality(personality_name)
-            personality_data = personality.get_description()
-            
-            host_names.append(name)
-            
-            # Build detailed personality description
-            core_trait = personality_data.get("core_trait", "")
-            voice = personality_data.get("voice", "")
-            role = personality_data.get("role", "")
-            personality_params = personality_data.get("personality_params", "")
-            
-            # Get behavioral guidelines for this personality
-            behavioral_guidelines = personality.get_behavioral_guidelines()
-            guidelines_text = ""
-            if behavioral_guidelines:
-                guidelines_text = "\n" + "\n".join(f"- {guideline}" for guideline in behavioral_guidelines)
-            
-            if num_hosts == 1:
-                # Single host - narrator style
-                host_descriptions.append(
-                    f"{name}: You are the podcast host. "
-                    f"Core trait: {core_trait}. "
-                    f"Voice: {voice}. "
-                    f"Role: {role}. You provide the main narrative and context, explaining complex topics clearly. "
-                    f"Personality parameters: {personality_params}. "
-                    f"Keep the tone engaging and informative while maintaining your distinctive style."
-                    f"{guidelines_text}"
-                )
-            elif num_hosts == 2:
-                # Two hosts - conversation style
-                if i == 0:
-                    host_descriptions.append(
-                        f"{name}: The lead anchor. "
-                        f"Core trait: {core_trait}. "
-                        f"Voice: {voice}. "
-                        f"Role: {role}. Provides the main narrative and context. Keeps the tone engaging while being informative. "
-                        f"Personality parameters: {personality_params}."
-                        f"{guidelines_text}"
-                    )
-                else:
-                    host_descriptions.append(
-                        f"{name}: The co-host. "
-                        f"Core trait: {core_trait}. "
-                        f"Voice: {voice}. "
-                        f"Role: {role}. Adds depth and unique perspectives. Asks insightful questions and offers analysis. "
-                        f"Personality parameters: {personality_params}."
-                        f"{guidelines_text}"
-                    )
-            else:
-                # Three hosts - panel style
-                roles = ["lead anchor", "analyst", "contributor"]
-                host_descriptions.append(
-                    f"{name}: The {roles[i]}. "
-                    f"Core trait: {core_trait}. "
-                    f"Voice: {voice}. "
-                    f"Role: {role}. Contributes to the discussion with your unique perspective and style. "
-                    f"Personality parameters: {personality_params}."
-                    f"{guidelines_text}"
-                )
-        
-        # Build context for introduction (briefing title OR topics)
-        briefing_name = ""
-        if briefing_title:
-            briefing_name = briefing_title
-        elif topics:
-            if len(topics) == 1:
-                briefing_name = f"your {topics[0]} briefing"
-            elif len(topics) == 2:
-                briefing_name = f"your {topics[0]} and {topics[1]} briefing"
-            else:
-                topics_str = ", ".join(topics[:-1]) + f", and {topics[-1]}"
-                briefing_name = f"your {topics_str} briefing"
-        
-        # Build natural podcast intro instructions
+        host_names = [m.get("name", f"HOST{i+1}") for i, m in enumerate(cast_members)]
+
+        host_blocks = []
+        for name, member in zip(host_names, cast_members):
+            personality = get_personality(member.get("personality", "Casual"))
+            lines = [f"{name}: {personality.core_trait}. {personality.voice}."]
+            if personality.stance:
+                lines.append(f"  Stance: {personality.stance}")
+            for g in personality.get_behavioral_guidelines()[:3]:
+                lines.append(f"  - {g}")
+            host_blocks.append("\n".join(lines))
+        hosts_text = "\n".join(host_blocks)
+
+        if num_hosts == 1:
+            host_intro = f"You write {host_names[0]}'s daily news podcast. One host, talking to one listener."
+        else:
+            names = ", ".join(host_names[:-1]) + f" and {host_names[-1]}"
+            host_intro = f"You write a daily news podcast hosted by {names}. It is a conversation between people who disagree sometimes, not a news read."
+
+        cast_description_text = f"\n\nABOUT THIS SHOW\n{cast_description.strip()}\n" if cast_description else ""
+
         show_name = cast_name or "the show"
-        other_hosts = ", ".join(host_names[1:]) if len(host_names) > 1 else ""
-        all_hosts_str = ", ".join(host_names[:-1]) + f", and {host_names[-1]}" if len(host_names) > 2 else " and ".join(host_names) if len(host_names) == 2 else host_names[0]
-        
-        # Build dynamic topic presentation examples
-        topic_intro_examples = []
-        if topics:
-            if len(topics) == 1:
-                topic_intro_examples = [
-                    f"we're diving into {topics[0]} today",
-                    f"today's focus is {topics[0]}",
-                    f"we're covering {topics[0]}",
-                    f"let's talk {topics[0]}",
-                    f"today's briefing is all about {topics[0]}",
-                ]
-            elif len(topics) == 2:
-                topic_intro_examples = [
-                    f"we're covering {topics[0]} and {topics[1]} today",
-                    f"today's focus is {topics[0]} and {topics[1]}",
-                    f"we're diving into {topics[0]} and {topics[1]}",
-                    f"let's talk {topics[0]} and {topics[1]}",
-                    f"today we're looking at {topics[0]} and {topics[1]}",
-                ]
-            else:
-                topics_str = ", ".join(topics[:-1]) + f", and {topics[-1]}"
-                topic_intro_examples = [
-                    f"we're covering {topics_str} today",
-                    f"today's focus is {topics_str}",
-                    f"we're diving into {topics_str}",
-                    f"let's talk {topics_str}",
-                    f"today we're looking at {topics_str}",
-                ]
-        
-        intro_examples = []
-        if num_hosts == 1:
-            if topics:
-                topic_intro_0 = topic_intro_examples[0] if topic_intro_examples else "Let's get into it."
-                topic_intro_1 = topic_intro_examples[1] if len(topic_intro_examples) > 1 else "Let's dive in."
-                intro_examples = [
-                    f"'Hey, welcome back! This is {show_name}, I'm {host_names[0]}. {topic_intro_0}'",
-                    f"'Good morning! Welcome to {show_name}, I'm {host_names[0]}. {topic_intro_1}'",
-                ]
-            else:
-                intro_examples = [
-                    f"'Hey, welcome back! This is {show_name}, I'm {host_names[0]}. Let's get into it.'",
-                    f"'Good morning! Welcome to {show_name}, I'm {host_names[0]}. We've got a lot to cover today.'",
-                ]
-        elif num_hosts == 2:
-            if topics:
-                topic_intro_0 = topic_intro_examples[0] if topic_intro_examples else "Let's get into it."
-                topic_intro_1 = topic_intro_examples[1] if len(topic_intro_examples) > 1 else "Good to be here."
-                intro_examples = [
-                    f"'Hey, welcome back to {show_name}! I'm {host_names[0]} alongside {host_names[1]}. {topic_intro_0}'",
-                    f"'Good morning everyone! This is {show_name}, I'm {host_names[0]}.' followed by '{host_names[1]}: And I'm {host_names[1]}. {topic_intro_1}'",
-                ]
-            else:
-                intro_examples = [
-                    f"'Hey, welcome back to {show_name}! I'm {host_names[0]} alongside {host_names[1]}. Let's get into it.'",
-                    f"'Good morning everyone! This is {show_name}, I'm {host_names[0]}.' followed by '{host_names[1]}: And I'm {host_names[1]}. Good to be here.'",
-                ]
-        else:
-            if topics:
-                topic_intro_0 = topic_intro_examples[0] if topic_intro_examples else "Let's get into it."
-                topic_intro_1 = topic_intro_examples[1] if len(topic_intro_examples) > 1 else "Let's dive in."
-                intro_examples = [
-                    f"'Hey, welcome back to {show_name}! I'm {host_names[0]} here with {other_hosts}. {topic_intro_0}'",
-                    f"'Good morning everyone! This is {show_name}. I'm {host_names[0]}.' followed by the other hosts briefly greeting, then '{topic_intro_1}'",
-                ]
-            else:
-                intro_examples = [
-                    f"'Hey, welcome back to {show_name}! I'm {host_names[0]} here with {other_hosts}. Let's get into it.'",
-                    f"'Good morning everyone! This is {show_name}. I'm {host_names[0]}.' followed by the other hosts briefly greeting.",
-                ]
-        
-        # Build topic mention instruction
-        topic_instruction = ""
-        if topics:
-            if len(topics) == 1:
-                topic_instruction = f"""
-In the opening, mention the topic "{topics[0]}" - vary how you present it. Examples:
-- "we're diving into {topics[0]} today"
-- "today's focus is {topics[0]}"
-- "we're covering {topics[0]}"
-- "let's talk {topics[0]}"
-- "today's briefing is all about {topics[0]}"
-- "we're looking at {topics[0]}"
-- "let's get into {topics[0]}"
-"""
-            elif len(topics) == 2:
-                topic_instruction = f"""
-In the opening, mention both topics "{topics[0]}" and "{topics[1]}" - vary how you present them. Examples:
-- "we're covering {topics[0]} and {topics[1]} today"
-- "today's focus is {topics[0]} and {topics[1]}"
-- "we're diving into {topics[0]} and {topics[1]}"
-- "let's talk {topics[0]} and {topics[1]}"
-- "today we're looking at {topics[0]} and {topics[1]}"
-- "we're exploring {topics[0]} and {topics[1]}"
-"""
-            else:
-                topics_str = ", ".join(topics[:-1]) + f", and {topics[-1]}"
-                topic_instruction = f"""
-In the opening, mention all the topics ({topics_str}) - vary how you present them. Examples:
-- "we're covering {topics_str} today"
-- "today's focus is {topics_str}"
-- "we're diving into {topics_str}"
-- "let's talk {topics_str}"
-- "today we're looking at {topics_str}"
-- "we're exploring {topics_str}"
-"""
-        
-        # Build banter instruction for multi-host shows
-        banter_instruction = ""
+        opening = briefing_title or (f"today's {self._join(topics)} briefing" if topics else "today's briefing")
+
         if num_hosts >= 2:
-            host_personality_hints = []
-            for member in cast_members:
-                name = member.get("name", "Host")
-                personality_name = member.get("personality", "Casual")
-                host_personality_hints.append(f"{name} ({personality_name})")
-            hosts_hint = ", ".join(host_personality_hints)
-            
-            banter_instruction = f"""
-PLAYFUL BANTER: After introductions but BEFORE the first story, include 2-4 lines of brief, playful banter between hosts. This should:
-- Be grounded in the ACTUAL CONTENT - tease an upcoming story, react to a headline, or express excitement/skepticism about something you'll discuss
-- OR reference previous shows - "Remember when we talked about X last time? Well..." or "Called it!" moments
-- Reflect each host's personality ({hosts_hint}) - a skeptic might groan about a story, an optimist might be excited
-- Be short and punchy - not a full conversation
-- Naturally set up or transition into the first story
-
-Examples of good banter:
-- "Did you see that [Company] headline?" / "Oh, we're definitely getting into that one. I have thoughts."
-- "Remember when we said [prediction] last week?" / "And look what happened. Called it."
-- "I've been waiting all morning to talk about this first story." / "The [topic] thing? Yeah, that's a wild one."
-- "You ready for this one?" / "I saw the headlines. This is going to be good."
-"""
-        
-        if briefing_name:
-            cast_intro_text = f"""Start with a natural, conversational greeting - like a real podcast. Lead with "welcome back", "hey everyone", "good morning", etc. Then mention this is {briefing_name} and introduce the hosts naturally.
-{topic_instruction}
-Vary your openings - don't use the same format every time. Some examples:
-{chr(10).join('- ' + ex for ex in intro_examples)}
-
-Keep the intro itself SHORT (1-2 sentences max). Don't list the date in the opening line - weave it in naturally later if needed.
-{banter_instruction}
-After any banter, jump into the first story with concrete details. DO NOT use filler phrases like:
-- "there's a lot to unpack here"
-- "we've got a lot to cover"
-- "there's a lot happening"
-- "we've got some interesting stuff"
-
-Instead, transition from banter to the actual story content naturally. For example:
-- BAD: "Alright, there's a lot to unpack here today..."
-- GOOD: "Alright, first up - [company] just announced [specific detail]..."
-"""
+            conversation_rules = f"""- It is a conversation, not alternating monologues. A host may speak two or three times in a row, or cut in with half a sentence. Do not ping-pong {host_names[0]} / {host_names[1]} / {host_names[0]} / {host_names[1]}.
+- Hosts react to each other: agree, push back, get corrected, change their mind, or refuse to. Let the stances above collide when the material invites it. Nobody has to win.
+- Each host talks in their own register. If you could swap the names and nothing would change, rewrite it."""
         else:
-            cast_intro_text = f"""Start with a natural, conversational greeting - like a real podcast. Lead with "welcome back", "hey everyone", "good morning", etc. Then introduce the show and hosts naturally.
-{topic_instruction}
-Vary your openings - don't use the same format every time. Some examples:
-{chr(10).join('- ' + ex for ex in intro_examples)}
+            conversation_rules = "- Talk to the listener like a friend who happens to know this stuff. Think out loud, change your mind mid-sentence if the facts warrant it."
 
-Keep the intro itself SHORT (1-2 sentences max). Don't list the date in the opening line - weave it in naturally later if needed.
-{banter_instruction}
-After any banter, jump into the first story with concrete details. DO NOT use filler phrases like:
-- "there's a lot to unpack here"
-- "we've got a lot to cover"
-- "there's a lot happening"
-- "we've got some interesting stuff"
-
-Instead, transition from banter to the actual story content naturally. For example:
-- BAD: "Alright, there's a lot to unpack here today..."
-- GOOD: "Alright, first up - [company] just announced [specific detail]..."
-"""
-        
-        # Build format example based on number of hosts
         if num_hosts == 1:
-            format_example = f"TITLE: Tech & Business Update - Dec 15\n{host_names[0]}: Hey, welcome back to {show_name}! I'm {host_names[0]}. We're diving into tech today.\n[CHAPTER: Tech News]\n{host_names[0]}: First up, let's talk about..."
-            host_intro = f"You are {host_names[0]}, an expert podcast host creating insightful daily audio briefings."
-            style_note = "Your Style:\n- Engaging solo narration - like a knowledgeable friend explaining the news\n"
-        elif num_hosts == 2:
-            format_example = f"TITLE: Tech & Business Update - Dec 15\n{host_names[0]}: Hey everyone, welcome back to {show_name}! I'm {host_names[0]} here with {host_names[1]}. We're covering tech and business today.\n{host_names[1]}: Good to be here. Did you see that [Company] announcement this morning?\n{host_names[0]}: Oh yeah, we're definitely getting into that. I have thoughts.\n[CHAPTER: Tech News]\n{host_names[0]}: Alright, so [Company] just announced [specific detail]..."
-            host_intro = f"You are a team of two expert podcast hosts ({host_names[0]} and {host_names[1]}) creating insightful daily audio briefings."
-            style_note = "Your Style:\n- Casual and informative - like smart friends having an engaging conversation about the news\n"
+            format_example = f"TITLE: Chips, Courts, and a Quiet Rate Cut\n{host_names[0]}: Morning. It's {show_name}, and the story I can't stop thinking about is...\n[CHAPTER: Nvidia's Export Problem]\n{host_names[0]}: So here's what actually happened..."
         else:
-            format_example = f"TITLE: Tech & Business Update - Dec 15\n{host_names[0]}: What's up everybody, welcome back to {show_name}! I'm {host_names[0]}, got {other_hosts} with me. We're diving into tech, business, and more.\n{host_names[1]}: Good to be here.\n{host_names[2]}: Yeah, I've been waiting to talk about that first story all morning.\n{host_names[1]}: The [Company] thing? That one's wild.\n{host_names[0]}: Let's get into it.\n[CHAPTER: Tech News]\n{host_names[1]}: So [Company] just announced [specific detail]...\n{host_names[0]}: That's interesting because...\n{host_names[2]}: I think what's really important here is..."
-            host_intro = f"You are a team of three expert podcast hosts ({host_names[0]}, {host_names[1]}, and {host_names[2]}) creating insightful daily audio briefings."
-            style_note = "Your Style:\n- Engaging panel discussion - like knowledgeable friends having a dynamic conversation about the news\n"
-        
-        # Collect personality-specific system prompt additions
-        personality_additions = []
-        for i, member in enumerate(cast_members):
-            name = member.get("name", f"HOST{i+1}")
-            personality_name = member.get("personality", "Casual")
-            personality = get_personality(personality_name)
-            addition = personality.get_system_prompt_addition(name, i, num_hosts)
-            if addition:
-                personality_additions.append(addition)
-        
-        personality_additions_text = ""
-        if personality_additions:
-            personality_additions_text = "\n\n" + "\n".join(personality_additions) + "\n"
-        
-        # Add cast description if provided
-        cast_description_text = ""
-        if cast_description:
-            cast_description_text = f"""
+            format_example = f"TITLE: Chips, Courts, and a Quiet Rate Cut\n{host_names[0]}: Morning. {show_name}, {host_names[0]} here with {host_names[1]}. Did you read the Nvidia filing?\n{host_names[1]}: I read the part where they said it wouldn't affect guidance. I don't believe it.\n[CHAPTER: Nvidia's Export Problem]\n{host_names[0]}: Okay so walk me through why not..."
 
-=== CAST DESCRIPTION ===
-{cast_description}
-
-This description provides context about how this cast works and should guide the overall tone, style, and approach of the briefing.
-"""
-        
-        # Build the prompt
-        prompt = f"""{host_intro}
-
-{chr(10).join(host_descriptions)}
-{personality_additions_text}
-{cast_description_text}
-{style_note}- Go beyond headlines to explain WHY stories matter
-- Connect dots between stories and broader trends
-- Provide historical context when relevant
-- Offer balanced perspectives on complex issues
-- Use analogies and examples to make abstract concepts concrete
-- Keep it relaxed and conversational, not formal or stiff
-{CONVERSATIONAL_DYNAMICS if num_hosts >= 2 else ''}
-Guidelines:
-- Write in a natural, casual, conversational tone suitable for text-to-speech
-- Be informative without being dry or academic
-- Be direct and straightforward - state facts and insights clearly without alluding to things being "interesting" or building unnecessary suspense
-- Use "..." for natural pauses and emphasis
-- Keep sentences clear and punchy for easy listening
-- Include thoughtful questions that prompt deeper discussion
-- Vary sentence length for natural rhythm
-- Use direct transitions like "Speaking of which...", "Here's what happened...", "The key point is..."
-- Sound like you're genuinely interested and engaged, not just reading a script
-{f"- CRITICAL FOR {num_hosts}+ HOSTS: Mix up the order and frequency of who speaks. Don't always go in the same sequence (e.g., {host_names[0]} -> {host_names[1]} -> {host_names[2]}). Vary it naturally - sometimes {host_names[1]} might speak twice in a row, or {host_names[2]} might jump in before {host_names[1]}. Make it feel like a real conversation where people naturally interject and respond, not a rigid rotation. Different hosts should speak different amounts based on their personality and the topic at hand." if num_hosts > 2 else ""}
-{f"- Incorporate natural conversational friction—pushback, clarifications, incomplete thoughts (see CONVERSATIONAL DYNAMICS section above)" if num_hosts >= 2 else ""}
-
-AVOID:
-- Excessive fluffy language or embellishment (e.g., "incredibly fascinating", "absolutely amazing", "truly remarkable" - occasional use is fine, but don't overdo it)
-- Catastrophizing or exaggerating severity (e.g., avoid "devastating", "catastrophic", "disastrous" unless truly warranted by facts)
-- Overly dramatic language or hyperbole
-- Overuse of qualifiers (e.g., "very", "really", "quite" are fine occasionally, but don't lean on them)
-- Sensationalism - stick to facts and measured analysis
-- Doom-and-gloom framing - present information accurately without making things sound worse than they are
-
-CRITICAL OUTPUT RULES:
-- FIRST: Output a short, glanceable podcast title (max 60 characters) that includes the key topics. Format: TITLE: [title here]
-- THEN: Output ONLY spoken dialogue - what the hosts actually say out loud
-- INCLUDE chapter markers to break up the content into logical sections. Format: [CHAPTER: Short Title Here] where the title is no more than 5 words. Place chapter markers at natural transition points between major topics or stories. Each chapter should represent a distinct story or topic being discussed.
-- BEFORE EACH CHAPTER MARKER: Add a natural transition phrase or sentence that signals a topic change, followed by a medium pause. Examples: "Alright, let's shift gears here...", "Moving on to something completely different...", "Now, switching topics entirely...", "Let's talk about something else now...", "Okay, completely different subject...", "Now, onto a different story...", "Let's pivot to another topic...", "Switching gears completely...", "Alright, moving on...", "Now for something different...". Then add [medium pause] before the chapter marker to create a clear break.
-- TRANSITIONS: Use varied, natural transition phrases before chapters. Don't repeat the same transition. Make it feel like hosts are naturally moving between topics in conversation.
-- DO NOT include stage directions, sound effects, or production notes like [MUSIC], [INTRO], [OUTRO], etc. (except [medium pause] which is allowed before chapter markers)
-- DO NOT include asterisks or brackets with instructions like *laughs*, *sighs*, [clears throat]
-- DO NOT include timestamps or other section headers
-
-CRITICAL: {cast_intro_text}
-
-Format your response EXACTLY like this:
-{format_example}
-
-If a user name is provided, greet them naturally (e.g., "Hey David!" or "What's up, David?"). Keep it casual - don't force it into every sentence.
-
-When the time of day context is provided, use an appropriate greeting naturally:
-- Morning: "Good morning!" or "Rise and shine!"
-- Afternoon: "Good afternoon!" or "Hope you're having a great afternoon!"
-- Evening: "Good evening!" or "Hope you're winding down nicely!"
-- Night: "Good evening!" or "Hope you're having a relaxing evening!"
-
-About the date: Don't put the date in the opening line - it sounds robotic. Instead, weave the date naturally into the content when referencing specific stories (e.g., "So this news just dropped today..." or mentioning the day of week). If you must reference the date explicitly, do it casually mid-briefing, not as part of the intro.
-
-When specific topics are provided, make sure to cover stories from ALL of those topics and reference them naturally throughout the conversation. The conversation should feel like {('a knowledgeable friend' if num_hosts == 1 else 'smart friends')} casually discussing the news, informative but never stuffy or overly formal."""
-        
-        # Add complexity instruction
-        complexity_instruction = get_complexity_instruction(complexity)
-        
-        # Add non-speech sounds guide if enabled
-        non_speech_sounds_section = ""
-        if enable_non_speech_sounds:
-            non_speech_sounds_section = NON_SPEECH_SOUNDS_GUIDE
-        
-        attribution_guidance = (
-            "\n- When you state a key fact or figure, attribute it to its source "
-            "naturally in speech (e.g. \"according to Reuters\", \"the BBC reports\"). "
-            "Attribute the most important claims; do not cite a source in every sentence."
+        bracket_rule = (
+            "- The only bracketed tags allowed are [CHAPTER: ...] and the sound/pause tags listed below."
+            if enable_non_speech_sounds else
+            "- No stage directions, sound effects, or bracketed notes of any kind other than [CHAPTER: ...]."
         )
 
-        return prompt + complexity_instruction + non_speech_sounds_section + attribution_guidance
-    
+        prompt = f"""{host_intro}
+
+THE HOSTS
+{hosts_text}{cast_description_text}
+
+HOW THIS SHOW SOUNDS
+{conversation_rules}
+- Not every story gets the same treatment. Argue about the one that deserves it; dispatch a minor one in a few lines.
+- Open fast: a greeting, the show name, the hosts, and straight into the first story. Never "there's a lot to unpack here". If a listener name is given, use it once at the top.
+- Plain spoken English for text-to-speech. Numbers said the way a person says them. Attribute the facts that matter to their source in passing ("Reuters reports", "per the filing").
+- Mention the date only if a story needs it, never as an opening line.
+
+OUTPUT FORMAT
+- First line: TITLE: followed by a short, glanceable episode title (max 60 characters).
+- Then only spoken lines, each as "Name: what they say".
+- Put [CHAPTER: Short Title] (max 5 words) on its own line where each new story starts.
+{bracket_rule}
+
+Example of the shape (not the content):
+{format_example}
+
+This episode is {opening}."""
+
+        complexity_instruction = get_complexity_instruction(complexity)
+        non_speech_sounds_section = NON_SPEECH_SOUNDS_GUIDE if enable_non_speech_sounds else ""
+        return prompt + complexity_instruction + non_speech_sounds_section
+
+    @staticmethod
+    def _join(items: list[str]) -> str:
+        if not items:
+            return ""
+        if len(items) == 1:
+            return items[0]
+        if len(items) == 2:
+            return f"{items[0]} and {items[1]}"
+        return ", ".join(items[:-1]) + f", and {items[-1]}"
+
     def _build_user_prompt(
         self,
         content: str,
@@ -559,118 +235,63 @@ When specific topics are provided, make sure to cover stories from ALL of those 
         """
         from app.config import get_settings
         from app.utils.timezone import get_time_of_day, local_now
-        
+
         settings = get_settings()
-        
-        # Get current date and time in user's timezone
         now = local_now()
-        current_date_time = now.strftime("%B %d, %Y at %I:%M %p")
-        
-        # Get time of day based on user's timezone
+        current_date_time = now.strftime("%A, %B %d, %Y at %I:%M %p")
         time_of_day = get_time_of_day(settings.timezone)
-        timezone = settings.timezone
-        
-        # Format topics list
-        if topics:
-            if len(topics) == 1:
-                topics_str = topics[0]
-            elif len(topics) == 2:
-                topics_str = f"{topics[0]} and {topics[1]}"
-            else:
-                topics_str = ", ".join(topics[:-1]) + f", and {topics[-1]}"
-        else:
-            topics_str = "general news"
-        
-        # Format user name for display
-        user_name_display = user_name if user_name else "the listener"
-        
-        # Add personalized name instruction if provided
-        name_instruction = ""
-        if user_name:
-            name_instruction = f"\n\nIMPORTANT: Address the listener by name ({user_name}) in the opening introduction. For example: 'Hey {user_name}, let's kick off today's briefing' or 'Good morning, {user_name}! Let's dive into today's top stories...'"
-        
-        # Format additional facts section
-        additional_facts_section = ""
+        topics_str = self._join(topics) if topics else "general news"
+
+        facts_section = ""
         if additional_facts and ranked_items:
-            facts_lines = []
+            lines = []
             for article_idx, facts in additional_facts.items():
                 if 0 <= article_idx < len(ranked_items) and facts:
-                    article = ranked_items[article_idx]
-                    article_num = article_idx + 1
-                    article_title = article.title[:80]
-                    facts_lines.append(f"\nADDITIONAL FACTS FOR ARTICLE {article_num}: {article_title}")
-                    for i, fact in enumerate(facts, 1):
-                        facts_lines.append(f"  {i}. {fact}")
-            
-            if facts_lines:
-                additional_facts_section = "\n\n=== ADDITIONAL QUANTIFIABLE FACTS ===\n" + "\n".join(facts_lines) + "\n"
-                additional_facts_section += "\nThese facts are provided to add concrete, quantifiable data to the discussion. Incorporate them naturally into the conversation when discussing the corresponding articles.\n"
-        
-        # Format recent articles section
-        recent_articles_section = ""
-        if recent_articles:
-            articles_lines = []
-            articles_lines.append("\n\n=== RECENT ARTICLES FROM PREVIOUS BRIEFINGS (FOR CONTINUITY CONTEXT) ===\n")
-            articles_lines.append("The following articles were discussed in recent briefings on these topics. They are provided for context and continuity.")
-            articles_lines.append("You do NOT need to discuss these articles in the current briefing, but you can reference them if they provide relevant context or if there are updates to these stories.\n")
-            
-            for i, article in enumerate(recent_articles[:5], 1):
-                articles_lines.append(f"\nRECENT ARTICLE {i}:")
-                articles_lines.append(f"Title: {article.get('title', 'Untitled')}")
-                articles_lines.append(f"Source: {article.get('source', 'Unknown')}")
-                if article.get('summary'):
-                    articles_lines.append(f"Summary: {article.get('summary', '')[:200]}")
-                if article.get('fetched_at'):
-                    articles_lines.append(f"Previously discussed: {article.get('fetched_at', '')}")
-            
-            articles_lines.append("\nThese articles are for reference only - focus on the new articles provided in the main content section above.")
-            recent_articles_section = "\n".join(articles_lines)
-        
-        # Format last script section
-        last_script_section = ""
-        if prior_titles:
-            last_script_section = build_continuity_section(prior_titles)
-        elif last_script:
-            script_preview = last_script[-2000:] if len(last_script) > 2000 else last_script
-            last_script_section = (
-                "\n\n=== LAST BRIEFING (continuity reference) ===\n"
-                "Maintain tone and continuity; do not repeat stories already covered.\n"
-                f"{script_preview}\n"
-            )
-        
-        word_target = target_words_for_duration(duration)
+                    lines.append(f"\nFACTS FOR ARTICLE {article_idx + 1}: {ranked_items[article_idx].title[:80]}")
+                    lines.extend(f"  - {fact}" for fact in facts)
+            if lines:
+                facts_section = "\n\n=== VERIFIED FACTS (use the numbers) ===" + "\n".join(lines) + "\n"
 
         host_research_section = build_host_research_section(host_research, ranked_items)
 
-        prompt = f"""Create an engaging {duration}-minute daily briefing podcast script from the news below.
+        recent_section = ""
+        if recent_articles:
+            recent_lines = [f"- {a.get('title', 'Untitled')} ({a.get('source', 'Unknown')})" for a in recent_articles[:5]]
+            recent_section = (
+                "\n\n=== COVERED ON RECENT EPISODES (context only; reference if there is an update) ===\n"
+                + "\n".join(recent_lines) + "\n"
+            )
 
-{content}
-{additional_facts_section}
-{host_research_section}
-{recent_articles_section}
-{last_script_section}
+        continuity_section = ""
+        if prior_titles:
+            continuity_section = build_continuity_section(prior_titles)
+        elif last_script:
+            # Head of the last script, not the tail: the tail is the previous outro and
+            # feeding it back tends to produce a copy of last episode's ending.
+            continuity_section = (
+                "\n\n=== HOW THE LAST EPISODE OPENED (tone reference only; do not repeat its stories) ===\n"
+                f"{last_script[:1500]}\n"
+            )
 
-CONTEXT:
-- Current date/time: {current_date_time} (listener timezone: {timezone})
-- Listener's name: {user_name_display}
-- Topics to cover: {topics_str}
-- Time of day: {time_of_day}
-{name_instruction}
+        word_target = target_words_for_duration(duration)
+        listener_line = f"- Listener: {user_name} (greet them by name once at the top)" if user_name else "- Listener: not named"
 
-REQUIREMENTS:
-1. Cover stories across ALL listed topics; lead with the most compelling one.
-2. For each major story, explain what happened, why it matters, and what it means going forward; connect related stories.
-3. Weave in the additional quantifiable facts above (when provided) for the matching article - ground the discussion in real numbers.
-4. Have hosts ask insightful questions and offer distinct perspectives; present multiple viewpoints on contested topics.
-5. End by recapping the key stories and takeaways.
-6. Aim for roughly {word_target} words of spoken dialogue (~{duration} minutes at a natural pace).
+        return f"""Write a {duration}-minute episode from the stories below. They are in the editor's priority order; the editor's priority and reason are shown on each.
 
-Follow the title, chapter, transition, format, and language rules from the system instructions. Output the TITLE line, then the dialogue, and nothing else.
+{content}{facts_section}{host_research_section}{recent_section}{continuity_section}
 
-Generate the podcast script now:"""
-        
-        return prompt
-    
+CONTEXT
+- Now: {current_date_time} ({settings.timezone}), {time_of_day}
+{listener_line}
+- Topics: {topics_str}
+
+SHAPE
+- Give the top story about half the runtime. The last story can be a brief exchange.
+- Roughly {word_target} words of dialogue in total (about {duration} minutes spoken).
+- Close in a line or two. No summary of what you just said.
+
+Output the TITLE line, then the dialogue, and nothing else."""
+
     async def write_briefing(
         self,
         content: str,

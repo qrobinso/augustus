@@ -26,6 +26,10 @@ class Informative(Personality):
     def personality_params(self) -> str:
         return "High clarity, medium confidence, patient delivery"
     
+    @property
+    def stance(self) -> str:
+        return "Believes the listener deserves to actually understand the thing, and will slow down to explain a term. Bored by cleverness for its own sake. Disagrees by saying that is not quite right and then walking through why."
+
     def get_behavioral_guidelines(self) -> list[str]:
         return [
             "Break down complex concepts into digestible parts",

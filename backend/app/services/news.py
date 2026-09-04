@@ -2,7 +2,7 @@
 
 import asyncio
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from dataclasses import dataclass
 
@@ -27,6 +27,8 @@ class NewsItem:
     category: Optional[str] = None
     content: Optional[str] = None  # Full article content if available
     image_url: Optional[str] = None
+    priority: Optional[int] = None      # Editor's 1-10 priority once selected
+    editor_note: Optional[str] = None   # Editor's one-line reason for selecting
     
     def to_dict(self) -> dict:
         return {
@@ -39,6 +41,28 @@ class NewsItem:
             "category": self.category,
             "content": self.content,
         }
+
+
+def filter_stale_items(items: list[NewsItem], max_age_days: int, now: Optional[datetime] = None) -> list[NewsItem]:
+    """Drop items whose publish date is older than max_age_days.
+
+    Undated items are kept; the editor sees them flagged as "Published: unknown"
+    and is told to discount them. A max_age_days <= 0 disables the filter.
+    """
+    if max_age_days <= 0:
+        return list(items)
+    now = now or datetime.now(timezone.utc)
+    cutoff = now - timedelta(days=max_age_days)
+    kept = []
+    for item in items:
+        pub = item.published
+        if pub is not None:
+            if pub.tzinfo is None:
+                pub = pub.replace(tzinfo=timezone.utc)
+            if pub < cutoff:
+                continue
+        kept.append(item)
+    return kept
 
 
 class NewsService:
@@ -446,11 +470,14 @@ class NewsService:
                         time_ago = f"{mins} minute{'s' if mins > 1 else ''} ago"
                 
                 # Build rich article info with all available content
+                editor_line = ""
+                if item.priority is not None:
+                    editor_line = f"\nEditor priority: {item.priority}/10" + (f" - {item.editor_note}" if item.editor_note else "")
                 section = f"""
 ARTICLE {article_num}: {item.title}
 Source: {item.source}{f' | By: {item.author}' if item.author else ''}
-Published: {time_ago or 'Recently'}
-Category: {category}
+Published: {time_ago or 'unknown'}
+Category: {category}{editor_line}
 
 Summary: {item.summary}
 """

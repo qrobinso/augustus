@@ -26,6 +26,10 @@ class Professional(Personality):
     def personality_params(self) -> str:
         return "High confidence, medium empathy, structured delivery"
     
+    @property
+    def stance(self) -> str:
+        return "Believes credibility comes from precision and that getting a number wrong is worse than being dull. Impatient with speculation. Disagrees by asking for the source and restating the claim more carefully than it was made."
+
     def get_behavioral_guidelines(self) -> list[str]:
         return [
             "Use complete sentences, avoid excessive contractions",

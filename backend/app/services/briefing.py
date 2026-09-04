@@ -3,7 +3,7 @@
 import asyncio
 import re
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -22,7 +22,8 @@ from app.services.cast import CastService
 from app.services.llm.openrouter import get_llm_provider
 from app.services.llm.agents.orchestrator import BriefingOrchestrator
 from app.services.tts.factory import TTSFactory
-from app.services.news import get_news_service
+from app.services.tts.style import build_delivery_style, strip_inert_tags
+from app.services.news import get_news_service, filter_stale_items
 from app.services.scraper import get_scraper_service
 from app.services.search import get_search_service
 from app.utils.timezone import utc_now, local_now, format_local_datetime
@@ -389,9 +390,17 @@ class BriefingService:
                 if item.url and default_topic_id:
                     url_to_topic_id[item.url] = default_topic_id
             
-            # Check for duplicates by URL in database
+            # Drop clearly stale items before the editor sees them (undated items are kept but flagged)
+            before_stale = len(all_items)
+            all_items = filter_stale_items(all_items, max_age_days=settings.article_max_age_days)
+            if before_stale != len(all_items):
+                print(f"[Briefing] Dropped {before_stale - len(all_items)} items older than {settings.article_max_age_days} days")
+
+            # Check for duplicates by URL in database, but only within a recent window so
+            # follow-up coverage of a developing story is not suppressed forever
             urls = [item.url for item in all_items if item.url]
-            existing_urls = await self._get_existing_article_urls(urls)
+            dedup_since = utc_now() - timedelta(days=settings.article_dedup_window_days)
+            existing_urls = await self._get_existing_article_urls(urls, since=dedup_since)
             
             # Filter out duplicates by URL (both in-memory and database)
             seen_titles = set()
@@ -413,10 +422,25 @@ class BriefingService:
             
             print(f"[Briefing] Total unique news items after deduplication: {len(news_items)} (filtered {len(all_items) - len(news_items)} duplicates)")
             
-            # News editor should filter by topic relevance and narrow down to 3-5 articles, stack-ranked in priority order
-            # Weather stories are always top priority
-            target_story_count = 5  # Aim for 5, but allow 3-5 range
-            print(f"[Briefing] Target: 3-5 stories (stack-ranked in priority order, weather stories top priority)")
+            # The editor selects at most N stories, stack-ranked; fewer is fine.
+            target_story_count = settings.briefing_story_count
+            topic_descriptions = {t.name: t.description for t in topics_data if t.description}
+            print(f"[Briefing] Target: up to {target_story_count} stories (stack-ranked in priority order)")
+
+            # Continuity lookups happen BEFORE ranking so the editor can avoid re-selecting
+            # yesterday's stories under a new headline.
+            recent_articles = []
+            last_script = None
+            prior_titles = []
+            if topic_ids:
+                recent_articles = await self._get_recent_articles_for_topics(topic_ids=topic_ids, limit=5)
+                last_script = await self.get_last_script_for_topics(
+                    user_id=briefing.user_id, topic_ids=topic_ids, exclude_briefing_id=briefing_id,
+                )
+                prior_titles = await self.get_last_story_titles_for_topics(
+                    user_id=briefing.user_id, topic_ids=topic_ids, exclude_briefing_id=briefing_id,
+                )
+                print(f"[Briefing] Continuity: {len(recent_articles)} recent articles, {len(prior_titles)} prior titles, last script {'found' if last_script else 'not found'}")
             
             # Step 4: Analyze and rank stories with LLM to filter by topic relevance and narrow down to 3-5 top stories
             # CRITICAL: Always call story analysis when we have 2+ articles to ensure topic relevance filtering happens
@@ -434,10 +458,11 @@ class BriefingService:
                     news_items=news_items,
                     topics=topic_names if topic_names else ["technology", "business", "science"],
                     max_stories=target_story_count,
+                    topic_descriptions=topic_descriptions,
+                    prior_titles=prior_titles,
                 )
                 await self._check_cancelled(briefing_id)
-                # Ensure we have 3-5 stories (take top 5 max)
-                ranked_items = ranked_items[:5]
+                ranked_items = ranked_items[:target_story_count]
                 print(f"[Briefing] Selected {len(ranked_items)} top stories after topic relevance filtering (stack-ranked in priority order)")
                 if analysis_summary:
                     print(f"[Briefing] Analysis: {analysis_summary}")
@@ -550,34 +575,6 @@ class BriefingService:
                     briefing.sources = merge_sources(briefing.sources, _research_sources)
                     print(f"[Briefing] Merged {len(_research_sources)} web-research source(s) into briefing.sources")
 
-            # Get recent articles for continuity context (not used in script, but for context)
-            recent_articles = []
-            if topic_ids:
-                recent_articles = await self._get_recent_articles_for_topics(
-                    topic_ids=topic_ids,
-                    limit=5,  # Get last 5 articles per topic for context
-                )
-                print(f"[Briefing] Found {len(recent_articles)} recent articles for continuity context")
-            
-            # Get last script with matching topic_ids for continuity
-            last_script = None
-            prior_titles = []
-            if topic_ids:
-                last_script = await self.get_last_script_for_topics(
-                    user_id=briefing.user_id,
-                    topic_ids=topic_ids,
-                    exclude_briefing_id=briefing_id,
-                )
-                prior_titles = await self.get_last_story_titles_for_topics(
-                    user_id=briefing.user_id,
-                    topic_ids=topic_ids,
-                    exclude_briefing_id=briefing_id,
-                )
-                if last_script:
-                    print(f"[Briefing] Found last script with matching topics ({len(last_script)} chars), {len(prior_titles)} prior story titles for continuity")
-                else:
-                    print(f"[Briefing] No previous script found with matching topics")
-            
             # Step 7: Generate podcast script with LLM
             await update_progress(7, "Writing podcast script", 70)
             await self._check_cancelled(briefing_id)
@@ -647,6 +644,9 @@ class BriefingService:
             # Extract chapters from script, or derive from stories if none found
             chapters = self._extract_chapters(script)
             
+            # Drop markup no provider can voice (pause tags always; sound tags unless enabled)
+            script = strip_inert_tags(script, keep_sounds=enable_non_speech_sounds)
+
             # Remove chapter markers from transcript before storing (keep clean transcript for display)
             clean_transcript = re.sub(r'\[CHAPTER:\s*.+?\]', '', script).strip()
             briefing.transcript = clean_transcript
@@ -685,6 +685,7 @@ class BriefingService:
                     output_path=audio_path,
                     voice_map=voice_map,  # Use cast voice IDs
                     briefing_id=briefing_id,
+                    style_prompt=build_delivery_style(cast_members, cast.description),
                 )
                 await self._check_cancelled(briefing_id)
             except BriefingCancelledException:
@@ -886,9 +887,12 @@ class BriefingService:
                     text = match[1].strip()
                     if text:
                         # Map cast member name to HOST identifier for TTS
-                        host_id = name_to_host.get(speaker_name, "HOST1")
+                        # Case-insensitive match back to the canonical cast name
+                        canonical = next((n for n in name_to_host if n.lower() == speaker_name.lower()), speaker_name)
+                        host_id = name_to_host.get(canonical, "HOST1")
                         segments.append({
                             "speaker": host_id,
+                            "name": canonical,
                             "text": text,
                         })
             else:
@@ -1702,72 +1706,70 @@ class BriefingService:
         news_items: list,
         topics: list[str],
         max_stories: int,
+        topic_descriptions: Optional[dict[str, str]] = None,
+        prior_titles: Optional[list[str]] = None,
     ) -> tuple[list, str | None, str, dict]:
-        """Use LLM to analyze and rank news stories by importance.
-        
-        Args:
-            news_items: List of NewsItem objects to analyze
-            topics: Topics of interest for ranking relevance
-            max_stories: Maximum number of top stories to select
-            
+        """Use the editor LLM to select and rank stories.
+
+        The editor's selection is final: if it picks fewer than max_stories,
+        that is the briefing. We never pad with articles it rejected. A
+        malformed response is retried once, then raised so the failure is
+        visible instead of silently producing an off-topic briefing.
+
         Returns:
             Tuple of (ranked_items, analysis_summary, raw_response, usage)
         """
         import json
-        
-        # Convert news items to dictionaries for the agent
+
         articles_for_analysis = [
             {
                 "title": item.title,
                 "summary": item.summary,
                 "source": item.source,
                 "category": item.category or "general",
+                "url": item.url,
+                "published": item.published.isoformat() if item.published else None,
             }
             for item in news_items
         ]
-        
-        try:
-            # Check for cancellation before LLM call
+
+        last_error: Optional[Exception] = None
+        for attempt in (1, 2):
             await self._check_cancelled(briefing_id)
-            
-            # Use orchestrator to analyze and rank stories
-            ranked_stories, summary, raw_response, usage = await self.orchestrator.analyze_and_rank_stories(
-                articles=articles_for_analysis,
-                topics=topics,
-                max_stories=max_stories,
-                briefing_id=briefing_id,
-            )
-            
-            # Check for cancellation after LLM call
-            await self._check_cancelled(briefing_id)
-            
-            # Reorder news items based on the ranking
-            ranked_items = []
-            used_indices = set()
-            
-            for story in ranked_stories:
-                article_num = story.get("article_num", 0)
-                # Convert to 0-based index
-                idx = article_num - 1
-                
-                if 0 <= idx < len(news_items) and idx not in used_indices:
-                    ranked_items.append(news_items[idx])
-                    used_indices.add(idx)
-                    print(f"[Briefing]   #{len(ranked_items)}: {news_items[idx].title[:60]}... (priority: {story.get('priority', '?')})")
-            
-            # If we didn't get enough ranked items, fall back to original order
-            if len(ranked_items) < max_stories:
-                print(f"[Briefing] Warning: Only got {len(ranked_items)} ranked items, padding with remaining stories")
-                for i, item in enumerate(news_items):
-                    if i not in used_indices and len(ranked_items) < max_stories:
-                        ranked_items.append(item)
-            
-            return ranked_items[:max_stories], summary, raw_response, usage
-            
-        except (json.JSONDecodeError, ValueError) as e:
-            print(f"[Briefing] Warning: Failed to parse story analysis: {e}")
-            print(f"[Briefing] Falling back to original order")
-            return news_items[:max_stories], None, "", {}
+            try:
+                ranked_stories, summary, raw_response, usage = await self.orchestrator.analyze_and_rank_stories(
+                    articles=articles_for_analysis,
+                    topics=topics,
+                    max_stories=max_stories,
+                    briefing_id=briefing_id,
+                    topic_descriptions=topic_descriptions,
+                    prior_titles=prior_titles,
+                )
+                break
+            except (json.JSONDecodeError, ValueError) as e:
+                last_error = e
+                print(f"[Briefing] Story analysis attempt {attempt} returned unparseable output: {e}")
+        else:
+            raise ValueError(f"Story analysis failed twice; refusing to fall back to unfiltered articles: {last_error}")
+
+        await self._check_cancelled(briefing_id)
+
+        ranked_items = []
+        used_indices = set()
+        for story in ranked_stories:
+            idx = story.get("article_num", 0) - 1
+            if 0 <= idx < len(news_items) and idx not in used_indices:
+                item = news_items[idx]
+                item.priority = story.get("priority")
+                item.editor_note = story.get("reason")
+                ranked_items.append(item)
+                used_indices.add(idx)
+                print(f"[Briefing]   #{len(ranked_items)}: {item.title[:60]}... (priority: {item.priority})")
+
+        if len(ranked_items) < max_stories:
+            print(f"[Briefing] Editor selected {len(ranked_items)} of up to {max_stories} stories; not padding")
+
+        return ranked_items[:max_stories], summary, raw_response, usage
     
     async def _generate_additional_facts(
         self,
@@ -1961,21 +1963,20 @@ class BriefingService:
             await self.db.commit()
             print(f"[Briefing] Saved {new_count} new articles to database")
     
-    async def _get_existing_article_urls(self, urls: list[str]) -> set[str]:
-        """Check which URLs already exist in the database.
-        
+    async def _get_existing_article_urls(self, urls: list[str], since: Optional[datetime] = None) -> set[str]:
+        """Return the subset of URLs already used in a briefing.
+
         Args:
-            urls: List of URLs to check
-            
-        Returns:
-            Set of URLs that already exist
+            urls: URLs to check
+            since: Only count articles fetched at or after this time. None = any time.
         """
         if not urls:
             return set()
-        
-        result = await self.db.execute(
-            select(Article.url).where(Article.url.in_(urls))
-        )
+
+        query = select(Article.url).where(Article.url.in_(urls))
+        if since is not None:
+            query = query.where(Article.fetched_at >= since)
+        result = await self.db.execute(query)
         return {row[0] for row in result.fetchall()}
     
     async def _get_recent_articles_for_topics(

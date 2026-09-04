@@ -75,6 +75,7 @@ class TTSFactory:
         voice_map: Optional[dict[str, str]] = None,
         provider_name: Optional[str] = None,
         briefing_id: Optional[str] = None,
+        style_prompt: Optional[str] = None,
     ) -> TTSResult:
         """Synthesize conversation using the chosen provider.
 
@@ -93,7 +94,7 @@ class TTSFactory:
         provider = cls.get_provider(provider_name)
         try:
             result = await provider.synthesize_conversation(
-                script, output_path, voice_map, briefing_id=briefing_id,
+                script, output_path, voice_map, briefing_id=briefing_id, style_prompt=style_prompt,
             )
             return result
         finally:

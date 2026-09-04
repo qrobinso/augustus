@@ -48,8 +48,10 @@ class BriefingOrchestrator:
         self,
         articles: list[dict],
         topics: list[str],
-        max_stories: int = 5,
+        max_stories: int = 3,
         briefing_id: Optional[str] = None,
+        topic_descriptions: Optional[dict[str, str]] = None,
+        prior_titles: Optional[list[str]] = None,
     ) -> tuple[list[dict], Optional[str], str, dict]:
         """Analyze and rank news stories.
 
@@ -67,6 +69,8 @@ class BriefingOrchestrator:
             topics=topics,
             max_stories=max_stories,
             briefing_id=briefing_id,
+            topic_descriptions=topic_descriptions,
+            prior_titles=prior_titles,
         )
     
     async def gather_additional_facts(

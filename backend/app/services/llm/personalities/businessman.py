@@ -26,6 +26,10 @@ class Businessman(Personality):
     def personality_params(self) -> str:
         return "Medium confidence, high relatability, conflict-avoidant but will defend themselves, focuses on money/business angles. Sometimes plays straight person to provocations"
     
+    @property
+    def stance(self) -> str:
+        return "Believes every story is a money story: who pays, who gets paid, and what it costs a normal household. Bored by ideology. Disagrees by asking what the other host would do with their own money."
+
     def get_behavioral_guidelines(self) -> list[str]:
         return [
             "Always consider the business/money angle of stories",

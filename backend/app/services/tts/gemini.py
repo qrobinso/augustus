@@ -250,12 +250,39 @@ class GeminiProvider(TTSProvider):
             if tmp_path.exists():
                 tmp_path.unlink()
 
+    @staticmethod
+    def _build_conversation(
+        script: list[dict], style_prompt: Optional[str] = None
+    ) -> tuple[str, list[dict], dict[str, str]]:
+        """Turn parsed segments into the text Gemini reads.
+
+        Returns (text, segment_data, speaker_labels). Segment timings stay keyed
+        by the HOSTn id; the text and voice configs use the host's real name
+        when the segment carries one. The style prompt, if any, is a leading
+        natural-language instruction, which is how Gemini TTS takes direction.
+        """
+        parts, segment_data, labels = [], [], {}
+        for segment in script:
+            speaker = segment.get("speaker", "HOST1")
+            text = (segment.get("text") or "").strip()
+            if not text:
+                continue
+            label = segment.get("name") or speaker
+            labels[speaker] = label
+            parts.append(f"{label}: {text}")
+            segment_data.append({"index": len(segment_data), "speaker": speaker, "text": text})
+        body = "\n".join(parts)
+        if style_prompt and style_prompt.strip():
+            body = f"{style_prompt.strip()}\n\n{body}"
+        return body, segment_data, labels
+
     async def synthesize_conversation(
         self,
         script: list[dict],
         output_path: Path,
         voice_map: Optional[dict[str, str]] = None,
         briefing_id: Optional[str] = None,
+        style_prompt: Optional[str] = None,
     ) -> TTSResult:
         """Synthesize a multi-speaker conversation using Gemini's native multi-speaker support."""
         if voice_map is None:
@@ -265,53 +292,26 @@ class GeminiProvider(TTSProvider):
             }
             print(f"[Gemini] WARNING: No voice_map provided, using defaults")
         
-        # Build the conversation text with speaker labels
-        # Format: "Speaker Name: dialogue text"
-        conversation_parts = []
-        segment_data = []
-        unique_speakers = set()
-        
-        segment_index = 0
-        for segment in script:
-            speaker = segment.get("speaker", "HOST1")
-            text = segment.get("text", "").strip()
-            
-            if not text:
-                continue
-            
-            unique_speakers.add(speaker)
-            conversation_parts.append(f"{speaker}: {text}")
-            segment_data.append({
-                "index": segment_index,
-                "speaker": speaker,
-                "text": text,
-            })
-            segment_index += 1
-        
-        if not conversation_parts:
+        full_conversation, segment_data, speaker_labels = self._build_conversation(script, style_prompt)
+        if not segment_data:
             raise RuntimeError("No valid conversation segments provided")
-        
-        # Join with newlines for clear speaker separation
-        full_conversation = "\n".join(conversation_parts)
-        
-        # Build speaker voice configs for each unique speaker
+        unique_speakers = set(speaker_labels)
+
+        # One voice config per speaker, labelled with the host's real name so the
+        # model gets the same cue a human reader would.
         speaker_voice_configs = []
         for speaker in unique_speakers:
-            # Get voice ID from map, resolve to valid Gemini voice
             voice_id = voice_map.get(speaker, "Kore")
             actual_voice = self._resolve_voice_id(voice_id)
-            
             speaker_voice_configs.append(
                 types.SpeakerVoiceConfig(
-                    speaker=speaker,
+                    speaker=speaker_labels[speaker],
                     voice_config=types.VoiceConfig(
-                        prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                            voice_name=actual_voice
-                        )
+                        prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=actual_voice)
                     ),
                 )
             )
-        
+
         print(f"[Gemini] Generating multi-speaker conversation with {len(unique_speakers)} speakers, {len(segment_data)} segments...")
         speaker_info = ', '.join(f'{s}={self._resolve_voice_id(voice_map.get(s, "Kore"))}' for s in unique_speakers)
         print(f"[Gemini] Speakers: {speaker_info}")

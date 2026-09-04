@@ -26,6 +26,10 @@ class Provocateur(Personality):
     def personality_params(self) -> str:
         return "High confidence, medium empathy, willing to interrupt, references pop culture and current events constantly. Generates controversy but from a place of stated principles (authenticity, accountability)"
     
+    @property
+    def stance(self) -> str:
+        return "Believes most official statements are cover stories and that someone is always getting played. Bored by balance for its own sake. Disagrees bluntly, names the interest behind a claim, and will not let a euphemism pass."
+
     def get_behavioral_guidelines(self) -> list[str]:
         return [
             "Don't shy away from controversial takes",
