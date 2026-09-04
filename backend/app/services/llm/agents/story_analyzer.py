@@ -1,6 +1,7 @@
 """Story Analyzer Agent - analyzes and ranks news stories by importance and topic relevance."""
 
 import json
+from datetime import datetime, timezone
 from typing import Optional
 
 from app.config import get_settings
@@ -47,141 +48,116 @@ class StoryAnalyzerAgent:
         """
         self.llm = llm
     
-    def _build_system_prompt(self, topics: list[str]) -> str:
-        """Build story analysis system prompt with topic-specific instructions.
-        
+    @staticmethod
+    def _join_topics(topics: list[str]) -> str:
+        if not topics:
+            return "general news"
+        if len(topics) == 1:
+            return topics[0]
+        if len(topics) == 2:
+            return f"{topics[0]} and {topics[1]}"
+        return ", ".join(topics[:-1]) + f", and {topics[-1]}"
+
+    def _build_system_prompt(
+        self,
+        topics: list[str],
+        topic_descriptions: Optional[dict[str, str]] = None,
+        max_stories: int = 3,
+    ) -> str:
+        """Build the editor's system prompt.
+
         Args:
-            topics: List of topics the user has chosen to focus on
-            
-        Returns:
-            System prompt string with topic-specific guidance
+            topics: Topic names the listener chose
+            topic_descriptions: Optional per-topic description (what the listener
+                means by the topic, and what they do not want)
+            max_stories: Upper bound on selected stories; fewer is always fine
         """
-        # Format topics for display
-        if topics:
-            if len(topics) == 1:
-                topics_str = topics[0]
-            elif len(topics) == 2:
-                topics_str = f"{topics[0]} and {topics[1]}"
-            else:
-                topics_str = ", ".join(topics[:-1]) + f", and {topics[-1]}"
-        else:
-            topics_str = "general news"
-        
-        prompt = f"""You are a senior news editor with expertise in identifying the most important and newsworthy stories.
+        topics_str = self._join_topics(topics)
 
-Your task is to analyze a collection of news articles and narrow them down to 3-5 top stories, stack-ranked in priority order.
+        topic_lines = []
+        for t in topics or []:
+            desc = (topic_descriptions or {}).get(t)
+            topic_lines.append(f"- {t}: {desc.strip()}" if desc and desc.strip() else f"- {t}")
+        topic_block = "\n".join(topic_lines) if topic_lines else "- general news"
 
-USER'S CHOSEN TOPICS: {topics_str}
+        return f"""You are the editor of a short daily podcast. From a pile of candidate articles you pick the few stories worth the listener's time.
 
-CRITICAL FILTERING AND PRIORITY RULES:
-1. **WEATHER & SAFETY STORIES ARE HIGH PRIORITY** - Articles about severe weather, natural disasters, or public-safety emergencies should be weighted heavily because they affect daily life and safety. Rank them among the top stories when present, but still respect the user's chosen topics below.
+THE LISTENER'S TOPICS:
+{topic_block}
 
-2. **TOPIC RELEVANCE FILTERING IS MANDATORY** - The user has specifically chosen to focus on: {topics_str}
-   - **FIRST STEP: FILTER OUT** articles that are clearly unrelated to these topics
-   - **EXCLUDE** articles that have no meaningful connection to the user's chosen topics
-   - **EXCLUDE** articles that are only tangentially related (weak connection, not directly relevant)
-   - **ONLY INCLUDE** articles that are directly related to the chosen topics OR weather-related
-   - Articles that don't align with the user's chosen topics should be EXCLUDED entirely unless they are weather-related
+HOW TO CHOOSE:
+1. Relevance is a hard filter. Keep only articles squarely about the topics above. Tangential or one-keyword matches are out.
+2. Freshness matters. Today's date is given with the articles. An article published more than a few days ago, or with no date at all, needs a strong reason to be included; otherwise leave it out.
+3. Reject anything that is not an actual article: section or tag index pages, live blogs, listicles, press-release reposts, and pages whose title is just a topic name.
+4. Do not re-select a story the listener already heard. A genuine new development is fine; a rehash under a new headline is not.
+5. Among what remains, prefer stories with real consequence, a clear development, and enough substance to talk about for a couple of minutes. If two articles cover the same event, keep the better one.
+6. When several topics are listed, cover more than one when the material supports it, but never pick a weak story just for balance.
 
-3. **AFTER FILTERING**, rank the remaining articles using these factors:
-   a. TOPIC RELEVANCE: How directly does this article relate to the user's chosen topics ({topics_str})? This is the primary factor.
-   b. IMPACT: How many people does this affect? What are the consequences?
-   c. TIMELINESS: Is this breaking news or a developing story?
-   d. SIGNIFICANCE: Does this represent a major shift, breakthrough, or turning point?
-   e. UNIQUENESS: Is this a fresh story or just rehashing known information?
-   f. STORY QUALITY: Does the article have enough substance to discuss meaningfully?
-   g. TOPIC BALANCE: When multiple topics are requested, ensure the final selection includes important stories from EACH topic. Don't let one dominant topic crowd out others.
+Select at most {max_stories} stories, stack-ranked. Fewer is better than padding with a weak pick. Selecting zero is acceptable when nothing qualifies."""
 
-Be ruthless in your filtering and ranking - not all stories are equal. Exclude articles that don't relate to the user's topics. Your goal is to select ONLY the 3-5 most important stories that are DIRECTLY related to the user's chosen topics."""
-        
-        return prompt
-    
     def _build_user_prompt(
         self,
         articles: list[dict],
         topics: list[str],
         max_stories: int,
+        today: Optional[datetime] = None,
+        prior_titles: Optional[list[str]] = None,
     ) -> str:
-        """Build user prompt for story analysis.
-        
-        Args:
-            articles: List of article dictionaries with title, summary, source, category
-            topics: List of topics to focus on
-            max_stories: Maximum number of stories to select
-            
-        Returns:
-            User prompt string
+        """Build the user prompt listing candidate articles.
+
+        Each article shows its URL and publish date so the editor can judge
+        freshness and spot non-article pages.
         """
-        # Format articles for the prompt
+        today = today or datetime.now(timezone.utc)
+        today_str = today.strftime("%B %d, %Y")
+
         articles_text = []
         for i, article in enumerate(articles, 1):
-            article_text = f"""
+            published = article.get("published")
+            if isinstance(published, datetime):
+                published = published.strftime("%Y-%m-%d %H:%M UTC")
+            elif isinstance(published, str) and published:
+                published = published[:16].replace("T", " ")
+            else:
+                published = "unknown"
+            articles_text.append(f"""
 ARTICLE {i}:
 Title: {article.get('title', 'Untitled')}
 Source: {article.get('source', 'Unknown')}
+URL: {article.get('url') or 'unknown'}
+Published: {published}
 Category: {article.get('category', 'general')}
-Summary: {article.get('summary', 'No summary available')[:300]}
-"""
-            articles_text.append(article_text)
-        
-        topics_str = ", ".join(topics) if topics else "general news"
-        topic_count = len(topics) if topics else 1
-        
-        prompt = f"""Analyze the following news articles and narrow them down to 3-5 top stories, stack-ranked in priority order.
+Summary: {(article.get('summary') or 'No summary available')[:400]}
+""")
 
-Topics of interest: {topics_str}
-Number of topics: {topic_count}
+        prior_block = ""
+        titles = [t for t in (prior_titles or []) if t]
+        if titles:
+            prior_block = "\nALREADY COVERED IN THE LAST BRIEFING (do not re-select unless there is a real new development):\n" + "\n".join(f"- {t}" for t in titles) + "\n"
 
-ARTICLES TO ANALYZE:
+        return f"""Today is {today_str}. Topics: {self._join_topics(topics)}.
+{prior_block}
+CANDIDATE ARTICLES ({len(articles)}):
 {"---".join(articles_text)}
 
-INSTRUCTIONS:
-1. **FIRST STEP - FILTER BY TOPIC RELEVANCE**: Review all {len(articles)} articles and EXCLUDE articles that are:
-   - Clearly unrelated to the topics listed above ({topics_str})
-   - Only tangentially connected (weak or indirect connection)
-   - Not directly relevant to the user's chosen topics
-   - EXCEPTION: Keep weather-related articles regardless of topic relevance
+Pick at most {max_stories} stories following the rules in your instructions. For each, give the article number, a priority from 1 to 10, and one sentence on why it earns a slot.
 
-2. **SECOND STEP - IDENTIFY WEATHER STORIES**: From the filtered articles, identify any weather-related stories (storms, natural disasters, weather warnings, climate events). Weather/safety stories should be weighted heavily and ranked near the top when present.
-
-3. **THIRD STEP - SELECT AND RANK**: From the remaining articles (after filtering), select ONLY the TOP 3-5 most important/newsworthy stories that are DIRECTLY related to the topics ({topics_str}). Rank them in strict priority order (1 = highest priority, 2 = second priority, etc.)
-
-4. **TOPIC BALANCE**: If multiple topics are listed above, ensure your selection includes important stories from EACH topic when possible. Don't let one topic dominate the selection - the user wants coverage across all their chosen topics.
-
-5. For each selected story, provide:
-   - The article number (from the list above)
-   - A priority score (1-10, where 10 is highest priority)
-   - A brief reason why this story matters and how it relates to the chosen topics (1 sentence)
-
-OUTPUT FORMAT (use exactly this JSON format):
-```json
+OUTPUT FORMAT (JSON only, no other text):
 {{
   "ranked_stories": [
-    {{"article_num": 1, "priority": 10, "reason": "Severe weather - high impact on daily life"}},
-    {{"article_num": 5, "priority": 9, "reason": "Major breakthrough with significant implications"}},
-    {{"article_num": 3, "priority": 8, "reason": "Breaking development affecting millions"}},
-    ...
+    {{"article_num": 4, "priority": 9, "reason": "..."}}
   ],
-  "summary": "Brief overview of today's news landscape and key themes"
-}}
-```
+  "summary": "One or two sentences on today's picture for these topics"
+}}"""
 
-CRITICAL FILTERING REQUIREMENTS: 
-- EXCLUDE articles that don't relate to the chosen topics ({topics_str})
-- EXCLUDE articles with only weak/tangential connections
-- ONLY include articles that are directly relevant to the topics OR weather-related
-- If there aren't enough quality stories related to the topics, select fewer (3-4 is acceptable)
-- Weather/safety stories should be ranked near the top when present
-- Return ONLY the JSON output, no other text."""
-        
-        return prompt
-    
     async def analyze_and_rank(
         self,
         articles: list[dict],
         topics: list[str],
-        max_stories: int = 5,
+        max_stories: int = 3,
         briefing_id: Optional[str] = None,
+        topic_descriptions: Optional[dict[str, str]] = None,
+        prior_titles: Optional[list[str]] = None,
     ) -> tuple[list[dict], Optional[str], str, dict]:
         """Analyze and rank news stories by importance and topic relevance.
 
@@ -198,8 +174,8 @@ CRITICAL FILTERING REQUIREMENTS:
             raw_response: Raw LLM response content
             usage: LLM usage data including cost information
         """
-        system_prompt = self._build_system_prompt(topics)
-        user_prompt = self._build_user_prompt(articles, topics, max_stories)
+        system_prompt = self._build_system_prompt(topics, topic_descriptions, max_stories)
+        user_prompt = self._build_user_prompt(articles, topics, max_stories, prior_titles=prior_titles)
 
         # Call LLM to analyze and rank stories
         response_format = RANKING_SCHEMA if get_settings().llm_structured_outputs else None

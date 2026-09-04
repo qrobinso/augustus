@@ -82,6 +82,11 @@ class Settings(BaseSettings):
     
     # Content Duration Settings (in minutes)
     briefing_duration_minutes: int = 5  # Daily briefing duration
+
+    # Story selection
+    briefing_story_count: int = 3       # Upper bound on stories per briefing; the editor may pick fewer
+    article_max_age_days: int = 3       # Drop dated articles older than this before the editor sees them (0 = off)
+    article_dedup_window_days: int = 7  # Only treat a URL as "already covered" if used within this window
     
     # Conversation Complexity (1-5 scale)
     # 1 = Casual/High School - simple language, everyday analogies
