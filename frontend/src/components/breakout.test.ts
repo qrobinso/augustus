@@ -77,6 +77,13 @@ describe('findActiveChapterIndex', () => {
     expect(findActiveChapterIndex([], 10)).toBeNull()
     expect(findActiveChapterIndex(chapters, -1)).toBeNull()
   })
+
+  it('uses the next chapter boundary when end times are absent', () => {
+    expect(findActiveChapterIndex([
+      { title: 'First', start_time: 0 },
+      { title: 'Second', start_time: 30 },
+    ], 35)).toBe(1)
+  })
 })
 
 describe('captureBreakoutSource', () => {

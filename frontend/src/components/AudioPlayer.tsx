@@ -26,7 +26,8 @@ import {
   ContinuousPlaybackTracker,
   ListeningCoverageUploader,
 } from '../utils/listeningCoverage'
-import BreakoutDialog from './BreakoutDialog'
+import { findActiveChapterIndex } from './breakout'
+import { breakoutError, refreshQueuedBreakouts, startPlayerBreakout } from './playerBreakout'
 
 export default function AudioPlayer() {
   const navigate = useProfileNavigate()
@@ -36,7 +37,7 @@ export default function AudioPlayer() {
   const [playbackRate, setPlaybackRate] = useState(1)
   const [showChapters, setShowChapters] = useState(false)
   const [showQueue, setShowQueue] = useState(false)
-  const [breakoutOpen, setBreakoutOpen] = useState(false)
+  const [breakoutMessage, setBreakoutMessage] = useState<string | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const [hasSetInitialPosition, setHasSetInitialPosition] = useState(false)
   const [hoveredChapterIndex, setHoveredChapterIndex] = useState<number | null>(null)
@@ -68,6 +69,8 @@ export default function AudioPlayer() {
     reorderQueue,
     removeFromQueue,
     clearQueue,
+    waitingForQueue,
+    queueFallbackSourceId,
   } = useStore()
 
   if (!listeningUploaderRef.current) {
@@ -85,10 +88,67 @@ export default function AudioPlayer() {
   
   // Fetch briefing to get cast_id
   const { data: briefing } = useQuery({
-    queryKey: ['briefing', currentAudio?.id],
-    queryFn: () => briefingsApi.get(currentAudio!.id),
-    enabled: !!currentAudio?.id && currentAudio.type === 'briefing',
+    queryKey: ['briefing', currentAudio?.id, currentProfile?.id],
+    queryFn: () => briefingsApi.get(currentAudio!.id, currentProfile!.id),
+    enabled: !!currentAudio?.id && currentAudio.type === 'briefing' && !!currentProfile?.id,
   })
+
+  const pendingBreakoutIds = queue.filter(item => item.breakout?.status === 'generating' &&
+    item.breakout.profileId === currentProfile?.id).map(item => item.id).sort().join(',')
+  useEffect(() => {
+    if (!pendingBreakoutIds) return
+    let stopped = false
+    let timer: ReturnType<typeof setTimeout>
+    const refresh = async () => {
+      await refreshQueuedBreakouts()
+      if (!stopped) timer = setTimeout(refresh, 3000)
+    }
+    void refresh()
+    return () => { stopped = true; clearTimeout(timer) }
+  }, [pendingBreakoutIds, currentProfile?.id])
+
+  useEffect(() => { setBreakoutMessage(null) }, [currentAudio?.id, currentProfile?.id])
+
+  const breakoutChapterIndex = findActiveChapterIndex(briefing?.chapters, currentTime)
+  const currentBreakout = queue.find(item => item.breakout && item.breakout.profileId === currentProfile?.id &&
+    item.breakout.sourceBriefingId === currentAudio?.id && item.breakout.chapterIndex === breakoutChapterIndex &&
+    item.breakout.status !== 'failed')
+  // Keep feedback visible after playback advances beyond the requested chapter.
+  const feedbackBreakout = currentBreakout || queue.find(item => item.breakout &&
+    item.breakout.profileId === currentProfile?.id && item.breakout.sourceBriefingId === currentAudio?.id)
+  const feedbackError = breakoutMessage || (feedbackBreakout?.breakout?.status === 'failed'
+    ? `${feedbackBreakout.title}: ${feedbackBreakout.breakout.error || 'Deep dive unavailable.'}` : null)
+  const breakoutBusy = currentBreakout?.breakout?.status === 'requesting' ||
+    currentBreakout?.breakout?.status === 'generating'
+  const canBreakout = !!briefing && briefing.id === currentAudio?.id && breakoutChapterIndex != null &&
+    briefing.status === 'completed' && !!currentProfile?.id && !currentBreakout
+  const breakoutTitle = currentBreakout ? 'Deep dive added to Up Next'
+    : breakoutChapterIndex != null && briefing ? `Deep dive on ${briefing.chapters![breakoutChapterIndex].title} — play next`
+    : 'Deep dive available when a chapter is playing'
+  const handleBreakout = () => {
+    if (!briefing || !canBreakout) return
+    const sourceId = briefing.id
+    const profileId = currentProfile?.id
+    setBreakoutMessage(null)
+    setShowQueue(true)
+    // Use the actual media position at click time, including seeks since the last render.
+    void startPlayerBreakout(briefing, audioManager.getAudioElement()?.currentTime ?? currentTime)
+      .then(() => { queryClient.invalidateQueries({ queryKey: ['briefings'] }) })
+      .catch(error => {
+        const state = useStore.getState()
+        if (state.currentAudio?.id === sourceId && state.currentProfile?.id === profileId) {
+          setBreakoutMessage(breakoutError(error))
+        }
+      })
+  }
+  const breakoutFeedback = (
+    <div aria-live="polite" className="text-xs text-augustus-400">
+      {feedbackError ? <span role="alert" className="text-red-400">{feedbackError}</span>
+        : waitingForQueue ? 'Your deep dive is still generating. It will play next when ready.'
+        : feedbackBreakout ? (feedbackBreakout.breakout?.status === 'ready' ? 'Deep dive ready · Added to Up Next' : 'Generating deep dive · Added to Up Next')
+        : null}
+    </div>
+  )
   
   // Fetch cast information
   const { data: cast } = useQuery({
@@ -137,10 +197,16 @@ export default function AudioPlayer() {
   // Function to play the next unlistened briefing
   const playNextUnlistenedBriefing = useCallback(async () => {
     if (!settings?.auto_play_next) return
+    const sourceId = currentAudio?.id
+    const profileId = useStore.getState().currentProfile?.id
     
     try {
       // Fetch the most recent unlistened briefings
       const { briefings } = await briefingsApi.list(10, 0, false)
+      const state = useStore.getState()
+      if (state.currentAudio?.id !== sourceId || state.currentProfile?.id !== profileId || state.isPlaying) return
+      // A one-click request may have reserved the next slot while this fetch ran.
+      if (state.playFromQueueHead()) return
       
       // Sort by created_at descending to ensure newest first
       const sortedBriefings = [...briefings].sort((a, b) => 
@@ -154,6 +220,7 @@ export default function AudioPlayer() {
         (b: Briefing) => 
           b.id !== currentAudio?.id && 
           b.status === 'completed' && 
+          b.extra_data?.kind !== 'breakout' &&
           b.audio_url &&
           (!b.playback_position || b.playback_position === 0)  // Only fresh, unstarted briefings
       )
@@ -185,6 +252,14 @@ export default function AudioPlayer() {
       console.error('[AudioPlayer] Error fetching next briefing:', error)
     }
   }, [settings?.auto_play_next, currentAudio?.id, setCurrentAudio, setIsPlaying])
+
+  useEffect(() => {
+    if (!queueFallbackSourceId) return
+    useStore.setState({ queueFallbackSourceId: null })
+    if (queueFallbackSourceId === currentAudio?.id && !isPlaying) {
+      void playNextUnlistenedBriefing()
+    }
+  }, [queueFallbackSourceId, currentAudio?.id, isPlaying, playNextUnlistenedBriefing])
   
   // Save playback position (debounced to avoid too many API calls)
   const savePlaybackPosition = useCallback((position: number) => {
@@ -397,16 +472,8 @@ export default function AudioPlayer() {
   
   // Find the current active chapter
   const getActiveChapterIndex = useCallback((): number | null => {
-    if (!currentAudio?.chapters || !duration) return null
-    for (let i = 0; i < currentAudio.chapters.length; i++) {
-      const chapter = currentAudio.chapters[i]
-      if (currentTime >= chapter.start_time && 
-          (chapter.end_time === undefined || currentTime < chapter.end_time)) {
-        return i
-      }
-    }
-    return null
-  }, [currentAudio?.chapters, currentTime, duration])
+    return findActiveChapterIndex(currentAudio?.chapters, currentTime)
+  }, [currentAudio?.chapters, currentTime])
   
   const activeChapterIndex = getActiveChapterIndex()
   
@@ -738,12 +805,13 @@ export default function AudioPlayer() {
 
             {currentAudio.type === 'briefing' && briefing && (
               <button
-                onClick={() => setBreakoutOpen(true)}
-                className="btn-icon btn btn-ghost p-1.5 sm:p-2 min-h-[44px] min-w-[44px] sm:min-h-[36px] sm:min-w-[36px] touch-target text-accent"
-                title="Create breakout podcast"
-                aria-label="Create breakout podcast"
+                onClick={handleBreakout}
+                disabled={!canBreakout}
+                className="btn-icon btn btn-ghost p-1.5 sm:p-2 min-h-[44px] min-w-[44px] sm:min-h-[36px] sm:min-w-[36px] touch-target text-accent disabled:opacity-50"
+                title={breakoutTitle}
+                aria-label={breakoutTitle}
               >
-                <Mic2 className="w-4 h-4 sm:w-5 sm:h-5" />
+                {breakoutBusy ? <Loader2 className="w-4 h-4 sm:w-5 sm:h-5 animate-spin" /> : <Mic2 className="w-4 h-4 sm:w-5 sm:h-5" />}
               </button>
             )}
             
@@ -882,12 +950,7 @@ export default function AudioPlayer() {
             </div>
           </div>
         </div>
-        <BreakoutDialog
-          open={breakoutOpen}
-          onClose={() => setBreakoutOpen(false)}
-          sourceBriefing={briefing}
-          initialChapterIndex={activeChapterIndex}
-        />
+        {breakoutFeedback}
       </div>
     )
   }
@@ -1189,7 +1252,15 @@ export default function AudioPlayer() {
               <div className="space-y-1">
                 {queue.map((q, i) => (
                   <div key={q.id} className="flex items-center gap-2 p-1.5 rounded bg-augustus-900/50">
-                    <span className="flex-1 text-sm text-augustus-200 truncate">{q.title}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-augustus-200 truncate">{q.title}</p>
+                      {q.breakout && <p className={clsx('text-xs', q.breakout.status === 'failed' ? 'text-red-400' : 'text-augustus-400')}>
+                        {q.breakout.status === 'requesting' ? 'Starting deep dive…'
+                          : q.breakout.status === 'generating' ? 'Generating · Will play when ready'
+                          : q.breakout.status === 'failed' ? q.breakout.error || 'Deep dive failed'
+                          : 'Ready to play'}
+                      </p>}
+                    </div>
                     <button
                       onClick={() => reorderQueue(i, i - 1)}
                       disabled={i === 0}
@@ -1246,12 +1317,14 @@ export default function AudioPlayer() {
 
             {currentAudio.type === 'briefing' && briefing && (
               <button
-                onClick={() => setBreakoutOpen(true)}
-                className="btn-icon btn btn-ghost p-1.5 sm:p-2 min-h-[44px] min-w-[44px] sm:min-h-[36px] sm:min-w-[36px] touch-target text-accent"
-                title="Create breakout podcast"
-                aria-label="Create breakout podcast"
+                onClick={handleBreakout}
+                disabled={!canBreakout}
+                className="btn btn-ghost gap-1.5 px-2 min-h-[44px] sm:min-h-[36px] touch-target text-accent disabled:opacity-50"
+                title={breakoutTitle}
+                aria-label={breakoutTitle}
               >
-                <Mic2 className="w-4 h-4 sm:w-5 sm:h-5" />
+                {breakoutBusy ? <Loader2 className="w-4 h-4 sm:w-5 sm:h-5 animate-spin" /> : <Mic2 className="w-4 h-4 sm:w-5 sm:h-5" />}
+                <span className="text-xs">Deep dive</span>
               </button>
             )}
             
@@ -1326,12 +1399,7 @@ export default function AudioPlayer() {
           </div>
         </div>
       </div>
-      <BreakoutDialog
-        open={breakoutOpen}
-        onClose={() => setBreakoutOpen(false)}
-        sourceBriefing={briefing}
-        initialChapterIndex={activeChapterIndex}
-      />
+      {breakoutFeedback}
     </div>
   )
 }

@@ -354,8 +354,10 @@ export const briefingsApi = {
     return data
   },
   
-  get: async (id: string) => {
-    const { data } = await api.get<Briefing>(`/api/briefings/${id}`)
+  get: async (id: string, profileId?: string) => {
+    const { data } = await api.get<Briefing>(`/api/briefings/${id}`, {
+      ...(profileId ? { headers: { 'X-Profile-ID': profileId } } : {}),
+    })
     return data
   },
   

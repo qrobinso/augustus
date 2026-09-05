@@ -76,10 +76,10 @@ export function buildBreakoutRequest(values: BreakoutFormValues): BreakoutGenera
 }
 
 export function findActiveChapterIndex(chapters: Chapter[] | undefined, currentTime: number): number | null {
-  if (!chapters || currentTime < 0) return null
-  const index = chapters.findIndex((chapter) =>
+  if (!chapters || !Number.isFinite(currentTime) || currentTime < 0) return null
+  const index = chapters.findIndex((chapter, index) =>
     currentTime >= chapter.start_time &&
-    (chapter.end_time == null || currentTime < chapter.end_time)
+    currentTime < (chapter.end_time ?? chapters[index + 1]?.start_time ?? Infinity)
   )
   return index >= 0 ? index : null
 }

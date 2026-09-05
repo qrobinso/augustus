@@ -5,6 +5,13 @@ export interface QueueItem {
   audioUrl: string
   transcript?: string
   chapters?: Array<{ title: string; start_time: number; end_time?: number }>
+  breakout?: {
+    profileId: string
+    sourceBriefingId: string
+    chapterIndex: number
+    status: 'requesting' | 'generating' | 'ready' | 'failed'
+    error?: string
+  }
 }
 
 /** Append item to the end, ignoring if its id is already queued. */

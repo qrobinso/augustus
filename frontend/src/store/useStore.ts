@@ -32,6 +32,8 @@ interface AudioState {
   currentTime: number
   duration: number
   queue: QueueItem[]
+  waitingForQueue: boolean
+  queueFallbackSourceId: string | null
 }
 
 interface AppState extends AudioState, ProfileState {
@@ -57,6 +59,7 @@ interface AppState extends AudioState, ProfileState {
   removeFromQueue: (id: string) => void
   reorderQueue: (from: number, to: number) => void
   clearQueue: () => void
+  updateQueueItem: (id: string, item: QueueItem) => void
   playFromQueueHead: () => boolean
 }
 
@@ -66,7 +69,7 @@ export const useStore = create<AppState>()(
       // Profile state
       currentProfile: null,
       profiles: [],
-      setCurrentProfile: (profile) => set({ currentProfile: profile }),
+      setCurrentProfile: (profile) => set({ currentProfile: profile, waitingForQueue: false, queueFallbackSourceId: null }),
       setProfiles: (profiles) => set({ profiles }),
       
       // Audio state
@@ -76,6 +79,8 @@ export const useStore = create<AppState>()(
       duration: 0,
       audioPlayerMinimized: false,
       queue: [],
+      waitingForQueue: false,
+      queueFallbackSourceId: null,
   
   setCurrentAudio: (audio) => {
     // Always update the audio manager source when setting new audio
@@ -100,6 +105,8 @@ export const useStore = create<AppState>()(
     }
     set({ 
       currentAudio: audio, 
+      waitingForQueue: false,
+      queueFallbackSourceId: null,
       currentTime: audio?.initialPosition || 0 
     })
   },
@@ -128,7 +135,9 @@ export const useStore = create<AppState>()(
       currentAudio: null, 
       isPlaying: false, 
       currentTime: 0, 
-      duration: 0 
+      duration: 0,
+      waitingForQueue: false,
+      queueFallbackSourceId: null,
     })
   },
   
@@ -143,6 +152,8 @@ export const useStore = create<AppState>()(
     // Update state
     set({ 
       currentAudio: audio, 
+      waitingForQueue: false,
+      queueFallbackSourceId: null,
       currentTime: audio.initialPosition || 0,
       isPlaying: true 
     })
@@ -175,6 +186,7 @@ export const useStore = create<AppState>()(
    * Toggle play/pause - call this from click handlers for mobile compatibility.
    */
   togglePlayPause: () => {
+    set({ waitingForQueue: false, queueFallbackSourceId: null })
     const { isPlaying, currentAudio } = get()
 
     if (!currentAudio) return
@@ -193,14 +205,35 @@ export const useStore = create<AppState>()(
 
   addToQueue: (item) => set({ queue: addToQueue(get().queue, item) }),
   playNext: (item) => set({ queue: playNextQueue(get().queue, item) }),
-  removeFromQueue: (id) => set({ queue: removeFromQueue(get().queue, id) }),
-  reorderQueue: (from, to) => set({ queue: reorderQueue(get().queue, from, to) }),
-  clearQueue: () => set({ queue: [] }),
+  removeFromQueue: (id) => {
+    set({ queue: removeFromQueue(get().queue, id) })
+    if (get().waitingForQueue) get().playFromQueueHead()
+  },
+  reorderQueue: (from, to) => {
+    set({ queue: reorderQueue(get().queue, from, to) })
+    if (get().waitingForQueue) get().playFromQueueHead()
+  },
+  clearQueue: () => set({ queue: [], waitingForQueue: false, queueFallbackSourceId: null }),
+  updateQueueItem: (id, item) => {
+    if (!get().queue.some(entry => entry.id === id)) return
+    set({ queue: get().queue.map(entry => entry.id === id ? item : entry) })
+    if (get().waitingForQueue) get().playFromQueueHead()
+  },
   playFromQueueHead: () => {
-    const { queue, playAudio } = get()
-    if (queue.length === 0) return false
-    const [head, ...rest] = queue
-    set({ queue: rest })
+    const { queue, playAudio, currentProfile } = get()
+    // Failed requests stay visible for explanation/removal but never block audio.
+    const head = queue.find(item => item.breakout?.status !== 'failed' &&
+      (!item.breakout || item.breakout.profileId === currentProfile?.id))
+    if (!head) {
+      set({ waitingForQueue: false,
+        queueFallbackSourceId: get().waitingForQueue ? get().currentAudio?.id ?? null : null })
+      return false
+    }
+    if (head.breakout && head.breakout.status !== 'ready') {
+      set({ waitingForQueue: true, queueFallbackSourceId: null })
+      return true // Reserve play-next; do not fall through to unrelated autoplay.
+    }
+    set({ queue: queue.filter(item => item.id !== head.id), waitingForQueue: false })
     playAudio({ ...head, initialPosition: 0 })
     return true
   },
@@ -211,6 +244,19 @@ export const useStore = create<AppState>()(
         currentProfile: state.currentProfile,
         queue: state.queue,
       }),
+      merge: (persisted, current) => {
+        const saved = persisted as Partial<AppState>
+        return {
+          ...current,
+          ...saved,
+          waitingForQueue: false,
+          queueFallbackSourceId: null,
+          queue: (saved.queue || []).map(item => item.breakout?.status === 'requesting'
+            ? { ...item, breakout: { ...item.breakout, status: 'failed' as const,
+                error: 'Request interrupted. Check your briefings before trying again.' } }
+            : item),
+        }
+      },
     }
   )
 )
