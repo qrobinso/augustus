@@ -32,6 +32,7 @@ MCP_TOOL_CATALOG = [
     {"name": "list_briefings", "description": "List briefings for the connected profile.", "category": "read"},
     {"name": "get_briefing", "description": "Fetch a briefing by id, including transcript.", "category": "read"},
     {"name": "generate_briefing", "description": "Generate a new briefing (queues it).", "category": "write"},
+    {"name": "generate_breakout_podcast", "description": "Generate a focused breakout podcast (queues it).", "category": "write"},
     {"name": "cancel_briefing", "description": "Cancel a queued/in-progress briefing.", "category": "write"},
     {"name": "regenerate_audio", "description": "Regenerate audio for a completed briefing using a different cast.", "category": "write"},
     {"name": "set_briefing_favorite", "description": "Mark a briefing favorite/unfavorite.", "category": "write"},

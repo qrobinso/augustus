@@ -1,4 +1,5 @@
 import axios from 'axios'
+import type { StoryChapter } from './storyMemory'
 import { useStore } from '../store/useStore'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || ''
@@ -13,7 +14,7 @@ export const api = axios.create({
 // Add interceptor to include X-Profile-ID header
 api.interceptors.request.use((config) => {
   const { currentProfile } = useStore.getState()
-  if (currentProfile?.id) {
+  if (currentProfile?.id && !config.headers['X-Profile-ID']) {
     config.headers['X-Profile-ID'] = currentProfile.id
   }
   return config
@@ -64,6 +65,17 @@ export interface BriefingUsage {
 }
 
 export interface BriefingExtraData {
+  kind?: string
+  breakout?: {
+    topic: string
+    focus?: string | null
+    source_briefing_id?: string | null
+    chapter_index?: number | null
+    source_title?: string | null
+    source_context?: string | null
+  }
+  chapter_stories?: Record<string, StoryChapter>
+  empty_reason?: string
   segment_timings?: SegmentTiming[]
   progress?: BriefingProgress | null
   cast_member_names?: Record<string, string>
@@ -105,6 +117,22 @@ export interface Briefing {
   playback_position?: number
   favorite: boolean
   chapters?: Chapter[]
+}
+
+export interface BreakoutGenerateRequest {
+  topic?: string
+  topic_id?: string
+  source_briefing_id?: string
+  chapter_index?: number
+  focus?: string
+  max_duration_minutes?: number
+  cast_id?: string
+}
+
+export interface ListeningCoverage {
+  ranges: Array<[number, number]>
+  chapter_coverage: Record<string, number>
+  episode_coverage: number
 }
 
 export interface Topic {
@@ -190,6 +218,8 @@ export interface CastUpdate {
 }
 
 export interface AppSettings {
+  llm_provider: 'openrouter' | 'codex'
+  codex_model: string
   openrouter_api_key?: string
   openrouter_model: string
   openrouter_writer_model?: string
@@ -259,6 +289,25 @@ export interface ModelOption {
   description?: string
 }
 
+export interface CodexStatus {
+  available: boolean
+  connected: boolean
+  plan_type: string | null
+  login_pending: boolean
+  error: string | null
+}
+
+export interface CodexLogin {
+  login_id: string
+  verification_url: string
+  user_code: string
+}
+
+export interface CodexModelOption {
+  id: string
+  name: string
+}
+
 export interface Profile {
   id: string
   user_id: string
@@ -318,6 +367,15 @@ export const briefingsApi = {
     const { data } = await api.post<Briefing>('/api/briefings/generate', options)
     return data
   },
+
+  generateBreakout: async (options: BreakoutGenerateRequest, profileId: string) => {
+    const { data } = await api.post<Briefing>(
+      '/api/briefings/breakout',
+      options,
+      { headers: { 'X-Profile-ID': profileId } }
+    )
+    return data
+  },
   
   delete: async (id: string) => {
     await api.delete(`/api/briefings/${id}`)
@@ -330,6 +388,19 @@ export const briefingsApi = {
   
   updatePlaybackPosition: async (id: string, position: number) => {
     const { data } = await api.patch<Briefing>(`/api/briefings/${id}/playback-position`, { position })
+    return data
+  },
+
+  recordListening: async (
+    id: string,
+    ranges: Array<[number, number]>,
+    profileId: string
+  ) => {
+    const { data } = await api.post<ListeningCoverage>(
+      `/api/briefings/${id}/listening`,
+      { ranges },
+      { headers: { 'X-Profile-ID': profileId } }
+    )
     return data
   },
   
@@ -407,11 +478,12 @@ export interface TrendingTopic {
 }
 
 export const topicsApi = {
-  list: async (includeInactive = false) => {
+  list: async (includeInactive = false, profileId?: string) => {
     const params = new URLSearchParams()
     if (includeInactive) params.set('include_inactive', 'true')
     const { data } = await api.get<{ topics: Topic[]; total: number }>(
-      `/api/topics?${params}`
+      `/api/topics?${params}`,
+      profileId ? { headers: { 'X-Profile-ID': profileId } } : undefined
     )
     return data
   },
@@ -474,6 +546,8 @@ export const settingsApi = {
   },
   
   update: async (settings: Partial<{
+    llm_provider: 'openrouter' | 'codex'
+    codex_model: string
     openrouter_api_key: string
     openrouter_model: string
     openrouter_writer_model: string
@@ -502,6 +576,29 @@ export const settingsApi = {
   
   getModels: async () => {
     const { data } = await api.get<{ models: ModelOption[] }>('/api/settings/models')
+    return data.models
+  },
+
+  getCodexStatus: async () => {
+    const { data } = await api.get<CodexStatus>('/api/settings/codex/status')
+    return data
+  },
+
+  startCodexLogin: async () => {
+    const { data } = await api.post<CodexLogin>('/api/settings/codex/login')
+    return data
+  },
+
+  cancelCodexLogin: async () => {
+    await api.delete('/api/settings/codex/login')
+  },
+
+  logoutCodex: async () => {
+    await api.post('/api/settings/codex/logout')
+  },
+
+  getCodexModels: async () => {
+    const { data } = await api.get<{ models: CodexModelOption[] }>('/api/settings/codex/models')
     return data.models
   },
   
@@ -593,8 +690,11 @@ export const scheduledBriefingsApi = {
 }
 
 export const castsApi = {
-  list: async () => {
-    const { data } = await api.get<{ casts: Cast[] }>('/api/casts')
+  list: async (profileId?: string) => {
+    const { data } = await api.get<{ casts: Cast[] }>(
+      '/api/casts',
+      profileId ? { headers: { 'X-Profile-ID': profileId } } : undefined
+    )
     return data
   },
   

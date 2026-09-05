@@ -3,7 +3,7 @@
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -12,6 +12,7 @@ from app.models.user import User
 from app.models.profile import Profile
 from app.models.topic import Topic, DEFAULT_TOPICS
 from app.schemas.user import UserCreate, UserResponse
+from app.services.api_key import find_api_key, touch_api_key
 
 router = APIRouter()
 
@@ -35,9 +36,39 @@ async def seed_default_topics(user_id: str, profile_id: str, db: AsyncSession) -
 async def get_current_user(
     request: Request,
     db: AsyncSession = Depends(get_db),
-    x_profile_id: Optional[str] = Header(None),
+    x_profile_id: Optional[str] = Header(None, alias="X-Profile-ID"),
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
 ) -> User:
-    """Get or create the current user (single user mode for self-hosted)."""
+    """Resolve an API-key owner, or use the local self-hosted user."""
+    if x_api_key is not None:
+        api_key = await find_api_key(db, x_api_key)
+        if api_key is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or revoked API key",
+            )
+
+        result = await db.execute(select(User).where(User.id == api_key.user_id))
+        user = result.scalar_one_or_none()
+        if user is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or revoked API key",
+            )
+        if x_profile_id is not None and x_profile_id != api_key.profile_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="API key is bound to a different profile",
+            )
+
+        await touch_api_key(db, api_key, request.headers.get("user-agent"))
+        await db.commit()
+
+        user.current_api_key_id = api_key.id
+        user.current_api_key_tools = api_key.enabled_tools
+        user.current_profile_id = api_key.profile_id
+        return user
+
     # For self-hosted, we use a single default user - no auth needed
     result = await db.execute(select(User).limit(1))
     user = result.scalar_one_or_none()
@@ -93,6 +124,8 @@ async def get_current_user(
                 current_profile_id = first_profile.id
     
     # Attach current_profile_id to user object for use in routes
+    user.current_api_key_id = None
+    user.current_api_key_tools = None
     user.current_profile_id = current_profile_id
     
     return user

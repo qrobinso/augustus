@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
-import { Plus } from 'lucide-react'
+import { Mic2, Plus } from 'lucide-react'
 import clsx from 'clsx'
 import { useStore } from '../store/useStore'
 import { useProfileNavigate } from '../utils/profileSlug'
 import GenerateSheet from '../components/GenerateSheet'
+import BreakoutDialog from '../components/BreakoutDialog'
 
 export default function DashboardLayout() {
   const navigate = useProfileNavigate()
@@ -12,6 +13,7 @@ export default function DashboardLayout() {
   const currentProfile = useStore((s) => s.currentProfile)
   const currentAudio = useStore((s) => s.currentAudio)
   const [generateOpen, setGenerateOpen] = useState(false)
+  const [breakoutOpen, setBreakoutOpen] = useState(false)
 
   // Get time-based greeting
   const getGreeting = () => {
@@ -47,15 +49,25 @@ export default function DashboardLayout() {
             AI-generated audio briefings from your news feeds
           </p>
         </div>
-        {/* Desktop: header action. Mobile uses the floating button below. */}
-        <button
-          onClick={() => setGenerateOpen(true)}
-          className="hidden sm:flex btn btn-primary items-center gap-2 flex-shrink-0"
-        >
-          <Plus className="w-5 h-5" />
-          New briefing
-        </button>
+        <div className="hidden sm:flex items-center gap-2 flex-shrink-0">
+          <button onClick={() => setBreakoutOpen(true)} className="btn btn-secondary items-center gap-2">
+            <Mic2 className="w-5 h-5 text-accent" />
+            Breakout podcast
+          </button>
+          <button onClick={() => setGenerateOpen(true)} className="btn btn-primary items-center gap-2">
+            <Plus className="w-5 h-5" />
+            New briefing
+          </button>
+        </div>
       </div>
+
+      <button
+        onClick={() => setBreakoutOpen(true)}
+        className="sm:hidden btn btn-secondary w-full gap-2 mb-6"
+      >
+        <Mic2 className="w-5 h-5 text-accent" />
+        Breakout podcast
+      </button>
 
       {/* Tab Navigation */}
       <div className="mb-6 sm:mb-8">
@@ -101,6 +113,7 @@ export default function DashboardLayout() {
       </button>
 
       <GenerateSheet open={generateOpen} onClose={() => setGenerateOpen(false)} />
+      <BreakoutDialog open={breakoutOpen} onClose={() => setBreakoutOpen(false)} />
     </div>
   )
 }

@@ -37,6 +37,9 @@ from app.services.cancellation import (
 )
 from app.services.search import SearchService
 from app.services.web_research import select_stories_for_research, merge_sources
+from app.services.story_memory import StoryMemoryService, select_story_updates
+from app.services.evidence import attribute_claims, collect_claims
+from app.services.breakout import research_breakout
 
 settings = get_settings()
 
@@ -273,6 +276,12 @@ class BriefingService:
         # Register cancellation event for this briefing
         cancel_register(briefing_id)
         try:
+            requested_breakout = briefing.extra_data.get("kind") == "breakout"
+            breakout_metadata = briefing.extra_data.get("breakout")
+            if requested_breakout and not isinstance(breakout_metadata, dict):
+                raise ValueError("Breakout is missing breakout metadata; refusing to run the daily pipeline.")
+            is_breakout = requested_breakout
+
             # Update status and initialize progress
             briefing.status = "generating"
             total_steps = 8
@@ -281,7 +290,7 @@ class BriefingService:
                 "progress": {
                     "step": 1,
                     "total_steps": total_steps,
-                    "step_name": "Fetching news sources",
+                    "step_name": "Preparing breakout topic" if is_breakout else "Fetching news sources",
                     "percent": 0,
                 },
             }
@@ -306,21 +315,36 @@ class BriefingService:
                     },
                 }
                 await self.db.commit()
-            
+
             # Look up topic names from IDs and check use_newsapi settings
-            topics_data = await self._get_topics_data(briefing.user_id, topic_ids)
-            topic_names = [t.name for t in topics_data]
+            topics_data = (
+                []
+                if is_breakout
+                else await self._get_topics_data(briefing.user_id, topic_ids)
+            )
+            topic_names = (
+                [str(breakout_metadata.get("topic") or "").strip()]
+                if is_breakout
+                else [t.name for t in topics_data]
+            )
+            topic_names = [name for name in topic_names if name]
             # Only include topic names for topics that have use_newsapi=True
             newsapi_topic_names = [t.name for t in topics_data if t.use_newsapi]
             # Check if any topic has use_newsapi enabled
-            any_use_newsapi = any(t.use_newsapi for t in topics_data) if topics_data else True
+            any_use_newsapi = (
+                False
+                if is_breakout
+                else (any(t.use_newsapi for t in topics_data) if topics_data else True)
+            )
             print(f"[Briefing] Topics: {topic_names}")
             print(f"[Briefing] Topics with NewsAPI enabled: {newsapi_topic_names}")
             
             # Step 1: Fetch news from RSS feeds (only if at least one topic has use_newsapi=True)
             # RSS feeds are external sources like NewsAPI, so they should be excluded when user wants only custom sites
             rss_items = []
-            if any_use_newsapi:
+            if is_breakout:
+                await update_progress(1, "Preparing breakout topic", 5)
+            elif any_use_newsapi:
                 await update_progress(1, "Fetching RSS feeds", 5)
                 await self._check_cancelled(briefing_id)
                 print("[Briefing] Fetching news from RSS feeds...")
@@ -332,7 +356,9 @@ class BriefingService:
             
             # Step 2: Fetch from NewsAPI (only if at least one topic has use_newsapi=True)
             newsapi_items = []
-            if newsapi_topic_names:
+            if is_breakout:
+                await update_progress(2, "Planning the deep dive", 20)
+            elif newsapi_topic_names:
                 await update_progress(2, "Fetching news from NewsAPI", 20)
                 await self._check_cancelled(briefing_id)
                 print("[Briefing] Fetching news from NewsAPI...")
@@ -352,16 +378,19 @@ class BriefingService:
                 print("[Briefing] Skipping NewsAPI - all topics have use_newsapi=False")
             
             # Step 3: Fetch from custom sites
-            await update_progress(3, "Fetching custom sites", 35)
-            await self._check_cancelled(briefing_id)
-            print("[Briefing] Fetching from custom sites...")
-            custom_site_items, custom_site_url_to_topic_id = await self._fetch_custom_site_articles(
-                briefing.user_id,
-                topic_ids,
-                briefing_id=briefing_id,
-            )
-            await self._check_cancelled(briefing_id)
-            print(f"[Briefing] Found {len(custom_site_items)} articles from custom sites")
+            if is_breakout:
+                custom_site_items, custom_site_url_to_topic_id = [], {}
+            else:
+                await update_progress(3, "Fetching custom sites", 35)
+                await self._check_cancelled(briefing_id)
+                print("[Briefing] Fetching from custom sites...")
+                custom_site_items, custom_site_url_to_topic_id = await self._fetch_custom_site_articles(
+                    briefing.user_id,
+                    topic_ids,
+                    briefing_id=briefing_id,
+                )
+                await self._check_cancelled(briefing_id)
+                print(f"[Briefing] Found {len(custom_site_items)} articles from custom sites")
             
             # Combine articles from all sources
             # Note: 
@@ -396,97 +425,78 @@ class BriefingService:
             if before_stale != len(all_items):
                 print(f"[Briefing] Dropped {before_stale - len(all_items)} items older than {settings.article_max_age_days} days")
 
-            # Check for duplicates by URL in database, but only within a recent window so
-            # follow-up coverage of a developing story is not suppressed forever
-            urls = [item.url for item in all_items if item.url]
-            dedup_since = utc_now() - timedelta(days=settings.article_dedup_window_days)
-            existing_urls = await self._get_existing_article_urls(urls, since=dedup_since)
-            
-            # Filter out duplicates by URL (both in-memory and database)
-            seen_titles = set()
+            # The article cache is shared ingestion state, not a listener's memory.
+            # Remove only exact duplicate URLs within this fetch; the editor groups events.
             seen_urls = set()
             news_items = []
             for item in all_items:
-                # Skip if URL already exists in database (was discussed before)
-                if item.url and item.url in existing_urls:
-                    continue
-                
-                # Simple dedup by title similarity (in-memory)
-                title_key = item.title.lower()[:50]
-                if title_key not in seen_titles:
-                    seen_titles.add(title_key)
-                    # Also dedup by URL
-                    if item.url and item.url not in seen_urls:
-                        seen_urls.add(item.url)
-                        news_items.append(item)
-            
-            print(f"[Briefing] Total unique news items after deduplication: {len(news_items)} (filtered {len(all_items) - len(news_items)} duplicates)")
-            
+                if item.url and item.url not in seen_urls:
+                    seen_urls.add(item.url)
+                    news_items.append(item)
+
             # The editor selects at most N stories, stack-ranked; fewer is fine.
             target_story_count = settings.briefing_story_count
             topic_descriptions = {t.name: t.description for t in topics_data if t.description}
             print(f"[Briefing] Target: up to {target_story_count} stories (stack-ranked in priority order)")
 
-            # Continuity lookups happen BEFORE ranking so the editor can avoid re-selecting
-            # yesterday's stories under a new headline.
-            recent_articles = []
-            last_script = None
-            prior_titles = []
-            if topic_ids:
-                recent_articles = await self._get_recent_articles_for_topics(topic_ids=topic_ids, limit=5)
-                last_script = await self.get_last_script_for_topics(
-                    user_id=briefing.user_id, topic_ids=topic_ids, exclude_briefing_id=briefing_id,
+            memory_service = None if is_breakout else StoryMemoryService(self.db)
+            story_memory = (
+                []
+                if is_breakout
+                else await memory_service.context(briefing.user_id, briefing.profile_id)
+            )
+            # Personal context replaces the old exact-topic/generated-episode lookup.
+            recent_articles, last_script, prior_titles = [], None, []
+            if is_breakout:
+                await update_progress(4, "Researching breakout topic", 50)
+                breakout_research = await research_breakout(
+                    search=self.search,
+                    topic=breakout_metadata.get("topic", ""),
+                    focus=breakout_metadata.get("focus", ""),
+                    source_context=breakout_metadata.get("source_context", ""),
+                    check_cancelled=lambda: self._check_cancelled(briefing_id),
                 )
-                prior_titles = await self.get_last_story_titles_for_topics(
-                    user_id=briefing.user_id, topic_ids=topic_ids, exclude_briefing_id=briefing_id,
-                )
-                print(f"[Briefing] Continuity: {len(recent_articles)} recent articles, {len(prior_titles)} prior titles, last script {'found' if last_script else 'not found'}")
-            
-            # Step 4: Analyze and rank stories with LLM to filter by topic relevance and narrow down to 3-5 top stories
-            # CRITICAL: Always call story analysis when we have 2+ articles to ensure topic relevance filtering happens
-            # The senior news editor prompt will filter out articles that don't relate to the chosen topics
-            await update_progress(4, "Analyzing and ranking stories", 50)
-            await self._check_cancelled(briefing_id)
-            if len(news_items) > 1:
-                # Always use story analysis when we have 2+ articles to:
-                # 1. Filter out articles that don't relate to the chosen topics (CRITICAL - ensures topic relevance)
-                # 2. Rank articles by importance and topic relevance
-                # 3. Narrow down to 3-5 top stories (or fewer if not enough relevant articles)
-                print(f"[Briefing] Analyzing {len(news_items)} stories with senior news editor to filter by topic relevance and narrow down to 3-5 top stories...")
-                ranked_items, analysis_summary, raw_analysis, story_analysis_usage = await self._analyze_and_rank_stories(
-                    briefing_id=briefing_id,
-                    news_items=news_items,
-                    topics=topic_names if topic_names else ["technology", "business", "science"],
-                    max_stories=target_story_count,
-                    topic_descriptions=topic_descriptions,
-                    prior_titles=prior_titles,
-                )
-                await self._check_cancelled(briefing_id)
-                ranked_items = ranked_items[:target_story_count]
-                print(f"[Briefing] Selected {len(ranked_items)} top stories after topic relevance filtering (stack-ranked in priority order)")
-                if analysis_summary:
-                    print(f"[Briefing] Analysis: {analysis_summary}")
-            elif len(news_items) == 1:
-                # Single article - use it directly (story analysis not needed for filtering/ranking)
-                ranked_items = news_items
-                analysis_summary = None
-                raw_analysis = ""
-                story_analysis_usage = {}
-                print(f"[Briefing] Using single story: {news_items[0].title[:60]}...")
-            else:
-                # No articles found
                 ranked_items = []
-                analysis_summary = None
-                raw_analysis = ""
-                story_analysis_usage = {}
-                print(f"[Briefing] Warning: No news items found to analyze")
-            
+                analysis_summary, raw_analysis, story_analysis_usage = None, "", {}
+                news_content = breakout_research.content
+                briefing.sources = breakout_research.sources
+            elif news_items:
+                await update_progress(4, "Selecting new developments", 50)
+                ranked_items, analysis_summary, raw_analysis, story_analysis_usage = await self._analyze_and_rank_stories(
+                    briefing_id=briefing_id, news_items=news_items,
+                    topics=topic_names or ["technology", "business", "science"],
+                    max_stories=target_story_count, topic_descriptions=topic_descriptions,
+                    story_memory=story_memory,
+                )
+            else:
+                ranked_items, analysis_summary, raw_analysis, story_analysis_usage = [], None, "", {}
+            if not ranked_items and not is_breakout:
+                briefing.title = "No new developments"
+                briefing.transcript = "No qualifying developments were found in the available sources for your selected topics."
+                briefing.status = "completed"
+                briefing.generated_at = utc_now()
+                briefing.sources = []
+                briefing.extra_data = {**briefing.extra_data, "empty_reason": "no_qualifying_developments",
+                    "stories_selected": 0, "stories_analyzed": len(news_items), "chapters": [],
+                    "chapter_stories": {}, "progress": {"step": 8, "total_steps": 8, "percent": 100,
+                    "step_name": "No qualifying developments"}}
+                await self.db.commit()
+                await self.db.refresh(briefing)
+                return briefing
+            # A quiet day earns a shorter episode, not padding to the full budget.
+            if not is_breakout:
+                requested_duration = max_duration_minutes
+                max_duration_minutes = min(requested_duration, max(1, round(
+                    requested_duration * len(ranked_items) / max(1, target_story_count))))
+
             # Format the prioritized stories for the podcast prompt
             # Use all ranked items (should be 3-5 stories)
-            news_content = self.news.format_news_for_briefing(ranked_items, max_stories=len(ranked_items))
+            if not is_breakout:
+                news_content = self.news.format_news_for_briefing(ranked_items, max_stories=len(ranked_items))
             
             # Store sources (the ranked/prioritized stories - should be 3-5)
-            briefing.sources = [item.to_dict() for item in ranked_items]
+            if not is_breakout:
+                briefing.sources = [item.to_dict() for item in ranked_items]
 
             # NOTE: web-research sources are merged in AFTER _generate_additional_facts runs
             # (see the merge block below, after Step 5 returns)
@@ -543,7 +553,10 @@ class BriefingService:
             host_research = None
             raw_facts_response = ""
             facts_usage = {}
-            if get_settings().host_research_enabled and len(cast_members) >= 1:
+            if is_breakout:
+                additional_facts = {}
+                print("[Briefing] Breakout research is complete; skipping daily fact gathering")
+            elif get_settings().host_research_enabled and len(cast_members) >= 1:
                 print("[Briefing] Per-host research enabled — gathering host-specific research...")
                 stories_for_research = [item.to_dict() for item in ranked_items]
                 host_research, host_sources = await self.orchestrator.gather_host_research(
@@ -574,6 +587,17 @@ class BriefingService:
                 if _research_sources:
                     briefing.sources = merge_sources(briefing.sources, _research_sources)
                     print(f"[Briefing] Merged {len(_research_sources)} web-research source(s) into briefing.sources")
+
+            story_claims = collect_claims(host_research)
+            for index, item in enumerate(ranked_items):
+                # Preserve the original reported summary alongside host evidence.
+                baseline = attribute_claims([{"answer": item.summary, "evidence": [
+                    {"url": item.url, "excerpt": (item.summary or "")[:1500]}]}],
+                    [{"url": item.url, "title": item.source, "content": item.summary or ""}], "Source article")
+                story_claims[index] = baseline + story_claims.get(index, [])
+                if not host_research:
+                    story_claims[index].extend(attribute_claims(
+                        [{"answer": fact} for fact in additional_facts.get(index, [])], [], "Research"))
 
             # Step 7: Generate podcast script with LLM
             await update_progress(7, "Writing podcast script", 70)
@@ -609,6 +633,7 @@ class BriefingService:
                 enable_non_speech_sounds=enable_non_speech_sounds,
                 briefing_id=briefing_id,
                 host_research=host_research,
+                breakout=breakout_metadata if is_breakout else None,
             )
             await self._check_cancelled(briefing_id)
             
@@ -756,43 +781,21 @@ class BriefingService:
             )
             costs["total"] = total_cost
             
-            # Build chapter_sources: map chapter index -> list of {name, url} for frontend
-            # Use title-based matching instead of positional alignment; chapters can include
-            # intro/outro that have no corresponding story, so positional mapping is wrong.
-            def _norm(s):
-                return (s or "").strip().lower()
-
-            def _match_story_index(chapter_title):
-                ct = _norm(chapter_title)
-                if not ct:
-                    return None
-                best_idx, best_score = None, 0
-                for si, story in enumerate(ranked_items):
-                    st = _norm(getattr(story, "title", ""))
-                    if not st:
-                        continue
-                    # substring either direction => score by overlap length
-                    if st in ct or ct in st:
-                        score = min(len(st), len(ct))
-                        if score > best_score:
-                            best_idx, best_score = si, score
-                return best_idx
-
             chapter_sources = {}
-            for ci, _chapter in enumerate(chapters):
-                _title = _chapter.get("title") if isinstance(_chapter, dict) else getattr(_chapter, "title", None)
-                _si = _match_story_index(_title)
-                if _si is None:
-                    continue
-                _item = ranked_items[_si]
-                _srcs = []
-                _url = getattr(_item, "url", None)
-                if _url:
-                    _srcs.append({"name": getattr(_item, "source", None) or _item.title, "url": _url})
-                for _s in getattr(_item, "research_sources", []) or []:
-                    _srcs.append(_s)
-                if _srcs:
-                    chapter_sources[str(ci)] = _srcs
+            if is_breakout:
+                for ci, _chapter in enumerate(chapters):
+                    chapter_sources[str(ci)] = list(briefing.sources)
+            else:
+                for ci, chapter in enumerate(chapters):
+                    si = chapter.get("article_index")
+                    if type(si) is not int or not 0 <= si < len(ranked_items):
+                        continue
+                    item = ranked_items[si]
+                    sources = [{"name": item.source or item.title, "url": item.url}]
+                    for research in host_research or []:
+                        sources.extend(source for source in research.sources if source.get("story_index") == si)
+                    sources.extend(getattr(item, "research_sources", []) or [])
+                    chapter_sources[str(ci)] = merge_sources([], sources)
 
             # Reassign extra_data to ensure SQLAlchemy detects the change
             # (in-place mutations like .update() aren't detected on JSON fields)
@@ -818,8 +821,16 @@ class BriefingService:
                 "topic_ids": new_extra_data.get("topic_ids", topic_ids or []),  # Explicitly preserve topic_ids
                 "costs": costs,  # Store all costs breakdown
             })
+            new_extra_data["chapter_stories"] = (
+                {}
+                if is_breakout
+                else await memory_service.save(briefing, ranked_items, chapters, story_claims)
+            )
+            new_extra_data["claim_evidence"] = {str(i): c for i, c in story_claims.items()}
+            new_extra_data["editorial_duration_minutes"] = max_duration_minutes
+            new_extra_data["progress"] = {"step": 8, "total_steps": 8, "percent": 100, "step_name": "Ready"}
             briefing.extra_data = new_extra_data
-            
+
             await self.db.commit()
             await self.db.refresh(briefing)
             
@@ -945,11 +956,13 @@ class BriefingService:
         matches = re.finditer(pattern, script)
         
         for match in matches:
-            chapters.append({
-                "title": match.group(1).strip(),
-                "start_time": 0.0,  # Will be updated after audio generation
-                "end_time": None,
-            })
+            label = match.group(1).strip()
+            numbered = re.match(r"^(\d+)\s*\|\s*(.+)$", label)
+            chapter = {"title": numbered.group(2).strip() if numbered else label,
+                       "start_time": 0.0, "end_time": None}
+            if numbered and int(numbered.group(1)) > 0:
+                chapter["article_index"] = int(numbered.group(1)) - 1
+            chapters.append(chapter)
         
         return chapters
     
@@ -998,122 +1011,46 @@ class BriefingService:
         """
         if not chapters or not segment_timings:
             return chapters
-        
-        # Find chapter marker positions in the script
-        chapter_positions = []
         pattern = r'\[CHAPTER:\s*(.+?)\]'
-        for match in re.finditer(pattern, script):
-            chapter_positions.append({
-                "title": match.group(1).strip(),
-                "position": match.start(),  # Character position in script
-            })
-        
-        # If no chapter markers found in script, chapters were likely derived from stories
-        # Map them evenly across segments based on chapter index
-        if not chapter_positions:
-            mapped_chapters = []
-            num_segments = len(segment_timings)
-            num_chapters = len(chapters)
-            
-            print(f"[Briefing] Mapping {num_chapters} chapters to {num_segments} segments (no chapter markers found)")
-            
-            if num_segments == 0:
-                print("[Briefing] WARNING: No segments available for chapter mapping")
-                return chapters
-            
-            # Distribute chapters across segments
-            for i, chapter in enumerate(chapters):
-                # Calculate which segment this chapter should map to
-                # Distribute chapters evenly across segments
-                if num_chapters > 1:
-                    segment_index = int((i / (num_chapters - 1)) * (num_segments - 1))
-                else:
-                    segment_index = 0
-                segment_index = min(segment_index, num_segments - 1)  # Ensure valid index
-                
-                segment = segment_timings[segment_index]
-                start_time = segment.get("start_seconds", 0.0)
-                
-                print(f"[Briefing] Chapter '{chapter['title'][:50]}...' mapped to segment {segment_index} at {start_time:.2f}s")
-                
-                # Set end_time to next chapter's start_time, or duration if last chapter
-                end_time = duration_seconds if i == num_chapters - 1 else None
-                
-                mapped_chapters.append({
-                    "title": chapter["title"],
-                    "start_time": start_time,
-                    "end_time": end_time,
-                })
-            
-            # Update previous chapter's end_time
-            for i in range(len(mapped_chapters) - 1):
-                if mapped_chapters[i + 1]["start_time"] is not None:
-                    mapped_chapters[i]["end_time"] = mapped_chapters[i + 1]["start_time"]
-            
-            print(f"[Briefing] Successfully mapped {len(mapped_chapters)} chapters")
-            return mapped_chapters
-        
-        # Remove chapter markers from script to match segment text
-        # This helps us find the correct segment
-        script_without_chapters = re.sub(r'\[CHAPTER:\s*.+?\]', '', script)
-        
-        # Build a mapping by finding which segment starts after each chapter marker
-        # We track cumulative text position in the cleaned script
-        mapped_chapters = []
-        current_text_pos = 0
-        
-        for i, chapter_pos in enumerate(chapter_positions):
-            # Find position in cleaned script (accounting for removed chapter markers)
-            # Count characters before this chapter marker in original script
-            text_before_marker = script[:chapter_pos["position"]]
-            # Remove chapter markers from text before this marker
-            text_before_cleaned = re.sub(r'\[CHAPTER:\s*.+?\]', '', text_before_marker)
-            target_pos_in_cleaned = len(text_before_cleaned)
-            
-            # Find which segment contains this position
-            found_segment = None
-            cumulative_pos = 0
-            
-            for segment in segment_timings:
-                segment_text = segment.get("text", "").strip()
-                segment_length = len(segment_text)
-                
-                # Check if this segment contains or comes after the chapter position
-                if cumulative_pos <= target_pos_in_cleaned < cumulative_pos + segment_length:
-                    found_segment = segment
-                    break
-                elif cumulative_pos + segment_length > target_pos_in_cleaned:
-                    # Chapter is before this segment, use this segment's start
-                    found_segment = segment
-                    break
-                
-                cumulative_pos += segment_length
-            
-            # Use the found segment's start time, or first segment if not found
-            if found_segment:
-                start_time = found_segment.get("start_seconds", 0.0)
-            elif segment_timings:
-                start_time = segment_timings[0].get("start_seconds", 0.0)
+        normalize = lambda text: re.sub(r"\s+", " ", text).strip()
+        clean_script = normalize(re.sub(pattern, '', script))
+        spans, cursor = [], 0
+        for segment in segment_timings:
+            text = normalize(segment.get("text", ""))
+            pos = clean_script.find(text, cursor) if text else -1
+            if pos >= 0:
+                spans.append((pos, pos + len(text), segment))
+                cursor = pos + len(text)
+        markers = list(re.finditer(pattern, script))
+        mapped = []
+        measured_starts = []
+        for index, original in enumerate(chapters):
+            chapter = dict(original)
+            if index < len(markers):
+                prefix = re.sub(pattern, '', script[:markers[index].start()])
+                target = len(normalize(prefix))
+                span = next(((start, end, seg) for start, end, seg in spans if end > target), None)
+                # A marker embedded within one TTS turn has no measured boundary.
+                # Do not count the pre-marker portion as exposure to this story.
+                segment = span[2] if span and span[0] >= target else None
             else:
-                start_time = 0.0
-            
-            # Set end_time to next chapter's start_time, or duration if last chapter
-            end_time = duration_seconds if i == len(chapter_positions) - 1 else None
-            
-            chapter = {
-                "title": chapter_pos["title"],
-                "start_time": start_time,
-                "end_time": end_time,
-            }
-            
-            # Update previous chapter's end_time
-            if mapped_chapters:
-                mapped_chapters[-1]["end_time"] = start_time
-            
-            mapped_chapters.append(chapter)
-        
-        return mapped_chapters
-    
+                segment = None
+            measured_starts.append(segment is not None)
+            if segment is None:
+                # Navigation remains available, but estimated identity never earns exposure.
+                chapter.pop("article_index", None)
+                chapter["start_time"] = duration_seconds * index / len(chapters)
+            else:
+                chapter["start_time"] = segment.get("start_seconds", 0.0)
+            mapped.append(chapter)
+        for index, chapter in enumerate(mapped):
+            chapter["end_time"] = mapped[index + 1]["start_time"] if index + 1 < len(mapped) else duration_seconds
+            if index + 1 < len(mapped) and not measured_starts[index + 1]:
+                # A story needs measured boundaries at both ends before its
+                # playback interval can establish listener knowledge.
+                chapter.pop("article_index", None)
+        return mapped
+
     async def get_briefing(self, briefing_id: str) -> Optional[Briefing]:
         """Get a briefing by ID."""
         result = await self.db.execute(
@@ -1708,6 +1645,7 @@ class BriefingService:
         max_stories: int,
         topic_descriptions: Optional[dict[str, str]] = None,
         prior_titles: Optional[list[str]] = None,
+        story_memory: Optional[list[dict]] = None,
     ) -> tuple[list, str | None, str, dict]:
         """Use the editor LLM to select and rank stories.
 
@@ -1744,7 +1682,9 @@ class BriefingService:
                     briefing_id=briefing_id,
                     topic_descriptions=topic_descriptions,
                     prior_titles=prior_titles,
+                    story_memory=story_memory,
                 )
+                ranked_items = select_story_updates(ranked_stories, news_items, story_memory, max_stories)
                 break
             except (json.JSONDecodeError, ValueError) as e:
                 last_error = e
@@ -1753,21 +1693,6 @@ class BriefingService:
             raise ValueError(f"Story analysis failed twice; refusing to fall back to unfiltered articles: {last_error}")
 
         await self._check_cancelled(briefing_id)
-
-        ranked_items = []
-        used_indices = set()
-        for story in ranked_stories:
-            idx = story.get("article_num", 0) - 1
-            if 0 <= idx < len(news_items) and idx not in used_indices:
-                item = news_items[idx]
-                item.priority = story.get("priority")
-                item.editor_note = story.get("reason")
-                ranked_items.append(item)
-                used_indices.add(idx)
-                print(f"[Briefing]   #{len(ranked_items)}: {item.title[:60]}... (priority: {item.priority})")
-
-        if len(ranked_items) < max_stories:
-            print(f"[Briefing] Editor selected {len(ranked_items)} of up to {max_stories} stories; not padding")
 
         return ranked_items[:max_stories], summary, raw_response, usage
     
@@ -2144,5 +2069,3 @@ class BriefingService:
                 "characters": total_chars,
                 "duration_seconds": duration_seconds,
             }
-
-

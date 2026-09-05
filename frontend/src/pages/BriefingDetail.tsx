@@ -33,6 +33,7 @@ import {
 import clsx from 'clsx'
 import { briefingsApi, settingsApi, castsApi, scheduledBriefingsApi, topicsApi, SegmentTiming } from '../api/client'
 import { groupSourcesByHost } from './briefingSources'
+import StoryDevelopments from '../components/StoryDevelopments'
 import { useStore } from '../store/useStore'
 import type { QueueItem } from '../store/queue'
 import { formatFullDate } from '../utils/timezone'
@@ -856,6 +857,11 @@ export default function BriefingDetail() {
           
           {/* Info */}
           <div className="flex-1 text-center sm:text-left">
+            {briefing.extra_data?.kind === 'breakout' && (
+              <span className="mb-3 inline-flex rounded-full border border-accent/30 bg-accent/10 px-2.5 py-1 text-xs font-medium text-accent">
+                Breakout podcast
+              </span>
+            )}
             {/* Topics */}
             {(() => {
               const briefingTopicIds = (briefing.extra_data?.topic_ids as string[]) || []
@@ -927,6 +933,17 @@ export default function BriefingDetail() {
                 </span>
               )}
             </div>
+
+            {briefing.extra_data?.breakout?.source_briefing_id && (
+              <button
+                type="button"
+                onClick={() => navigate(`/briefing/${briefing.extra_data.breakout!.source_briefing_id}`)}
+                className="mt-3 inline-flex items-center gap-1.5 text-sm text-accent hover:text-accent-400"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                Source: {briefing.extra_data.breakout.source_title || 'original briefing'}
+              </button>
+            )}
             
             
             {briefing.error_message && (
@@ -1072,6 +1089,8 @@ export default function BriefingDetail() {
         </div>
       )}
       
+      <StoryDevelopments stories={briefing.extra_data?.chapter_stories} />
+
       {/* Transcript */}
       {(briefing.transcript || segmentTimings.length > 0) && (
         <div className="card">

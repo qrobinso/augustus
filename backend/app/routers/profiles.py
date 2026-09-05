@@ -29,10 +29,28 @@ async def get_current_profile(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> Profile:
-    """Get the current profile from X-Profile-ID header.
-    
-    If no header is provided, returns the admin profile.
-    """
+    """Get the key-bound, explicitly selected, or default profile."""
+    if getattr(user, "current_api_key_id", None):
+        bound_profile_id = getattr(user, "current_profile_id", None)
+        if x_profile_id is not None and x_profile_id != bound_profile_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="API key is bound to a different profile",
+            )
+        result = await db.execute(
+            select(Profile).where(
+                Profile.id == bound_profile_id,
+                Profile.user_id == user.id,
+            )
+        )
+        profile = result.scalar_one_or_none()
+        if not profile:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Profile not found",
+            )
+        return profile
+
     if x_profile_id:
         result = await db.execute(
             select(Profile).where(
@@ -314,4 +332,3 @@ async def delete_profile(
     
     await db.delete(profile)
     await db.commit()
-

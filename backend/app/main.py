@@ -216,6 +216,12 @@ async def lifespan(app: FastAPI):
             print(f"[Shutdown] Error shutting down scheduler: {e}")
         
         try:
+            from app.services.llm.codex import get_codex_service
+            await get_codex_service().close()
+        except Exception:
+            print("[Shutdown] Could not close Codex service cleanly")
+
+        try:
             await close_db()
         except Exception as e:
             print(f"[Shutdown] Error closing database: {e}")
@@ -287,4 +293,6 @@ app.include_router(custom_sites.router, prefix="/api/custom-sites", tags=["Custo
 app.include_router(scheduled_briefings.router, prefix="/api/scheduled-briefings", tags=["Scheduled Briefings"])
 app.include_router(casts.router, prefix="/api/casts", tags=["Casts"])
 app.include_router(mcp.router, prefix="/api/mcp", tags=["MCP"])
+from app.routers import stories
+app.include_router(stories.router, prefix="/api/stories", tags=["Stories"])
 

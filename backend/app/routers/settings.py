@@ -3,11 +3,12 @@
 import os
 import signal
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
+from urllib.parse import urlsplit
 
 import httpx
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from pydantic import BaseModel, Field
 
 router = APIRouter()
 
@@ -18,6 +19,9 @@ _models_cache_time: float = 0
 
 class SettingsResponse(BaseModel):
     """Current settings response."""
+    llm_provider: Literal["openrouter", "codex"] = "openrouter"
+    codex_model: str = ""
+
     # OpenRouter
     openrouter_api_key: Optional[str] = None
     openrouter_model: str = "anthropic/claude-3.5-sonnet"
@@ -68,6 +72,8 @@ class SettingsResponse(BaseModel):
 
 class SettingsUpdate(BaseModel):
     """Settings update request."""
+    llm_provider: Optional[Literal["openrouter", "codex"]] = None
+    codex_model: Optional[str] = Field(default=None, max_length=160, pattern=r"^[a-zA-Z0-9._:/-]*$")
     openrouter_api_key: Optional[str] = None
     openrouter_model: Optional[str] = None
     openrouter_writer_model: Optional[str] = None
@@ -195,6 +201,8 @@ def get_current_settings() -> dict:
     
     # Merge with current environment (env takes precedence for runtime changes)
     settings = {
+        "llm_provider": os.environ.get("LLM_PROVIDER") or env_vars.get("LLM_PROVIDER", "openrouter"),
+        "codex_model": os.environ.get("CODEX_MODEL", env_vars.get("CODEX_MODEL", "")),
         "openrouter_api_key": os.environ.get("OPENROUTER_API_KEY") or env_vars.get("OPENROUTER_API_KEY"),
         "openrouter_model": os.environ.get("OPENROUTER_MODEL") or env_vars.get("OPENROUTER_MODEL", "anthropic/claude-3.5-sonnet"),
         "openrouter_writer_model": os.environ.get("OPENROUTER_WRITER_MODEL") or env_vars.get("OPENROUTER_WRITER_MODEL"),
@@ -227,6 +235,8 @@ async def get_settings_endpoint():
     settings = get_current_settings()
     
     return SettingsResponse(
+        llm_provider=settings["llm_provider"],
+        codex_model=settings["codex_model"],
         openrouter_api_key=mask_api_key(settings["openrouter_api_key"]),
         openrouter_model=settings["openrouter_model"],
         openrouter_writer_model=settings.get("openrouter_writer_model"),
@@ -263,6 +273,12 @@ async def update_settings(updates: SettingsUpdate):
     try:
         env_updates = {}
         
+        for field in ("llm_provider", "codex_model"):
+            value = getattr(updates, field)
+            if value is not None:
+                env_updates[field.upper()] = value
+                os.environ[field.upper()] = value
+
         # Only update non-None values
         if updates.openrouter_api_key is not None:
             env_updates["OPENROUTER_API_KEY"] = updates.openrouter_api_key
@@ -367,7 +383,9 @@ async def update_settings(updates: SettingsUpdate):
         print(f"[Settings] TTS Provider after update: {fresh_settings.tts_provider}")
         
         # Reset LLM provider if model or API key changed
-        if updates.openrouter_model is not None or updates.openrouter_writer_model is not None or updates.openrouter_api_key is not None:
+        if any(getattr(updates, key) is not None for key in (
+            "llm_provider", "codex_model", "openrouter_model", "openrouter_writer_model", "openrouter_api_key"
+        )):
             from app.services.llm.openrouter import reset_llm_provider
             reset_llm_provider()
         
@@ -643,3 +661,59 @@ async def debug_settings():
             "TTS_PROVIDER": os.environ.get("TTS_PROVIDER"),
         }
     }
+
+
+async def require_codex_origin(request: Request, response: Response):
+    """Prevent browser requests from other sites controlling the local account."""
+    from app.config import get_settings
+
+    response.headers["Cache-Control"] = "no-store"
+    origin = request.headers.get("origin")
+    if origin:
+        def origin_of(url: str) -> str:
+            parsed = urlsplit(url)
+            return f"{parsed.scheme}://{parsed.netloc}"
+        allowed = {origin_of(str(request.base_url)), origin_of(get_settings().frontend_url)}
+        if origin not in allowed:
+            raise HTTPException(status_code=403, detail="Open Codex settings from Augustus.")
+    elif request.headers.get("sec-fetch-site") == "cross-site":
+        raise HTTPException(status_code=403, detail="Open Codex settings from Augustus.")
+
+
+async def codex_call(method: str):
+    from app.services.llm.codex import get_codex_service
+    try:
+        return await getattr(get_codex_service(), method)()
+    except Exception as exc:
+        # Service errors are deliberately safe for display; never forward raw
+        # subprocess output or protocol payloads to the browser.
+        from app.services.llm.codex import CodexError
+        message = str(exc) if isinstance(exc, CodexError) else "Codex is unavailable. Check the backend installation and reconnect in Settings."
+        raise HTTPException(status_code=503, detail=message) from None
+
+
+@router.get("/codex/status", dependencies=[Depends(require_codex_origin)])
+async def codex_status():
+    return await codex_call("status")
+
+
+@router.post("/codex/login", dependencies=[Depends(require_codex_origin)])
+async def codex_login():
+    return await codex_call("start_login")
+
+
+@router.delete("/codex/login", dependencies=[Depends(require_codex_origin)])
+async def codex_cancel_login():
+    await codex_call("cancel_login")
+    return {"ok": True}
+
+
+@router.post("/codex/logout", dependencies=[Depends(require_codex_origin)])
+async def codex_logout():
+    await codex_call("logout")
+    return {"ok": True}
+
+
+@router.get("/codex/models", dependencies=[Depends(require_codex_origin)])
+async def codex_models():
+    return {"models": await codex_call("models")}

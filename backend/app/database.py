@@ -39,6 +39,11 @@ async def get_db() -> AsyncSession:
 
 async def init_db():
     """Initialize database tables."""
+    # These models are not imported by legacy startup paths, so register them
+    # explicitly before create_all inspects Base.metadata.
+    import app.models.listening  # noqa: F401
+    import app.models.story  # noqa: F401
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
@@ -46,4 +51,3 @@ async def init_db():
 async def close_db():
     """Close database connections."""
     await engine.dispose()
-

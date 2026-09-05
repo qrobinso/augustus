@@ -327,6 +327,11 @@ export default function DashboardBriefs() {
            'flex flex-col',
            briefing.status === 'completed' && 'pl-14 sm:pl-16'
          )}>
+           {briefing.extra_data?.kind === 'breakout' && (
+             <span className="mb-2 w-fit rounded-full border border-accent/30 bg-accent/10 px-2 py-0.5 text-xs font-medium text-accent">
+               Breakout podcast
+             </span>
+           )}
            {briefingTopics.length > 0 && (
             <div className={clsx('flex flex-wrap gap-1.5 sm:gap-2', isLatest ? 'mb-3 sm:mb-4' : 'mb-2')}>
               {briefingTopics.slice(0, isLatest ? briefingTopics.length : (window.innerWidth < 640 ? 2 : briefingTopics.length)).map((topic) => (
@@ -592,6 +597,11 @@ export default function DashboardBriefs() {
                       isCurrent ? 'text-accent' : 'text-white group-hover:text-accent'
                     )}>
                       {briefing.title}
+                      {briefing.extra_data?.kind === 'breakout' && (
+                        <span className="ml-2 inline-flex rounded-full bg-accent/10 px-1.5 py-0.5 align-middle text-[10px] font-medium text-accent">
+                          Breakout
+                        </span>
+                      )}
                     </p>
                     <div className="flex items-center gap-2 text-xs text-augustus-500 mt-0.5">
                       {firstTopic && (
@@ -1012,4 +1022,3 @@ export default function DashboardBriefs() {
     </div>
   )
 }
-

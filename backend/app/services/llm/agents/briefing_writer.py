@@ -63,11 +63,24 @@ def build_host_research_section(host_research, stories) -> str:
             continue
         for idx, facts in hr.facts_by_story_index.items():
             blocks.append(f"On \"{_title(idx)}\":")
-            for fact in facts:
-                blocks.append(f"  - {fact}")
+            claims = getattr(hr, "claims_by_story_index", {}).get(idx)
+            if claims:
+                for claim in claims:
+                    if claim.get("sources"):
+                        blocks.append(f"  - Source-linked finding: {claim['text']}")
+                        for source in claim["sources"]:
+                            blocks.append(f"    {source['title']} ({source['url']}): {source['excerpt']}")
+                    else:
+                        blocks.append(f"  - Unverified research lead (do not assert): {claim['text']}")
+            else:
+                for fact in facts:
+                    blocks.append(f"  - Unverified research lead (do not assert): {fact}")
     blocks.append(
         "\nEach host knows only their own findings above. Let one host be surprised or "
-        "corrected by something the other found; do not have both recite the same facts."
+        "corrected by something the other found; do not have both recite the same facts. "
+        "A linked excerpt is evidence to inspect, not proof: ensure it supports the claim. "
+        "Do not assert unverified leads as facts. Attribute supported facts naturally; never speak URLs. "
+        "When sources conflict, explain what is disputed and what remains unknown. Label interpretation as interpretation."
     )
     return "\n".join(blocks)
 
@@ -110,6 +123,7 @@ class BriefingWriterAgent:
         briefing_title: Optional[str] = None,
         complexity: int = 3,
         enable_non_speech_sounds: bool = False,
+        breakout: Optional[dict] = None,
     ) -> str:
         """Build briefing system prompt dynamically based on cast members.
         
@@ -139,7 +153,18 @@ class BriefingWriterAgent:
             host_blocks.append("\n".join(lines))
         hosts_text = "\n".join(host_blocks)
 
-        if num_hosts == 1:
+        if breakout and num_hosts == 1:
+            host_intro = (
+                f"You write {host_names[0]}'s focused breakout podcast: one subject, "
+                "explored deeply for one listener."
+            )
+        elif breakout:
+            names = ", ".join(host_names[:-1]) + f" and {host_names[-1]}"
+            host_intro = (
+                f"You write a focused breakout podcast hosted by {names}: one subject, "
+                "explored deeply through a real conversation."
+            )
+        elif num_hosts == 1:
             host_intro = f"You write {host_names[0]}'s daily news podcast. One host, talking to one listener."
         else:
             names = ", ".join(host_names[:-1]) + f" and {host_names[-1]}"
@@ -157,15 +182,34 @@ class BriefingWriterAgent:
         else:
             conversation_rules = "- Talk to the listener like a friend who happens to know this stuff. Think out loud, change your mind mid-sentence if the facts warrant it."
 
-        if num_hosts == 1:
-            format_example = f"TITLE: Chips, Courts, and a Quiet Rate Cut\n{host_names[0]}: Morning. It's {show_name}, and the story I can't stop thinking about is...\n[CHAPTER: Nvidia's Export Problem]\n{host_names[0]}: So here's what actually happened..."
+        if breakout and num_hosts == 1:
+            format_example = f"TITLE: Why Fusion Timelines Keep Slipping\n[CHAPTER: 1 | Foundations]\n{host_names[0]}: Start with the core idea...\n[CHAPTER: 2 | Mechanism]\n{host_names[0]}: Now the machinery matters..."
+        elif breakout:
+            format_example = f"TITLE: Why Fusion Timelines Keep Slipping\n[CHAPTER: 1 | Foundations]\n{host_names[0]}: Start with the core idea...\n{host_names[1]}: And the first disagreement is...\n[CHAPTER: 2 | Mechanism]\n{host_names[0]}: Now the machinery matters..."
+        elif num_hosts == 1:
+            format_example = f"TITLE: Chips, Courts, and a Quiet Rate Cut\n{host_names[0]}: Morning. It's {show_name}, and the story I can't stop thinking about is...\n[CHAPTER: 1 | Nvidia's Export Problem]\n{host_names[0]}: So here's what actually happened..."
         else:
-            format_example = f"TITLE: Chips, Courts, and a Quiet Rate Cut\n{host_names[0]}: Morning. {show_name}, {host_names[0]} here with {host_names[1]}. Did you read the Nvidia filing?\n{host_names[1]}: I read the part where they said it wouldn't affect guidance. I don't believe it.\n[CHAPTER: Nvidia's Export Problem]\n{host_names[0]}: Okay so walk me through why not..."
+            format_example = f"TITLE: Chips, Courts, and a Quiet Rate Cut\n{host_names[0]}: Morning. {show_name}, {host_names[0]} here with {host_names[1]}. Did you read the Nvidia filing?\n{host_names[1]}: I read the part where they said it wouldn't affect guidance. I don't believe it.\n[CHAPTER: 1 | Nvidia's Export Problem]\n{host_names[0]}: Okay so walk me through why not..."
 
         bracket_rule = (
             "- The only bracketed tags allowed are [CHAPTER: ...] and the sound/pause tags listed below."
             if enable_non_speech_sounds else
             "- No stage directions, sound effects, or bracketed notes of any kind other than [CHAPTER: ...]."
+        )
+
+        episode_rules = (
+            """- Stay on the single breakout subject. Build understanding in an arc rather than treating facets as separate news headlines.
+- Use the retrieved pages as the factual boundary. Attribute consequential evidence naturally, distinguish evidence from interpretation, and state uncertainty where the supplied material is incomplete or disputed.
+- Develop foundations, mechanisms, evidence and examples, competing viewpoints, and implications. Spend time on causal links and disagreements instead of repeating the premise."""
+            if breakout
+            else """- Not every story gets the same treatment. Argue about the one that deserves it; dispatch a minor one in a few lines.
+- Open fast: a greeting, the show name, the hosts, and straight into the first story. Never \"there's a lot to unpack here\". If a listener name is given, use it once at the top.
+- Mention the date only if a story needs it, never as an opening line."""
+        )
+        chapter_rule = (
+            "- Use 4–6 sequential chapters for conceptual stages of the exploration, such as Foundations, Mechanism, Evidence, Debate, and Implications. These are facets of one subject, not article numbers or separate headlines."
+            if breakout
+            else "- Put [CHAPTER: N | Short Title] (title max 5 words) on its own line where each story starts. N is its ARTICLE number in the supplied content. Exactly one numbered chapter per selected article; no intro/outro chapter markers. Start a new Name: spoken line after every marker."
         )
 
         prompt = f"""{host_intro}
@@ -175,15 +219,13 @@ THE HOSTS
 
 HOW THIS SHOW SOUNDS
 {conversation_rules}
-- Not every story gets the same treatment. Argue about the one that deserves it; dispatch a minor one in a few lines.
-- Open fast: a greeting, the show name, the hosts, and straight into the first story. Never "there's a lot to unpack here". If a listener name is given, use it once at the top.
+{episode_rules}
 - Plain spoken English for text-to-speech. Numbers said the way a person says them. Attribute the facts that matter to their source in passing ("Reuters reports", "per the filing").
-- Mention the date only if a story needs it, never as an opening line.
 
 OUTPUT FORMAT
 - First line: TITLE: followed by a short, glanceable episode title (max 60 characters).
 - Then only spoken lines, each as "Name: what they say".
-- Put [CHAPTER: Short Title] (max 5 words) on its own line where each new story starts.
+{chapter_rule}
 {bracket_rule}
 
 Example of the shape (not the content):
@@ -217,6 +259,7 @@ This episode is {opening}."""
         last_script: Optional[str] = None,
         prior_titles: Optional[list[str]] = None,
         host_research=None,
+        breakout: Optional[dict] = None,
     ) -> str:
         """Build user prompt for briefing generation.
         
@@ -242,6 +285,34 @@ This episode is {opening}."""
         time_of_day = get_time_of_day(settings.timezone)
         topics_str = self._join(topics) if topics else "general news"
 
+        if breakout:
+            word_target = target_words_for_duration(duration)
+            listener_line = (
+                f"- Listener: {user_name} (greet them by name once at the top)"
+                if user_name
+                else "- Listener: not named"
+            )
+            focus = str(breakout.get("focus") or "").strip()
+            return f"""Write a {duration}-minute breakout episode about one subject: {breakout.get('topic', topics_str)}.
+Requested focus: {focus or 'No narrower focus supplied.'}
+
+SOURCE MATERIAL
+{content}
+
+CONTEXT
+- Now: {current_date_time} ({settings.timezone}), {time_of_day}
+{listener_line}
+
+SHAPE
+- Form one coherent deep dive that moves through foundations, mechanisms, source-backed evidence and examples, competing viewpoints, and implications.
+- Use 4–6 short conceptual chapters. The chapters are stages of deeper exploration, not multiple headlines.
+- Treat the source episode context as framing only, not independent evidence. Base factual claims on the fetched page content above.
+- Do not invent citations, studies, quotes, or facts. When the retrieved material does not settle a point, say what remains unknown or disputed.
+- Roughly {word_target} words of dialogue in total (about {duration} minutes spoken).
+- Close in a line or two without recapping the whole episode.
+
+Output the TITLE line, then the dialogue, and nothing else."""
+
         facts_section = ""
         if additional_facts and ranked_items:
             lines = []
@@ -250,7 +321,7 @@ This episode is {opening}."""
                     lines.append(f"\nFACTS FOR ARTICLE {article_idx + 1}: {ranked_items[article_idx].title[:80]}")
                     lines.extend(f"  - {fact}" for fact in facts)
             if lines:
-                facts_section = "\n\n=== VERIFIED FACTS (use the numbers) ===" + "\n".join(lines) + "\n"
+                facts_section = "\n\n=== UNVERIFIED RESEARCH LEADS (do not assert without support in the supplied articles) ===" + "\n".join(lines) + "\n"
 
         host_research_section = build_host_research_section(host_research, ranked_items)
 
@@ -286,6 +357,7 @@ CONTEXT
 - Topics: {topics_str}
 
 SHAPE
+- Lead with the useful new development and why it matters; briefly supply context only when the listener has no confirmed baseline.
 - Give the top story about half the runtime. The last story can be a brief exchange.
 - Roughly {word_target} words of dialogue in total (about {duration} minutes spoken).
 - Close in a line or two. No summary of what you just said.
@@ -311,6 +383,7 @@ Output the TITLE line, then the dialogue, and nothing else."""
         host_research=None,
         enable_non_speech_sounds: bool = False,
         briefing_id: Optional[str] = None,
+        breakout: Optional[dict] = None,
     ):
         """Generate podcast script for a briefing.
 
@@ -343,6 +416,7 @@ Output the TITLE line, then the dialogue, and nothing else."""
             briefing_title=briefing_title,
             complexity=complexity,
             enable_non_speech_sounds=enable_non_speech_sounds,
+            breakout=breakout,
         )
         user_prompt = self._build_user_prompt(
             content=content,
@@ -355,6 +429,7 @@ Output the TITLE line, then the dialogue, and nothing else."""
             last_script=last_script,
             prior_titles=prior_titles,
             host_research=host_research,
+            breakout=breakout,
         )
 
         from app.config import get_settings
@@ -381,4 +456,3 @@ Output the TITLE line, then the dialogue, and nothing else."""
                 briefing_id=briefing_id,
             )
         return response
-

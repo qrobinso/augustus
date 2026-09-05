@@ -1,5 +1,7 @@
 """Briefings API router."""
 
+import asyncio
+import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, status, Query
@@ -12,15 +14,23 @@ from app.routers.auth import get_current_user
 from app.routers.profiles import get_current_profile
 from app.schemas.briefing import (
     BriefingGenerateRequest,
+    BreakoutGenerateRequest,
     BriefingResponse,
     BriefingListResponse,
     BriefingListenedUpdate,
     BriefingPlaybackPositionUpdate,
     BriefingFavoriteUpdate,
+    ListeningRangesRequest,
+    ListeningCoverageResponse,
 )
 from app.services.briefing import BriefingService
+from app.services.listening import ListeningService
 
 router = APIRouter()
+
+# Serialize on-demand admission in this single-worker app. Both endpoints share
+# the lock so concurrent clicks cannot create two jobs for one profile.
+_generation_request_lock = asyncio.Lock()
 
 
 async def generate_briefing_task(
@@ -106,74 +116,120 @@ async def generate_briefing(
     db: AsyncSession = Depends(get_db),
 ):
     """Trigger generation of a new daily briefing.
-    
+
     If another briefing is currently being generated globally, this briefing will be
     queued and processed when the current generation completes.
     """
-    from app.config import get_settings
-    from app.services.briefing_queue import briefing_queue
-    
-    settings = get_settings()
-    service = BriefingService(db)
-    
-    # Check if this specific profile already has a briefing in progress or queued
-    in_progress = await service.has_briefing_in_progress(user.id, profile.id)
-    if in_progress:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"You already have a briefing being generated or queued. Please wait for it to complete.",
+    async with _generation_request_lock:
+        from app.config import get_settings
+        from app.services.briefing_queue import briefing_queue
+
+        settings = get_settings()
+        service = BriefingService(db)
+
+        # Check if this specific profile already has a briefing in progress or queued
+        in_progress = await service.has_briefing_in_progress(user.id, profile.id)
+        if in_progress:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"You already have a briefing being generated or queued. Please wait for it to complete.",
+            )
+
+        # Use configured duration if not specified in request
+        duration = request.max_duration_minutes or settings.briefing_duration_minutes
+
+        # Check if any briefing is currently being generated globally
+        is_global_generating = await briefing_queue.is_global_generating()
+
+        # Also check database for any briefings with "pending" or "generating" status
+        any_active = await service.has_any_active_briefing()
+
+        should_queue = is_global_generating or any_active
+
+        # Create briefing record - queued if another is generating, pending otherwise
+        initial_status = "queued" if should_queue else "pending"
+        briefing = await service.create_briefing(
+            user_id=user.id,
+            profile_id=profile.id,
+            topic_ids=request.topic_ids,
+            max_duration_minutes=duration,
+            initial_status=initial_status,
         )
-    
-    # Use configured duration if not specified in request
-    duration = request.max_duration_minutes or settings.briefing_duration_minutes
-    
-    # Check if any briefing is currently being generated globally
-    is_global_generating = await briefing_queue.is_global_generating()
-    
-    # Also check database for any briefings with "pending" or "generating" status
-    any_active = await service.has_any_active_briefing()
-    
-    should_queue = is_global_generating or any_active
-    
-    # Create briefing record - queued if another is generating, pending otherwise
-    initial_status = "queued" if should_queue else "pending"
-    briefing = await service.create_briefing(
-        user_id=user.id,
-        profile_id=profile.id,
-        topic_ids=request.topic_ids,
-        max_duration_minutes=duration,
-        initial_status=initial_status,
-    )
-    
-    # Set cast_id if provided
-    if request.cast_id:
-        briefing.cast_id = request.cast_id
+
+        # Set cast_id if provided
+        if request.cast_id:
+            briefing.cast_id = request.cast_id
+            await db.commit()
+            await db.refresh(briefing)
+
+        # Store profile name in extra_data for later use by queue processor
+        if not briefing.extra_data:
+            briefing.extra_data = {}
+        briefing.extra_data["profile_name"] = profile.name
+        briefing.extra_data["max_duration"] = duration
         await db.commit()
         await db.refresh(briefing)
-    
-    # Store profile name in extra_data for later use by queue processor
-    if not briefing.extra_data:
-        briefing.extra_data = {}
-    briefing.extra_data["profile_name"] = profile.name
-    briefing.extra_data["max_duration"] = duration
-    await db.commit()
-    await db.refresh(briefing)
-    
-    # If not queued, start generation immediately
-    if initial_status == "pending":
-        background_tasks.add_task(
-            generate_briefing_task,
-            briefing.id,
-            request.topic_ids,
-            duration,
-            settings.database_url,
-            profile.name,
+
+        # If not queued, start generation immediately
+        if initial_status == "pending":
+            background_tasks.add_task(
+                generate_briefing_task,
+                briefing.id,
+                request.topic_ids,
+                duration,
+                settings.database_url,
+                profile.name,
+            )
+            print(f"[Briefing] Started immediate generation for {briefing.id}")
+        else:
+            print(f"[Briefing] Queued briefing {briefing.id} (another generation in progress)")
+
+        return BriefingResponse.model_validate(briefing)
+
+
+@router.post("/breakout", response_model=BriefingResponse, status_code=status.HTTP_202_ACCEPTED)
+async def generate_breakout_podcast(
+    request: BreakoutGenerateRequest,
+    background_tasks: BackgroundTasks,
+    user: User = Depends(get_current_user),
+    profile: Profile = Depends(get_current_profile),
+    db: AsyncSession = Depends(get_db),
+):
+    """Queue one focused episode; the source episode and playback are unchanged."""
+    from app.config import get_settings
+    from app.models.briefing import Briefing
+    from app.services.breakout_request import resolve_breakout_request
+    from app.services.briefing_queue import briefing_queue
+
+    if getattr(user, "current_api_key_id", None):
+        allowed = getattr(user, "current_api_key_tools", None)
+        if allowed is not None and "generate_breakout_podcast" not in allowed:
+            raise HTTPException(403, "generate_breakout_podcast is disabled for this API key")
+
+    async with _generation_request_lock:
+        metadata, topic_ids, cast_id = await resolve_breakout_request(db, request, user.id, profile.id)
+        service = BriefingService(db)
+        if await service.has_briefing_in_progress(user.id, profile.id):
+            raise HTTPException(409, "You already have an episode generating or queued. Wait for it or cancel it first.")
+        should_queue = await briefing_queue.is_global_generating() or await service.has_any_active_briefing()
+        # All routing metadata is committed with the row. A queue worker must
+        # never see a breakout record before its generation mode is durable.
+        briefing = Briefing(
+            id=str(uuid.uuid4()), user_id=user.id, profile_id=profile.id,
+            title=f"Breakout: {metadata['topic']}", cast_id=cast_id,
+            status="queued" if should_queue else "pending",
+            extra_data={"kind": "breakout", "breakout": metadata,
+                        "topic_ids": topic_ids, "profile_name": profile.name,
+                        "target_duration": request.max_duration_minutes,
+                        "max_duration": request.max_duration_minutes},
         )
-        print(f"[Briefing] Started immediate generation for {briefing.id}")
-    else:
-        print(f"[Briefing] Queued briefing {briefing.id} (another generation in progress)")
-    
-    return BriefingResponse.model_validate(briefing)
+        db.add(briefing)
+        await db.commit()
+        await db.refresh(briefing)
+        if not should_queue:
+            background_tasks.add_task(generate_briefing_task, briefing.id, topic_ids,
+                                      request.max_duration_minutes, get_settings().database_url, profile.name)
+        return BriefingResponse.model_validate(briefing)
 
 
 @router.get("/{briefing_id}", response_model=BriefingResponse)
@@ -254,6 +310,26 @@ async def update_listened_status(
     
     updated = await service.update_listened_status(briefing_id, update.listened)
     return BriefingResponse.model_validate(updated)
+
+
+@router.post("/{briefing_id}/listening", response_model=ListeningCoverageResponse)
+async def record_listening(
+    briefing_id: str,
+    request: ListeningRangesRequest,
+    user: User = Depends(get_current_user),
+    profile: Profile = Depends(get_current_profile),
+    db: AsyncSession = Depends(get_db),
+):
+    """Merge verified playback intervals for a briefing owned by this profile."""
+    briefing = await BriefingService(db).get_briefing(briefing_id)
+    if not briefing:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Briefing not found")
+    if briefing.user_id != user.id or briefing.profile_id != profile.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+    try:
+        return await ListeningService(db).record(briefing, [list(item) for item in request.ranges])
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
 
 @router.patch("/{briefing_id}/playback-position", response_model=BriefingResponse)
@@ -348,4 +424,3 @@ async def cancel_briefing(
     cancel_signal(briefing_id)
 
     return BriefingResponse.model_validate(cancelled)
-

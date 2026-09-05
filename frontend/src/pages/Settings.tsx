@@ -26,6 +26,7 @@ import {
 } from 'lucide-react'
 import clsx from 'clsx'
 import { settingsApi, ModelOption } from '../api/client'
+import CodexSettings from '../components/CodexSettings'
 import ProfileManagement from '../components/ProfileManagement'
 import { useProfileNavigate } from '../utils/profileSlug'
 
@@ -43,6 +44,8 @@ export default function Settings() {
   }
   
   // Form state
+  const [llmProvider, setLlmProvider] = useState<'openrouter' | 'codex'>('openrouter')
+  const [codexModel, setCodexModel] = useState('')
   const [openrouterKey, setOpenrouterKey] = useState('')
   const [openrouterModel, setOpenrouterModel] = useState('')
   const [openrouterWriterModel, setOpenrouterWriterModel] = useState('')
@@ -94,6 +97,8 @@ export default function Settings() {
   const [showNewsApiKey, setShowNewsApiKey] = useState(false)
   const [showResendApiKey, setShowResendApiKey] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [providerSaving, setProviderSaving] = useState(false)
+  const [providerSaveError, setProviderSaveError] = useState<string | null>(null)
   const [modelSearch, setModelSearch] = useState('')
   const [showModelDropdown, setShowModelDropdown] = useState(false)
   const modelButtonRef = useRef<HTMLButtonElement>(null)
@@ -104,6 +109,8 @@ export default function Settings() {
   const [writerDropdownPosition, setWriterDropdownPosition] = useState({ top: 0, left: 0, width: 0 })
   const [showMobileMenu, setShowMobileMenu] = useState(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout>>()
+  const providerHydratedRef = useRef(false)
+  const providerSaveLockRef = useRef(false)
   
   // Fetch current settings
   const { data: settings, isLoading, error } = useQuery({
@@ -223,10 +230,58 @@ export default function Settings() {
       alert(`Failed to restart server: ${error?.response?.data?.detail || error.message}`)
     },
   })
+
+  const saveProviderSetting = useCallback(async (
+    updates: { llm_provider?: 'openrouter' | 'codex'; codex_model?: string },
+  ): Promise<boolean> => {
+    if (providerSaveLockRef.current) return false
+    providerSaveLockRef.current = true
+    setProviderSaving(true)
+    setProviderSaveError(null)
+
+    try {
+      await settingsApi.update(updates)
+      queryClient.setQueryData(['settings'], (old: any) => old ? { ...old, ...updates } : old)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+      return true
+    } catch (error: any) {
+      setProviderSaveError(error?.response?.data?.detail || error?.message || 'Could not save the text generation provider.')
+      return false
+    } finally {
+      providerSaveLockRef.current = false
+      setProviderSaving(false)
+    }
+  }, [queryClient])
+
+  const handleProviderChange = useCallback(async (nextProvider: 'openrouter' | 'codex') => {
+    if (nextProvider === llmProvider || providerSaveLockRef.current) return
+    const previousProvider = llmProvider
+    setLlmProvider(nextProvider)
+    setShowModelDropdown(false)
+    setShowWriterModelDropdown(false)
+    const savedProvider = await saveProviderSetting({ llm_provider: nextProvider })
+    if (!savedProvider) setLlmProvider(previousProvider)
+  }, [llmProvider, saveProviderSetting])
+
+  const handleCodexModelChange = useCallback(async (nextModel: string) => {
+    if (nextModel === codexModel || providerSaveLockRef.current) return
+    const previousModel = codexModel
+    setCodexModel(nextModel)
+    const savedModel = await saveProviderSetting({ codex_model: nextModel })
+    if (!savedModel) setCodexModel(previousModel)
+  }, [codexModel, saveProviderSetting])
   
   // Initialize form with current settings
   useEffect(() => {
     if (settings) {
+      // Provider state is hydrated once so cache refetches and overlapping saves cannot
+      // replace a newer local selection with an older response.
+      if (!providerHydratedRef.current) {
+        setLlmProvider(settings.llm_provider || 'openrouter')
+        setCodexModel(settings.codex_model || '')
+        providerHydratedRef.current = true
+      }
       setOpenrouterModel(settings.openrouter_model)
       setOpenrouterWriterModel(settings.openrouter_writer_model || '')
       setTtsProvider(settings.tts_provider)
@@ -482,6 +537,71 @@ export default function Settings() {
       ) : (
         <>
       
+      {/* Text generation provider */}
+      <div className="card mb-4 sm:mb-6">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="flex items-center gap-2 text-base font-semibold text-white sm:text-lg">
+              <Cpu className="h-5 w-5 flex-shrink-0 text-accent" />
+              Text generation
+            </h2>
+            <p className="mt-1 text-xs text-augustus-400 sm:text-sm">
+              Choose how Augustus generates analysis, research, and briefing scripts.
+            </p>
+          </div>
+          {providerSaving && (
+            <span className="inline-flex items-center gap-1.5 text-xs text-augustus-500">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Saving provider…
+            </span>
+          )}
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2" role="radiogroup" aria-label="Text generation provider">
+          <button
+            type="button"
+            role="radio"
+            aria-checked={llmProvider === 'openrouter'}
+            onClick={() => handleProviderChange('openrouter')}
+            disabled={providerSaving}
+            className={clsx(
+              'min-h-[68px] rounded-lg border p-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60',
+              llmProvider === 'openrouter'
+                ? 'border-accent bg-accent/10'
+                : 'border-augustus-700 bg-augustus-900 hover:border-augustus-600',
+            )}
+          >
+            <span className="block text-sm font-medium text-white">OpenRouter</span>
+            <span className="mt-1 block text-xs text-augustus-400">Use an API key and choose from OpenRouter models.</span>
+          </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={llmProvider === 'codex'}
+            onClick={() => handleProviderChange('codex')}
+            disabled={providerSaving}
+            className={clsx(
+              'min-h-[68px] rounded-lg border p-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60',
+              llmProvider === 'codex'
+                ? 'border-accent bg-accent/10'
+                : 'border-augustus-700 bg-augustus-900 hover:border-augustus-600',
+            )}
+          >
+            <span className="block text-sm font-medium text-white">Codex subscription</span>
+            <span className="mt-1 block text-xs text-augustus-400">Use your connected ChatGPT subscription allowance.</span>
+          </button>
+        </div>
+
+        {providerSaveError && (
+          <div className="mt-3 flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300" role="alert">
+            <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+            <span>{providerSaveError}</span>
+          </div>
+        )}
+      </div>
+
+      {llmProvider === 'openrouter' ? (
+        <>
       {/* OpenRouter Section */}
       <div className="card mb-4 sm:mb-6 overflow-visible">
         <h2 className="text-base sm:text-lg font-semibold text-white mb-3 sm:mb-4 flex items-center gap-2 flex-wrap">
@@ -733,6 +853,20 @@ export default function Settings() {
               })()}
             </div>
           </div>
+        </div>
+      )}
+        </>
+      ) : (
+        <div className="card mb-4 sm:mb-6">
+          <h2 className="mb-4 flex items-center gap-2 text-base font-semibold text-white sm:text-lg">
+            <Cpu className="h-5 w-5 flex-shrink-0 text-accent" />
+            Codex subscription
+          </h2>
+          <CodexSettings
+            model={codexModel}
+            onModelChange={handleCodexModelChange}
+            savingModel={providerSaving}
+          />
         </div>
       )}
       
@@ -1243,7 +1377,7 @@ export default function Settings() {
       </div>
       
       {/* Model Dropdown - Fixed position portal */}
-      {showModelDropdown && (
+      {llmProvider === 'openrouter' && showModelDropdown && (
         <>
           {/* Backdrop */}
           <div 

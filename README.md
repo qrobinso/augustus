@@ -27,6 +27,45 @@ Augustus is designed for two primary use cases:
   - Daily, weekly, or custom schedule patterns
   - Multiple notification methods (email, webhook)
 
+### Story Memory & Listening
+
+Augustus keeps a separate story history for each profile. The editor connects reports about a developing event across episodes and topic combinations, prioritizing substantive updates over repeated headlines. A generated episode does not count as something you have heard.
+
+- **Listening coverage:** continuous playback is recorded by chapter. Seeking and replaying do not inflate unique coverage. A chapter becomes a listening baseline at 80% coverage; an episode is marked listened at 80% total coverage. Manual listened toggles affect organization, not story knowledge.
+- **Follow stories:** new briefing detail pages show story developments with **Follow story** and **Less of this** controls. These preferences influence future editorial selection; they do not trigger notifications or infer preferences from skipped audio.
+- **Inspectable evidence:** research findings retain their own source links and matching excerpts. Findings without matching source material remain labeled unverified. A matching excerpt establishes provenance, not an automatic guarantee that a claim is true.
+- **Quiet days:** fewer worthwhile stories produce a shorter target duration. When none qualify, Augustus saves a text-only result without generating filler audio.
+
+Restart the backend after updating: startup creates the additional `stories`, `story_developments`, and `listening_records` tables automatically. Existing episodes still play, but their old listened flags are not imported as chapter knowledge. Story memory builds from newly generated episodes, and automatic tracking starts with playback in the updated app.
+
+The editor receives up to 60 recent stories (followed stories first) and the latest five developments per story, within a 32,000-character memory budget. Event matching and update classification depend on the selected language model. Chapter exposure uses the audio provider’s timing information; transitions are tracked conservatively. Listening uploads retry while the app is open, but an unsuccessful upload followed by a hard browser shutdown can lose the pending interval. External podcast-player listening is not tracked.
+
+New API routes (using the existing authentication and `X-Profile-ID` header):
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/api/briefings/{id}/listening` | POST | Merge played intervals: `{"ranges": [[0, 30], [45, 60]]}` |
+| `/api/stories/{id}` | GET | Read a story’s current preference |
+| `/api/stories/{id}/preference` | PATCH | Set `{"preference": "normal"}`, `"follow"`, or `"less"` |
+
+### Breakout podcasts
+
+Choose **Breakout podcast** on the dashboard for a saved topic or a subject you type. In the player, choose **Breakout podcast** to start from the current chapter, then select a chapter, an optional focus, a length (5, 10, or 20 minutes), and a cast. The new episode uses the usual progress, cancellation, transcript and audio controls; requesting or completing a breakout does not interrupt current playback. Source-based breakouts retain a link to the original episode.
+
+Breakouts research one subject across background, mechanisms, evidence, differing views and implications. They bypass daily novelty filtering and quiet-day shortening. Available fetched sources determine what can be supported; insufficient research fails clearly. Breakouts do not mark the source episode listened or add research sections as new story-memory events. Length is a target, not a guaranteed audio runtime.
+
+**API:** `POST /api/briefings/breakout` returns a normal briefing with HTTP **202** and status `pending` or `queued`. Supply exactly one target:
+
+```json
+{"topic": "Atlantic ocean circulation", "focus": "How it works and what changes could mean", "max_duration_minutes": 10}
+```
+
+Or use `{"topic_id": "<saved-topic-id>"}`, or `{"source_briefing_id": "<episode-id>", "chapter_index": 1}` (zero-based chapter index from `GET /api/briefings/<id>`). Optional fields are `focus`, `cast_id`, and `max_duration_minutes` (3–30, default 10). A chapter breakout inherits its source cast unless you choose another; otherwise the profile default applies. Source, topic, and cast must belong to the active profile. The selected chapter context is snapshotted when the job is created.
+
+Use `X-Profile-ID` for the local UI/API profile, or an `X-API-Key` generated in the MCP management page for a bound external client. API keys cannot override their bound profile. Allow **generate_breakout_podcast** on restricted keys; also allow **get_briefing** to poll for completion and **cancel_briefing** if cancellation is needed. API-key identity does not replace network access protection for this self-hosted app.
+
+**MCP:** install the backend dependencies (`pip install -r backend/requirements.txt`) in the Python environment used by the MCP server; this includes the supported v1 MCP SDK. Then call `generate_breakout_podcast(topic="Atlantic ocean circulation", max_duration_minutes=10)`, or pass the saved-topic/chapter selectors above. The tool uses the same queue and returns the standard detail/listen links. Poll `get_briefing(briefing_id)` until `completed`, `failed`, or `cancelled`; do not treat HTTP 202 as finished audio. Restart the MCP client/server after updating to refresh its tool catalog. Only one episode may be queued or generating per profile; another request returns **409** until that episode completes or is cancelled.
+
 ### Content Management
 
 - 🏷️ **Topics** - Organize content by topics
@@ -60,11 +99,10 @@ Augustus is designed for two primary use cases:
 
 ### Integrations & Providers
 
-- 🤖 **LLM Provider** - OpenRouter integration
-  - Access to 100+ AI models
-  - Model search and selection
-  - Context length awareness
-  - Automatic model switching
+- 🤖 **LLM Providers** - OpenRouter or Codex subscription
+  - OpenRouter API access to multiple model providers
+  - Codex with ChatGPT sign-in and account model selection
+  - Provider selection applies to all text generation; audio is configured separately
 
 - 🔊 **TTS Providers**
   - **Piper** - Self-hosted, free, good quality
@@ -104,7 +142,7 @@ Augustus is designed for two primary use cases:
 ### Prerequisites
 
 - Docker and Docker Compose
-- OpenRouter API key ([get one here](https://openrouter.ai/keys))
+- OpenRouter API key ([get one here](https://openrouter.ai/keys)), or a ChatGPT plan with Codex access and the Codex CLI installed on the backend host
 - (Optional) TTS provider API key:
   - ElevenLabs API key for premium TTS ([get one here](https://elevenlabs.io))
   - Google Gemini API key for Gemini TTS ([get one here](https://aistudio.google.com))
@@ -162,12 +200,27 @@ For detailed production deployment instructions, including Docker Compose setup,
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `API_KEY` | Authentication key for the API | Required |
-| `OPENROUTER_API_KEY` | OpenRouter API key for LLM | Required |
+| `OPENROUTER_API_KEY` | OpenRouter API key for LLM | Only with OpenRouter |
+
+### Codex subscription setup
+
+1. Install the official Codex CLI on the machine running the **backend**: `npm install -g @openai/codex@0.146.0` (Node.js required). This integration is tested with CLI 0.146.0; older versions may lack the tool-isolation protocol fields. Set `CODEX_CLI_PATH` to the executable's absolute path if the backend cannot find it.
+2. Restart the backend, open **Settings → LLM Provider → Codex subscription**, and choose **Connect with ChatGPT**. Open the displayed verification link and enter the code. If needed, enable device-code login in your ChatGPT security settings or ask your workspace administrator to allow it.
+3. Select an available model, or leave the Codex default selected. Provider and model changes save automatically. Subscription limits and workspace policies apply; an exhausted allowance causes an error instead of switching to paid API billing. TTS still uses your separately selected audio provider.
+
+Augustus uses the [official Codex App Server](https://learn.chatgpt.com/docs/app-server) and [managed ChatGPT authentication](https://learn.chatgpt.com/docs/auth). It keeps a separate login under `backend/data/codex` (override with `AUGUSTUS_CODEX_HOME`); it does not read or copy your desktop Codex credentials. Disconnect affects only this Augustus login. Keep that directory private and persistent. Backend instances should not share a Codex home concurrently. Model requests have no execution environments, filesystem/shell tools, apps, plugins, or native web search; research uses Augustus's search service. Each request uses an ephemeral thread. `temperature` and `max_tokens` from the shared provider interface are not hard controls in the App Server protocol.
+
+For containers, the standard Python backend image does **not** include Codex. Install the CLI and Node.js in a derived backend image, set `CODEX_CLI_PATH`, and persist `/app/data` with `AUGUSTUS_CODEX_HOME=/app/data/codex`. Installing on the Docker host alone will not make it available inside the container. If frontend and backend use separate origins or a reverse proxy, set `FRONTEND_URL` to the exact public Augustus origin so account controls pass the origin check. This remains a trusted, single-household self-hosted app; put remote access behind your own authentication.
 
 ### LLM Configuration
 
 | Variable | Description | Default |
 |----------|-------------|---------|
+| `LLM_PROVIDER` | `openrouter` or `codex` | `openrouter` |
+| `CODEX_MODEL` | Codex model ID (blank uses account default) | empty |
+| `CODEX_CLI_PATH` | Codex executable on the backend | `codex` |
+| `AUGUSTUS_CODEX_HOME` | Dedicated Augustus Codex credentials and state | `backend/data/codex` |
+| `CODEX_TIMEOUT_SECONDS` | Deadline per model request | `180` |
 | `OPENROUTER_MODEL` | LLM model to use | `anthropic/claude-3.5-sonnet` |
 | `OPENROUTER_BASE_URL` | OpenRouter API base URL | `https://openrouter.ai/api/v1` |
 

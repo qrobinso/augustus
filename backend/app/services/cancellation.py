@@ -101,25 +101,19 @@ async def cancellable_await(coro, briefing_id: str) -> T:
     task = asyncio.create_task(coro)
     cancel_waiter = asyncio.create_task(event.wait())
 
-    done, pending = await asyncio.wait(
-        {task, cancel_waiter},
-        return_when=asyncio.FIRST_COMPLETED,
-    )
-
-    if cancel_waiter in done:
-        # Cancellation fired - kill the in-flight request
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
-        raise BriefingCancelledException("Briefing was cancelled by user")
-
-    # Coroutine finished first - clean up the cancel waiter
-    cancel_waiter.cancel()
     try:
-        await cancel_waiter
-    except asyncio.CancelledError:
-        pass
-
-    return task.result()
+        done, _ = await asyncio.wait(
+            {task, cancel_waiter},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        if cancel_waiter in done:
+            raise BriefingCancelledException("Briefing was cancelled by user")
+        return task.result()
+    finally:
+        # The caller can itself be cancelled (for example by the overall
+        # briefing timeout). Reap both children on every exit, not just when
+        # the registry event wins, so provider requests cannot outlive it.
+        for child in (task, cancel_waiter):
+            if not child.done():
+                child.cancel()
+        await asyncio.gather(task, cancel_waiter, return_exceptions=True)

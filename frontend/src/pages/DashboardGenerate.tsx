@@ -15,6 +15,7 @@ import clsx from 'clsx'
 import { briefingsApi, topicsApi, castsApi, customSitesApi, Briefing } from '../api/client'
 import { useStore } from '../store/useStore'
 import { useProfileNavigate } from '../utils/profileSlug'
+import { findAutoPlayableCompletion } from '../components/breakout'
 
 const PRESET_COLORS = [
   '#3B82F6', // Blue
@@ -104,17 +105,14 @@ export default function DashboardGenerate({ onGenerateStarted }: DashboardGenera
         .map((b) => b.id)
     )
     
-    const completedIds = prevInProgressIdsRef.current
-    const newlyCompleted = data.briefings.find(
-      (b) => b.status === 'completed' && 
-             completedIds.has(b.id) && 
-             !currentInProgressIds.has(b.id) &&
-             b.audio_url
+    const newlyCompleted = findAutoPlayableCompletion(
+      data.briefings,
+      prevInProgressIdsRef.current
     )
     
     prevInProgressIdsRef.current = currentInProgressIds
     
-    return newlyCompleted || null
+    return newlyCompleted
   }, [data?.briefings])
   
   // Handle starting playback and navigating
@@ -686,4 +684,3 @@ export default function DashboardGenerate({ onGenerateStarted }: DashboardGenera
     </div>
   )
 }
-

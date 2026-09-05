@@ -2,8 +2,9 @@
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field
 
 
 def find_env_file() -> Optional[str]:
@@ -48,6 +49,16 @@ class Settings(BaseSettings):
     # Audio Storage
     audio_storage_path: str = "./audio"
     
+    # Text generation provider (Codex authentication is managed by the local CLI).
+    llm_provider: Literal["openrouter", "codex"] = "openrouter"
+    codex_model: str = ""
+    codex_cli_path: str = "codex"
+    codex_home: str = Field(
+        default=str(Path(__file__).resolve().parents[1] / "data" / "codex"),
+        validation_alias="AUGUSTUS_CODEX_HOME",
+    )
+    codex_timeout_seconds: int = 180
+
     # OpenRouter LLM
     openrouter_api_key: Optional[str] = None
     openrouter_base_url: str = "https://openrouter.ai/api/v1"

@@ -10,6 +10,7 @@ from app.config import get_settings
 from app.services.llm.base import LLMProvider
 from app.services.llm.personalities import get_personality
 from app.services.search import get_search_service
+from app.services.evidence import attribute_claims
 
 
 @dataclass
@@ -21,6 +22,7 @@ class HostResearch:
     angle: str
     facts_by_story_index: dict[int, list[str]] = field(default_factory=dict)
     sources: list[dict] = field(default_factory=list)
+    claims_by_story_index: dict[int, list[dict]] = field(default_factory=dict)
 
 
 def persona_angle(personality_name: str) -> str:
@@ -85,8 +87,12 @@ FACTS_SCHEMA = {
                                     "properties": {
                                         "question": {"type": "string"},
                                         "answer": {"type": "string"},
+                                        "evidence": {"type": "array", "items": {
+                                            "type": "object", "additionalProperties": False,
+                                            "properties": {"url": {"type": "string"}, "excerpt": {"type": "string"}},
+                                            "required": ["url", "excerpt"]}},
                                     },
-                                    "required": ["question", "answer"],
+                                    "required": ["question", "answer", "evidence"],
                                 },
                             },
                         },
@@ -110,7 +116,10 @@ class HostResearchAgent:
         self.llm = llm
         self.search_service = search_service or get_search_service()
         self.use_web_plugin = (
-            use_web_plugin if use_web_plugin is not None else get_settings().host_research_web_plugin
+            use_web_plugin if use_web_plugin is not None else (
+                get_settings().host_research_web_plugin
+                and getattr(llm, "supports_web_search_plugin", False)
+            )
         )
 
     # ---------------------------------------------------------------- online path
@@ -126,7 +135,11 @@ class HostResearchAgent:
             "that would make you push back on the headline. Prefer primary sources and recent "
             "coverage. Then write 3-5 question/answer pairs you would bring to the conversation. "
             "Answers must be specific and grounded in what you found, with numbers where they exist.\n\n"
-            'Output JSON only: {"questions_and_answers":[{"question":"...","answer":"..."}]}'
+            'For each answer include evidence: exact source URL and a short verbatim excerpt from retrieved text. '
+            'Use evidence: [] when no supporting passage is available. Never invent citations or quotes. '
+            'Separate factual findings from interpretation; surface contradictory evidence and uncertainty. '
+            'Output JSON only: {"questions_and_answers":[{"question":"...","answer":"...",'
+            '"evidence":[{"url":"https://source.example/report","excerpt":"verbatim passage"}]}]}'
         )
 
     @staticmethod
@@ -175,7 +188,7 @@ class HostResearchAgent:
             sources.append({
                 "title": cite.get("title") or cite["url"],
                 "url": cite["url"],
-                "snippet": (cite.get("content") or "")[:300],
+                "snippet": (cite.get("content") or "")[:6000],
                 "found_by": [host_name],
                 "story_index": story_index,
             })
@@ -184,7 +197,7 @@ class HostResearchAgent:
     async def _research_story_online(
         self, idx: int, story: dict, host_name: str, personality_name: str,
         briefing_id: Optional[str],
-    ) -> tuple[int, list[str], list[dict]]:
+    ) -> tuple[int, list[str], list[dict], list[dict]]:
         settings = get_settings()
         plugins = [{
             "id": "web",
@@ -204,7 +217,7 @@ class HostResearchAgent:
             )
         except Exception as e:
             print(f"[HostResearch:{host_name}] online research failed for story {idx + 1}: {e!r}")
-            return idx, [], []
+            return idx, [], [], []
 
         data = self._extract_json_object(response.content) or {}
         facts = [
@@ -215,7 +228,8 @@ class HostResearchAgent:
         sources = self._sources_from_annotations(getattr(response, "annotations", None), host_name, idx)
         if not facts:
             print(f"[HostResearch:{host_name}] no usable facts for story {idx + 1} (content: {response.content[:120]!r})")
-        return idx, facts, sources
+        claims = attribute_claims(data.get("questions_and_answers", []), sources, host_name)
+        return idx, facts, sources, claims
 
     async def _research_online(
         self, stories: list[dict], host_name: str, personality_name: str,
@@ -228,12 +242,14 @@ class HostResearchAgent:
         facts_by_idx: dict[int, list[str]] = {}
         sources: list[dict] = []
         seen: set[str] = set()
-        for idx, facts, story_sources in results:
+        claims_by_idx = {}
+        for idx, facts, story_sources, claims in results:
+            claims_by_idx[idx] = claims
             if facts:
                 facts_by_idx[idx] = facts
             for src in story_sources:
-                if src["url"] not in seen:
-                    seen.add(src["url"])
+                if (idx, src["url"]) not in seen:
+                    seen.add((idx, src["url"]))
                     sources.append(src)
         return HostResearch(
             host_name=host_name,
@@ -241,6 +257,7 @@ class HostResearchAgent:
             angle=persona_angle(personality_name),
             facts_by_story_index=facts_by_idx,
             sources=sources,
+            claims_by_story_index=claims_by_idx,
         )
 
     # ---------------------------------------------------------------- legacy path (DuckDuckGo)
@@ -286,7 +303,9 @@ class HostResearchAgent:
                 try:
                     page = await self.search_service.fetch_page_content(url)
                     if page and len(page) > 200:
-                        collected.append(page)
+                        collected.append(f"[Source: {url}]\n{page}")
+                        sources.append({"url": url, "title": story.get("title", url), "content": page[:6000],
+                                        "found_by": [host_name], "story_index": idx})
                 except Exception as e:
                     print(f"[HostResearch:{host_name}] fetch failed for {url}: {e}")
 
@@ -313,7 +332,8 @@ class HostResearchAgent:
                     try:
                         page = await self.search_service.fetch_page_content(result.url)
                         if page and len(page) > 200:
-                            collected.append(f"[Source: {result.title}]\n{page}")
+                            collected.append(f"[Source: {result.title} | {result.url}]\n{page}")
+                            sources[-1]["content"] = page[:6000]
                     except Exception as e:
                         print(f"[HostResearch:{host_name}] fetch failed for {result.url}: {e}")
 
@@ -360,7 +380,9 @@ class HostResearchAgent:
             "From the article content and additional sources you gathered, generate 3-5 "
             "questions and detailed, fact-grounded answers PER article, emphasizing the "
             "angles and evidence that fit your perspective. Prefer quantifiable data, "
-            "specific evidence, and the implications you find most important. JSON only."
+            "specific evidence, and the implications you find most important. For each answer include evidence "
+            "with an exact source URL and short verbatim excerpt from the supplied material; use [] if unsupported. "
+            "Do not invent sources, quotes, or certainty. JSON only."
         )
 
     def _facts_user_prompt(self, stories: list[dict], content_by_idx: dict[int, str]) -> str:
@@ -371,13 +393,14 @@ class HostResearchAgent:
         return (
             "\n\n".join(blocks)
             + '\n\nOutput JSON: {"articles":[{"article_num":1,"title":"...",'
-            '"questions_and_answers":[{"question":"...","answer":"..."}]}]}'
+            '"questions_and_answers":[{"question":"...","answer":"...","evidence":[{"url":"...","excerpt":"..."}]}]}]}'
         )
 
     async def _generate_facts(
         self, stories: list[dict], content_by_idx: dict[int, str],
         host_name: str, personality_name: str, briefing_id: Optional[str] = None,
-    ) -> dict[int, list[str]]:
+        sources: Optional[list[dict]] = None,
+    ) -> tuple[dict[int, list[str]], dict[int, list[dict]]]:
         settings = get_settings()
         response_format = FACTS_SCHEMA if settings.llm_structured_outputs else None
         response = await self.llm.generate(
@@ -396,8 +419,9 @@ class HostResearchAgent:
         try:
             data = json.loads(content)
         except json.JSONDecodeError:
-            return {}
+            return {}, {}
         facts: dict[int, list[str]] = {}
+        claims = {}
         for article in data.get("articles", []):
             idx = article.get("article_num", 0) - 1
             if not (0 <= idx < len(stories)):
@@ -409,7 +433,9 @@ class HostResearchAgent:
             ]
             if formatted:
                 facts[idx] = formatted
-        return facts
+                claims[idx] = attribute_claims(article.get("questions_and_answers", []),
+                    [source for source in (sources or []) if source.get("story_index") == idx], host_name)
+        return facts, claims
 
     async def research(
         self, stories: list[dict], host_name: str, personality_name: str,
@@ -419,11 +445,12 @@ class HostResearchAgent:
             return await self._research_online(stories, host_name, personality_name, briefing_id)
         queries_by_idx = await self._generate_queries(stories, host_name, personality_name, briefing_id)
         content_by_idx, sources = await self._gather_sources(stories, queries_by_idx, host_name)
-        facts = await self._generate_facts(stories, content_by_idx, host_name, personality_name, briefing_id)
+        facts, claims = await self._generate_facts(stories, content_by_idx, host_name, personality_name, briefing_id, sources)
         return HostResearch(
             host_name=host_name,
             personality_name=personality_name,
             angle=persona_angle(personality_name),
             facts_by_story_index=facts,
             sources=sources,
+            claims_by_story_index=claims,
         )

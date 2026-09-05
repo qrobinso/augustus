@@ -1,0 +1,14 @@
+# Breakout podcasts plan
+Spec: docs/superpowers/specs/2026-09-04-breakout-podcasts-design.md
+Global constraints: preserve prior work, no live LLM/TTS calls, no real keys/env modifications, same existing briefings queue, no playback interruption, profile-safe ownership, source-backed research, no daily novelty suppression, no false parent listening/story events.
+
+- [x] Task1: Research/pipeline. Add backend/app/services/breakout.py helper for focused research and tests; branch BriefingService pipeline on extra_data.kind/breakout. Reuse common cast/audio stages; add optional breakout focus to writer/orchestrator. Persist extra metadata and evidence sources, skip story-memory events for breakout. Consume metadata {topic,focus,source_briefing_id,chapter_index,source_title,source_context}; source_context optional. Use cancellation checks and selected provider.
+- [x] Task2: API/MCP. Add validated BreakoutGenerateRequest, source/topic/cast resolution and POST /api/briefings/breakout enqueue. Restore MCP API-key identity and bound-profile precedence, enforce new tool permission. Add MCP tool, catalog, guide and tests. Use shared response/queue conventions; metadata snapshots before background scheduling. Document API examples and UX.
+- [x] Task3: UI. Shared BreakoutDialog, dashboard action and player action/chapter context, API helper/types. Defaults10min, duration5/10/20, saved/typed/chapter target, focus/cast; success detail link and labels in episode list/detail. Preserve playback; safe profile switch and duplicate-submit state. Tests and build.
+- [x] Task4: Integrated independent review, fix concrete findings, full backend/frontend tests, build, diff checks. Leave uncommitted.
+
+Validation: 175 backend tests, 30 frontend tests, production frontend build, dependency check and diff checks pass. Real MCP SDK1.29.1 client/server initialization, tool listing, schema validation, tool call and audit tested with mocked backend HTTP; an additional proxy-to-FastAPI test verifies key-bound episode creation. Model/audio/network research calls are faked; no live paid generation or browser visual QA was performed.
+
+Final independent review: topic drift fixed by preserving source breakout topic in conceptual chapter requests and preferring daily story titles; cast default label matches target-dependent inheritance. Scoped re-review reports no outstanding findings.
+
+Implementation rulings: existing single-worker episode admission lock covers daily and breakout requests; no new database tables required. Source context is durable, selected-chapter framing rather than independently verified evidence. Local no-key self-hosted mode retained while active API-key identity/profile binding and new tool permission work. MCP SDK runtime dependency added with a v1 upper bound. Changes remain uncommitted alongside prior reviewed work on feature/story-memory.

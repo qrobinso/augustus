@@ -15,12 +15,18 @@ import {
   Maximize2,
   Heart,
   Loader2,
-  ListVideo
+  ListVideo,
+  Mic2
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useStore } from '../store/useStore'
 import { briefingsApi, castsApi, settingsApi, topicsApi, Briefing } from '../api/client'
 import { audioManager } from '../utils/audioManager'
+import {
+  ContinuousPlaybackTracker,
+  ListeningCoverageUploader,
+} from '../utils/listeningCoverage'
+import BreakoutDialog from './BreakoutDialog'
 
 export default function AudioPlayer() {
   const navigate = useProfileNavigate()
@@ -30,7 +36,7 @@ export default function AudioPlayer() {
   const [playbackRate, setPlaybackRate] = useState(1)
   const [showChapters, setShowChapters] = useState(false)
   const [showQueue, setShowQueue] = useState(false)
-  const [hasMarkedListened, setHasMarkedListened] = useState(false)
+  const [breakoutOpen, setBreakoutOpen] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
   const [hasSetInitialPosition, setHasSetInitialPosition] = useState(false)
   const [hoveredChapterIndex, setHoveredChapterIndex] = useState<number | null>(null)
@@ -40,10 +46,13 @@ export default function AudioPlayer() {
     return saved !== null ? JSON.parse(saved) : false
   })
   const lastSavedPositionRef = useRef<number>(0)
+  const coverageFlushRef = useRef<(() => void) | null>(null)
+  const listeningUploaderRef = useRef<ListeningCoverageUploader | null>(null)
   const queryClient = useQueryClient()
   
   const {
     currentAudio,
+    currentProfile,
     isPlaying,
     currentTime,
     duration,
@@ -60,6 +69,19 @@ export default function AudioPlayer() {
     removeFromQueue,
     clearQueue,
   } = useStore()
+
+  if (!listeningUploaderRef.current) {
+    listeningUploaderRef.current = new ListeningCoverageUploader(async batch => {
+      const result = await briefingsApi.recordListening(
+        batch.briefingId,
+        batch.ranges,
+        batch.profileId
+      )
+      queryClient.invalidateQueries({ queryKey: ['briefings'] })
+      queryClient.invalidateQueries({ queryKey: ['briefing', batch.briefingId] })
+      return result
+    })
+  }
   
   // Fetch briefing to get cast_id
   const { data: briefing } = useQuery({
@@ -93,18 +115,6 @@ export default function AudioPlayer() {
     const topicIds = briefing.extra_data.topic_ids as string[]
     return topicsData.topics.filter(t => topicIds.includes(t.id))
   }, [briefing?.extra_data?.topic_ids, topicsData?.topics])
-  
-  // Mutation for marking as listened
-  const markListenedMutation = useMutation({
-    mutationFn: (id: string) => briefingsApi.updateListened(id, true),
-    onSuccess: () => {
-      // Invalidate all briefings queries (with any filter/page combination)
-      queryClient.invalidateQueries({ queryKey: ['briefings'] })
-      if (currentAudio?.id) {
-        queryClient.invalidateQueries({ queryKey: ['briefing', currentAudio.id] })
-      }
-    },
-  })
   
   // Mutation for updating favorite status
   const favoriteMutation = useMutation({
@@ -192,23 +202,103 @@ export default function AudioPlayer() {
     localStorage.setItem('audioPlayerMinimized', JSON.stringify(isMinimized))
     setAudioPlayerMinimized(isMinimized)
   }, [isMinimized, setAudioPlayerMinimized])
+
+  // Keep retrying failed uploads even after the player has been closed.
+  useEffect(() => {
+    const retryTimer = window.setInterval(() => {
+      void listeningUploaderRef.current?.flush()
+    }, 10_000)
+    return () => window.clearInterval(retryTimer)
+  }, [])
+
+  // A profile switch flushes the active track but keeps its originally captured
+  // profile ID for this and all subsequent batches from that track.
+  useEffect(() => {
+    return () => coverageFlushRef.current?.()
+  }, [currentProfile?.id])
+
+  // Capture continuous playback independently from resume position and seeks.
+  useEffect(() => {
+    if (currentAudio?.type !== 'briefing' || !currentAudio.id) return
+    const profileId = useStore.getState().currentProfile?.id
+    if (!profileId) return
+
+    const briefingId = currentAudio.id
+    const tracker = new ContinuousPlaybackTracker()
+    const uploader = listeningUploaderRef.current!
+    const audio = audioManager.getAudioElement()
+    const sample = (playing?: boolean) => {
+      const audio = audioManager.getAudioElement()
+      if (!audio) return
+      tracker.sample({
+        mediaTime: audio.currentTime,
+        wallTimeMs: performance.now(),
+        playbackRate: audio.playbackRate,
+        playing: playing ?? (!audio.paused && !audio.seeking),
+        buffering: audio.readyState < HTMLMediaElement.HAVE_FUTURE_DATA,
+      })
+    }
+    const flushCoverage = () => {
+      const ranges = tracker.drain()
+      if (ranges.length > 0) {
+        uploader.enqueue({ briefingId, profileId, ranges })
+      }
+      void uploader.flush()
+    }
+
+    coverageFlushRef.current = flushCoverage
+    const unsubTimeUpdate = audioManager.onTimeUpdate(() => sample())
+    const unsubPlay = audioManager.onPlay(() => sample(true))
+    const unsubPause = audioManager.onPause(() => {
+      sample(true)
+      tracker.reset()
+      flushCoverage()
+    })
+    const unsubEnded = audioManager.onEnded(() => {
+      sample(true)
+      tracker.reset()
+      flushCoverage()
+    })
+    const flushTimer = window.setInterval(flushCoverage, 10_000)
+    const flushWhenHidden = () => {
+      if (document.visibilityState === 'hidden') {
+        sample()
+        flushCoverage()
+      }
+    }
+    document.addEventListener('visibilitychange', flushWhenHidden)
+    window.addEventListener('pagehide', flushCoverage)
+    const resetDiscontinuity = () => {
+      tracker.reset()
+      flushCoverage()
+    }
+    audio?.addEventListener('seeking', resetDiscontinuity)
+    audio?.addEventListener('waiting', resetDiscontinuity)
+    audio?.addEventListener('stalled', resetDiscontinuity)
+    audio?.addEventListener('ratechange', resetDiscontinuity)
+
+    return () => {
+      unsubTimeUpdate()
+      unsubPlay()
+      unsubPause()
+      unsubEnded()
+      window.clearInterval(flushTimer)
+      document.removeEventListener('visibilitychange', flushWhenHidden)
+      window.removeEventListener('pagehide', flushCoverage)
+      audio?.removeEventListener('seeking', resetDiscontinuity)
+      audio?.removeEventListener('waiting', resetDiscontinuity)
+      audio?.removeEventListener('stalled', resetDiscontinuity)
+      audio?.removeEventListener('ratechange', resetDiscontinuity)
+      if (coverageFlushRef.current === flushCoverage) coverageFlushRef.current = null
+      flushCoverage()
+    }
+  }, [currentAudio?.id, currentAudio?.type])
   
   // Subscribe to audio manager events
   useEffect(() => {
     // Time update handler
     const unsubTimeUpdate = audioManager.onTimeUpdate((newTime) => {
       setCurrentTime(newTime)
-      
-      // Auto-mark as listened if played for more than 5 seconds
-      if (
-        currentAudio?.type === 'briefing' &&
-        currentAudio.id &&
-        !hasMarkedListened &&
-        newTime >= 5
-      ) {
-        setHasMarkedListened(true)
-        markListenedMutation.mutate(currentAudio.id)
-      }
       
       // Save playback position every 10 seconds of playback
       if (currentAudio?.type === 'briefing' && Math.floor(newTime) % 10 === 0) {
@@ -256,11 +346,10 @@ export default function AudioPlayer() {
       unsubPlay()
       unsubPause()
     }
-  }, [setCurrentTime, setDuration, setIsPlaying, currentAudio, hasMarkedListened, markListenedMutation, savePlaybackPosition, savePositionMutation, playNextUnlistenedBriefing, playFromQueueHead, isPlaying])
+  }, [setCurrentTime, setDuration, setIsPlaying, currentAudio, savePlaybackPosition, savePositionMutation, playNextUnlistenedBriefing, playFromQueueHead, isPlaying])
   
   // Reset state when audio changes
   useEffect(() => {
-    setHasMarkedListened(false)
     setHasSetInitialPosition(false)
     lastSavedPositionRef.current = currentAudio?.initialPosition || 0
   }, [currentAudio?.id, currentAudio?.initialPosition])
@@ -646,6 +735,17 @@ export default function AudioPlayer() {
                 )}
               </button>
             )}
+
+            {currentAudio.type === 'briefing' && briefing && (
+              <button
+                onClick={() => setBreakoutOpen(true)}
+                className="btn-icon btn btn-ghost p-1.5 sm:p-2 min-h-[44px] min-w-[44px] sm:min-h-[36px] sm:min-w-[36px] touch-target text-accent"
+                title="Create breakout podcast"
+                aria-label="Create breakout podcast"
+              >
+                <Mic2 className="w-4 h-4 sm:w-5 sm:h-5" />
+              </button>
+            )}
             
             {/* Minimize/Expand button */}
             <button
@@ -782,6 +882,12 @@ export default function AudioPlayer() {
             </div>
           </div>
         </div>
+        <BreakoutDialog
+          open={breakoutOpen}
+          onClose={() => setBreakoutOpen(false)}
+          sourceBriefing={briefing}
+          initialChapterIndex={activeChapterIndex}
+        />
       </div>
     )
   }
@@ -1137,6 +1243,17 @@ export default function AudioPlayer() {
             >
               {playbackRate}x
             </button>
+
+            {currentAudio.type === 'briefing' && briefing && (
+              <button
+                onClick={() => setBreakoutOpen(true)}
+                className="btn-icon btn btn-ghost p-1.5 sm:p-2 min-h-[44px] min-w-[44px] sm:min-h-[36px] sm:min-w-[36px] touch-target text-accent"
+                title="Create breakout podcast"
+                aria-label="Create breakout podcast"
+              >
+                <Mic2 className="w-4 h-4 sm:w-5 sm:h-5" />
+              </button>
+            )}
             
             {/* Volume - hidden on mobile (use device volume) */}
             <div className="hidden sm:flex items-center gap-2">
@@ -1209,6 +1326,12 @@ export default function AudioPlayer() {
           </div>
         </div>
       </div>
+      <BreakoutDialog
+        open={breakoutOpen}
+        onClose={() => setBreakoutOpen(false)}
+        sourceBriefing={briefing}
+        initialChapterIndex={activeChapterIndex}
+      />
     </div>
   )
 }

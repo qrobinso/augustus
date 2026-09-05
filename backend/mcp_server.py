@@ -42,6 +42,9 @@ briefing whose status is "queued" or "pending" — the audio and transcript are 
 ready yet. Producing them usually takes ~2-8 minutes. Poll `get_briefing(briefing_id)` \
 until status is "completed" (or "failed"/"cancelled"); don't claim it's done or read \
 the transcript before then.
+- `generate_breakout_podcast` is also asynchronous and follows the same polling and result \
+link workflow. Give it exactly one target: a typed `topic`, a saved `topic_id`, or a \
+`source_briefing_id` together with `chapter_index`.
 - Only one briefing per profile generates at a time. `generate_briefing` errors (HTTP \
 409) if one is already in progress or queued — wait for it to finish, or \
 `cancel_briefing` it first.
@@ -110,6 +113,69 @@ TOOL_DEFS: list[dict[str, Any]] = [
         },
         "method": "POST",
         "path": "/api/briefings/generate",
+        "kind": "json",
+    },
+    {
+        "name": "generate_breakout_podcast",
+        "description": (
+            "Queue a focused standalone podcast about one typed topic, saved topic, "
+            "or source briefing chapter. Poll get_briefing until it completes."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "topic": {"type": "string", "minLength": 1, "maxLength": 300},
+                "topic_id": {"type": "string", "minLength": 1, "maxLength": 100},
+                "source_briefing_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100,
+                },
+                "chapter_index": {"type": "integer", "minimum": 0},
+                "focus": {"type": "string", "maxLength": 1000, "default": ""},
+                "max_duration_minutes": {
+                    "type": "integer",
+                    "minimum": 3,
+                    "maximum": 30,
+                    "default": 10,
+                },
+                "cast_id": {"type": "string", "minLength": 1, "maxLength": 100},
+            },
+            "oneOf": [
+                {
+                    "required": ["topic"],
+                    "not": {
+                        "anyOf": [
+                            {"required": ["topic_id"]},
+                            {"required": ["source_briefing_id"]},
+                            {"required": ["chapter_index"]},
+                        ]
+                    },
+                },
+                {
+                    "required": ["topic_id"],
+                    "not": {
+                        "anyOf": [
+                            {"required": ["topic"]},
+                            {"required": ["source_briefing_id"]},
+                            {"required": ["chapter_index"]},
+                        ]
+                    },
+                },
+                {
+                    "required": ["source_briefing_id", "chapter_index"],
+                    "not": {
+                        "anyOf": [
+                            {"required": ["topic"]},
+                            {"required": ["topic_id"]},
+                        ]
+                    },
+                },
+            ],
+        },
+        "method": "POST",
+        "path": "/api/briefings/breakout",
         "kind": "json",
     },
     {
@@ -267,12 +333,18 @@ Do not tell the user the briefing is ready, or read its transcript, before
 `generate_briefing` while one is in progress returns an HTTP 409 error. Either wait for the
 current one (poll `list_briefings` / `get_briefing`) or `cancel_briefing(briefing_id)` first.
 
+`generate_breakout_podcast` queues the same kind of briefing result and uses the same polling
+loop. Pass exactly one subject selector: `topic="<typed subject>"`, `topic_id="<saved id>"`,
+or both `source_briefing_id="<briefing id>"` and `chapter_index=<zero-based index>`. You may
+also pass `focus` (up to 1000 characters), `max_duration_minutes` (3-30, default 10), and
+`cast_id`. A chapter breakout snapshots its source context when queued.
+
 ## When a briefing is ready — what to give the user
 
 Every briefing returned by these tools — `get_briefing`, `list_briefings`,
-`generate_briefing`, `cancel_briefing`, `regenerate_audio`, `set_briefing_*` — is enriched
-with two exact, absolute URLs. Hand these to the user verbatim; do **not** build or guess
-your own.
+`generate_briefing`, `generate_breakout_podcast`, `cancel_briefing`, `regenerate_audio`,
+`set_briefing_*` — is enriched with two exact, absolute URLs. Hand these to the user
+verbatim; do **not** build or guess your own.
 
 - **`listen_url`** — the audio file on the Augustus server, directly playable. Present once
   `status == "completed"` (absent before then, since the audio doesn't exist yet).
@@ -315,6 +387,8 @@ Write:
 - `create_topic(name, description?, color?, use_newsapi?, enable_site_generation?)` — new
   topic; returns its `id`.
 - `generate_briefing(topic_ids?, cast_id?, max_duration_minutes?)` — queue a briefing (async).
+- `generate_breakout_podcast(topic? | topic_id? | source_briefing_id + chapter_index, focus?,`
+  `max_duration_minutes?, cast_id?)` — queue one focused standalone podcast (async).
 - `cancel_briefing(briefing_id)` — cancel a queued/pending/generating briefing.
 - `regenerate_audio(briefing_id, cast_id)` — re-narrate a completed briefing with another
   cast (async).
@@ -384,6 +458,7 @@ _BRIEFING_RESULT_TOOLS = {
     "list_briefings",
     "get_briefing",
     "generate_briefing",
+    "generate_breakout_podcast",
     "cancel_briefing",
     "regenerate_audio",
     "set_briefing_favorite",

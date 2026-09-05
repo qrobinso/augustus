@@ -30,6 +30,11 @@ class NewsItem:
     priority: Optional[int] = None      # Editor's 1-10 priority once selected
     editor_note: Optional[str] = None   # Editor's one-line reason for selecting
     
+    story_key: Optional[str] = None
+    development: Optional[str] = None
+    change_type: Optional[str] = None
+    heard_context: Optional[list[str]] = None
+
     def to_dict(self) -> dict:
         return {
             "title": self.title,
@@ -441,57 +446,27 @@ class NewsService:
         if not items:
             return "No recent news available."
         
-        # Group by category for better context
-        by_category: dict[str, list[NewsItem]] = {}
-        for item in items[:max_stories]:  # Limit based on duration
-            cat = item.category or "general"
-            if cat not in by_category:
-                by_category[cat] = []
-            by_category[cat].append(item)
-        
         sections = []
-        article_num = 1
-        
-        for category, cat_items in by_category.items():
-            sections.append(f"\n=== {category.upper()} NEWS ===\n")
-            
-            for item in cat_items:
-                # Calculate time ago
-                time_ago = ""
-                if item.published:
-                    delta = datetime.utcnow() - item.published.replace(tzinfo=None)
-                    if delta.days > 0:
-                        time_ago = f"{delta.days} day{'s' if delta.days > 1 else ''} ago"
-                    elif delta.seconds >= 3600:
-                        hours = delta.seconds // 3600
-                        time_ago = f"{hours} hour{'s' if hours > 1 else ''} ago"
-                    else:
-                        mins = delta.seconds // 60
-                        time_ago = f"{mins} minute{'s' if mins > 1 else ''} ago"
-                
-                # Build rich article info with all available content
-                editor_line = ""
-                if item.priority is not None:
-                    editor_line = f"\nEditor priority: {item.priority}/10" + (f" - {item.editor_note}" if item.editor_note else "")
-                section = f"""
+        for article_num, item in enumerate(items[:max_stories], 1):
+            published = item.published.isoformat() if item.published else 'unknown'
+            section = f"""
 ARTICLE {article_num}: {item.title}
-Source: {item.source}{f' | By: {item.author}' if item.author else ''}
-Published: {time_ago or 'unknown'}
-Category: {category}{editor_line}
-
+Source: {item.source}
+URL: {item.url}
+Published: {published}
+Category: {item.category or 'general'}
+Editor priority: {item.priority}; reason: {item.editor_note or ''}
 Summary: {item.summary}
 """
-                # Add content if it provides additional context beyond the summary
-                if item.content:
-                    # Check if content adds new information (not just a subset of summary)
-                    content_lower = item.content.lower()
-                    summary_lower = item.summary.lower() if item.summary else ""
-                    if content_lower not in summary_lower and len(item.content) > 50:
-                        section += f"\nArticle excerpt: {item.content}\n"
-                
-                sections.append(section)
-                article_num += 1
-        
+            if item.development:
+                section += f"\nDevelopment ({item.change_type}): {item.development}\n"
+                if item.heard_context:
+                    section += "Listener previously heard: " + '; '.join(item.heard_context) + "\nLead with what changed since that baseline.\n"
+                else:
+                    section += "No confirmed listening baseline. Introduce the context; do not say 'as you heard'.\n"
+            if item.content:
+                section += f"\nArticle excerpt: {item.content}\n"
+            sections.append(section)
         return "\n---\n".join(sections)
     
     async def close(self):

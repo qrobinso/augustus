@@ -1,8 +1,10 @@
 """Briefing schemas for API validation."""
 
+import math
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, Field, model_validator
+
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.schemas.base import UTCDatetime, UTCDatetimeOptional
 
@@ -43,6 +45,26 @@ class BriefingGenerateRequest(BaseModel):
         default=None,
         description="Optional cast ID to use (uses default if not specified)",
     )
+
+
+class BreakoutGenerateRequest(BaseModel):
+    """Exactly one subject selector for a focused standalone podcast."""
+    model_config = {"extra": "forbid", "str_strip_whitespace": True}
+    topic: Optional[str] = Field(default=None, min_length=1, max_length=300)
+    topic_id: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    source_briefing_id: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    chapter_index: Optional[int] = Field(default=None, ge=0, strict=True)
+    focus: str = Field(default="", max_length=1000)
+    max_duration_minutes: int = Field(default=10, ge=3, le=30, strict=True)
+    cast_id: Optional[str] = Field(default=None, min_length=1, max_length=100)
+
+    @model_validator(mode="after")
+    def one_target(self):
+        if sum(value is not None for value in (self.topic, self.topic_id, self.source_briefing_id)) != 1:
+            raise ValueError("Select one topic, saved topic, or source chapter")
+        if (self.source_briefing_id is None) != (self.chapter_index is None):
+            raise ValueError("source_briefing_id and chapter_index must be supplied together")
+        return self
 
 
 class BriefingCreate(BriefingBase):
@@ -107,6 +129,28 @@ class BriefingPlaybackPositionUpdate(BaseModel):
 class BriefingFavoriteUpdate(BaseModel):
     """Request to update favorite state."""
     favorite: bool
+
+
+class ListeningRangesRequest(BaseModel):
+    """Continuous audio-time intervals observed by the player."""
+    ranges: list[tuple[float, float]] = Field(min_length=1, max_length=1000)
+
+    @field_validator("ranges")
+    @classmethod
+    def validate_ranges(cls, ranges: list[tuple[float, float]]):
+        for start, end in ranges:
+            if not math.isfinite(start) or not math.isfinite(end):
+                raise ValueError("Listening ranges must be finite")
+            if start < 0 or end <= start:
+                raise ValueError("Range end must be greater than its non-negative start")
+        return ranges
+
+
+class ListeningCoverageResponse(BaseModel):
+    """Canonical persisted listening coverage."""
+    ranges: list[tuple[float, float]]
+    chapter_coverage: dict[str, float]
+    episode_coverage: float
 
 
 class BriefingListResponse(BaseModel):

@@ -33,7 +33,7 @@ class BriefingOrchestrator:
             settings = get_settings()
             writer_model = settings.openrouter_writer_model
         
-        if writer_model:
+        if writer_model and isinstance(llm, OpenRouterProvider):
             # Create a separate provider with the writer model
             writer_llm = OpenRouterProvider(model=writer_model)
         else:
@@ -52,6 +52,7 @@ class BriefingOrchestrator:
         briefing_id: Optional[str] = None,
         topic_descriptions: Optional[dict[str, str]] = None,
         prior_titles: Optional[list[str]] = None,
+        story_memory: Optional[list[dict]] = None,
     ) -> tuple[list[dict], Optional[str], str, dict]:
         """Analyze and rank news stories.
 
@@ -71,6 +72,7 @@ class BriefingOrchestrator:
             briefing_id=briefing_id,
             topic_descriptions=topic_descriptions,
             prior_titles=prior_titles,
+            story_memory=story_memory,
         )
     
     async def gather_additional_facts(
@@ -151,6 +153,7 @@ class BriefingOrchestrator:
         host_research: Optional[list] = None,
         enable_non_speech_sounds: bool = False,
         briefing_id: Optional[str] = None,
+        breakout: Optional[dict] = None,
     ):
         """Generate the podcast script for a briefing.
 
@@ -193,5 +196,5 @@ class BriefingOrchestrator:
             host_research=host_research,
             enable_non_speech_sounds=enable_non_speech_sounds,
             briefing_id=briefing_id,
+            breakout=breakout,
         )
-

@@ -19,6 +19,8 @@ class LLMResponse:
 class LLMProvider(ABC):
     """Abstract base class for LLM providers."""
     
+    supports_web_search_plugin = False
+
     @abstractmethod
     async def generate(
         self,

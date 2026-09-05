@@ -26,6 +26,8 @@ def cached_system_message(text: str) -> dict:
 class OpenRouterProvider(LLMProvider):
     """OpenRouter API provider for multi-model access."""
     
+    supports_web_search_plugin = True
+
     def __init__(
         self,
         api_key: Optional[str] = None,
@@ -219,27 +221,24 @@ class OpenRouterProvider(LLMProvider):
 
 
 # Singleton instance
-_provider: Optional[OpenRouterProvider] = None
+_provider: Optional[LLMProvider] = None
 
 
-def get_llm_provider() -> OpenRouterProvider:
+def get_llm_provider() -> LLMProvider:
     """Get or create LLM provider instance."""
     global _provider
     if _provider is None:
-        _provider = OpenRouterProvider()
+        if get_settings().llm_provider == "codex":
+            from app.services.llm.codex import CodexProvider
+            _provider = CodexProvider()
+        else:
+            _provider = OpenRouterProvider()
     return _provider
 
 
 def reset_llm_provider():
     """Reset the LLM provider singleton to force recreation with new settings."""
     global _provider
-    if _provider is not None:
-        # Clear cached API key so client will be recreated with new settings
-        _provider._cached_api_key = None
-        # Close the existing client if it exists
-        if _provider._client is not None:
-            # Schedule client close (can't await in sync function)
-            # The client will be properly closed when the provider is garbage collected
-            _provider._client = None
-        _provider = None
-
+    # Active requests keep their provider until they complete; new requests use
+    # the updated settings. The shared Codex service lives until app shutdown.
+    _provider = None
