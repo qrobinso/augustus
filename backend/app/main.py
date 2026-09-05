@@ -1,6 +1,5 @@
 """FastAPI application entry point."""
 
-import asyncio
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -99,57 +98,9 @@ async def process_scheduled_briefing_queue():
 
 
 async def process_ondemand_briefing_queue():
-    """Process on-demand queued briefings when no other generation is in progress."""
-    from app.database import async_session_maker
-    from app.services.briefing_queue import briefing_queue
-    from app.services.briefing import BriefingService
-    from app.config import get_settings
-    
-    settings = get_settings()
-    
-    # Skip if any briefing is currently generating globally
-    if await briefing_queue.is_global_generating():
-        return
-    
-    async with async_session_maker() as db:
-        service = BriefingService(db)
-        
-        # Check if any briefing is actually generating
-        if await service.has_any_active_briefing():
-            return
-        
-        # Get next queued briefing
-        queued_briefing = await service.get_next_queued_briefing()
-        if not queued_briefing:
-            return
-        
-        # Update status to pending and start generation
-        queued_briefing.status = "pending"
-        await db.commit()
-        await db.refresh(queued_briefing)
-        
-        print(f"[BriefingQueue] Starting generation for queued briefing {queued_briefing.id}")
-        
-        # Get generation parameters from extra_data
-        extra_data = queued_briefing.extra_data or {}
-        topic_ids = extra_data.get("topic_ids", [])
-        profile_name = extra_data.get("profile_name")
-        max_duration = extra_data.get("max_duration", settings.briefing_duration_minutes)
-        
-        # Import and run the generation task
-        from app.routers.briefings import generate_briefing_task
-        import asyncio
-        
-        # Run the generation task
-        asyncio.create_task(
-            generate_briefing_task(
-                briefing_id=queued_briefing.id,
-                topic_ids=topic_ids if topic_ids else None,
-                max_duration=max_duration,
-                db_url=settings.database_url,
-                profile_name=profile_name,
-            )
-        )
+    """Scheduler wakeup for the same durable worker used by API submissions."""
+    from app.services.generation_queue import process_generation_queue
+    await process_generation_queue()
 
 
 @asynccontextmanager
@@ -159,6 +110,12 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     try:
         await init_db()
+        # A previous process cannot still own work in this single-worker app.
+        # Recover unstarted claims and fail interrupted runs so waiting jobs advance.
+        from app.database import async_session_maker
+        from app.services.generation_queue import recover_interrupted_briefings
+        async with async_session_maker() as db:
+            await recover_interrupted_briefings(db)
         
         # Ensure audio storage directory exists
         audio_path = Path(settings.audio_storage_path)
@@ -295,4 +252,3 @@ app.include_router(casts.router, prefix="/api/casts", tags=["Casts"])
 app.include_router(mcp.router, prefix="/api/mcp", tags=["MCP"])
 from app.routers import stories
 app.include_router(stories.router, prefix="/api/stories", tags=["Stories"])
-

@@ -93,7 +93,7 @@ export default function AudioPlayer() {
     enabled: !!currentAudio?.id && currentAudio.type === 'briefing' && !!currentProfile?.id,
   })
 
-  const pendingBreakoutIds = queue.filter(item => item.breakout?.status === 'generating' &&
+  const pendingBreakoutIds = queue.filter(item => (item.breakout?.status === 'queued' || item.breakout?.status === 'generating') &&
     item.breakout.profileId === currentProfile?.id).map(item => item.id).sort().join(',')
   useEffect(() => {
     if (!pendingBreakoutIds) return
@@ -119,6 +119,7 @@ export default function AudioPlayer() {
   const feedbackError = breakoutMessage || (feedbackBreakout?.breakout?.status === 'failed'
     ? `${feedbackBreakout.title}: ${feedbackBreakout.breakout.error || 'Deep dive unavailable.'}` : null)
   const breakoutBusy = currentBreakout?.breakout?.status === 'requesting' ||
+    currentBreakout?.breakout?.status === 'queued' ||
     currentBreakout?.breakout?.status === 'generating'
   const canBreakout = !!briefing && briefing.id === currentAudio?.id && breakoutChapterIndex != null &&
     briefing.status === 'completed' && !!currentProfile?.id && !currentBreakout
@@ -144,8 +145,11 @@ export default function AudioPlayer() {
   const breakoutFeedback = (
     <div aria-live="polite" className="text-xs text-augustus-400">
       {feedbackError ? <span role="alert" className="text-red-400">{feedbackError}</span>
-        : waitingForQueue ? 'Your deep dive is still generating. It will play next when ready.'
-        : feedbackBreakout ? (feedbackBreakout.breakout?.status === 'ready' ? 'Deep dive ready · Added to Up Next' : 'Generating deep dive · Added to Up Next')
+        : waitingForQueue ? 'Waiting for your next deep dive. It will play when ready.'
+        : feedbackBreakout ? (feedbackBreakout.breakout?.status === 'ready' ? 'Deep dive ready · Added to Up Next'
+          : feedbackBreakout.breakout?.status === 'queued' ? 'Deep dive queued · Added to Up Next'
+          : feedbackBreakout.breakout?.status === 'requesting' ? 'Adding deep dive to Up Next…'
+          : 'Generating deep dive · Added to Up Next')
         : null}
     </div>
   )
@@ -1256,6 +1260,7 @@ export default function AudioPlayer() {
                       <p className="text-sm text-augustus-200 truncate">{q.title}</p>
                       {q.breakout && <p className={clsx('text-xs', q.breakout.status === 'failed' ? 'text-red-400' : 'text-augustus-400')}>
                         {q.breakout.status === 'requesting' ? 'Starting deep dive…'
+                          : q.breakout.status === 'queued' ? 'Queued for generation · Will play when ready'
                           : q.breakout.status === 'generating' ? 'Generating · Will play when ready'
                           : q.breakout.status === 'failed' ? q.breakout.error || 'Deep dive failed'
                           : 'Ready to play'}

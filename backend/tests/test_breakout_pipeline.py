@@ -171,6 +171,28 @@ async def setup_breakout_pipeline(db, monkeypatch, tmp_path, *, empty_research=F
 
 
 @pytest.mark.asyncio
+async def test_serialized_generation_keeps_profile_context_through_cancellation_checks(
+    db_session, monkeypatch, tmp_path
+):
+    from app.models.profile import Profile
+    from app.services.briefing_queue import briefing_queue
+
+    service, briefing, llm, audio_calls = await setup_breakout_pipeline(
+        db_session, monkeypatch, tmp_path
+    )
+    db_session.add(Profile(id='p', user_id='u', name='Profile Listener'))
+    await db_session.commit()
+
+    # Exercise the real wrapper, atomic start, cancellation checks and pipeline.
+    # No profile_name override: the eagerly loaded relationship must remain usable.
+    result = await service.generate_briefing(briefing.id)
+    assert result.status == 'completed'
+    assert len(audio_calls) == 1
+    assert len(llm.calls) == 1
+    assert not briefing_queue.generation_lock.locked()
+
+
+@pytest.mark.asyncio
 async def test_breakout_pipeline_bypasses_daily_selection_and_keeps_requested_duration(
     db_session, monkeypatch, tmp_path
 ):

@@ -1,13 +1,11 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useState, useEffect, useRef } from 'react'
+import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query'
 import { 
   Play,
   Loader2, 
   Sparkles, 
-  FileText,
   CheckCircle,
   XCircle,
-  Tag,
   Clock,
   AlertCircle
 } from 'lucide-react'
@@ -30,6 +28,17 @@ const PRESET_COLORS = [
   '#84CC16', // Lime
 ]
 
+export function trackAcceptedBriefing(
+  previous: { profileId?: string; ids: string[] },
+  id: string,
+  requestProfileId: string,
+  currentProfileId: string | undefined,
+) {
+  if (requestProfileId !== currentProfileId) return previous
+  const ids = previous.profileId === requestProfileId ? previous.ids : []
+  return { profileId: requestProfileId, ids: [...new Set([...ids, id])] }
+}
+
 interface DashboardGenerateProps {
   /** Called once generation has been kicked off (used by the sheet to dismiss itself). */
   onGenerateStarted?: () => void
@@ -38,8 +47,7 @@ interface DashboardGenerateProps {
 export default function DashboardGenerate({ onGenerateStarted }: DashboardGenerateProps) {
   const navigate = useProfileNavigate()
   const queryClient = useQueryClient()
-  const setCurrentAudio = useStore((s) => s.setCurrentAudio)
-  const setIsPlaying = useStore((s) => s.setIsPlaying)
+  const profileId = useStore((s) => s.currentProfile?.id)
   const playAudio = useStore((s) => s.playAudio)
   
   const [selectedTopicIds, setSelectedTopicIds] = useState<string[]>([])
@@ -53,22 +61,60 @@ export default function DashboardGenerate({ onGenerateStarted }: DashboardGenera
   const [promptError, setPromptError] = useState<string | null>(null)
   const [isGenerating, setIsGenerating] = useState(false)
   
-  // Track previously in-progress briefings to detect completion
-  const prevInProgressIdsRef = useRef<Set<string>>(new Set())
-  const autoPlayedBriefingsRef = useRef<Set<string>>(new Set())
-  
-  // Check if there's a briefing in progress or queued
-  const hasBriefingInProgress = (briefings: Briefing[] | undefined) => 
-    briefings?.some((b) => b.status === 'pending' || b.status === 'generating' || b.status === 'queued')
-  
-  const { data } = useQuery({
-    queryKey: ['briefings'],
-    queryFn: () => briefingsApi.list(10, 0),
-    refetchInterval: (query) => {
-      return hasBriefingInProgress(query.state.data?.briefings) ? 2000 : 10000
-    },
+  const [tracked, setTracked] = useState<{ profileId?: string; ids: string[] }>({ profileId, ids: [] })
+  const [ready, setReady] = useState<{ profileId?: string; briefings: Briefing[] }>({ profileId, briefings: [] })
+  const handledCompletions = useRef(new Set<string>())
+  const { data: queueData, isError: queueError } = useQuery({
+    queryKey: ['briefings', 'queue', profileId],
+    queryFn: () => briefingsApi.queue(profileId!),
+    enabled: !!profileId,
+    refetchInterval: (query) => query.state.data?.briefings.length ? 2000 : 10000,
   })
-  
+  const activeBriefings = queueData?.briefings || []
+  const trackedIds = tracked.profileId === profileId ? tracked.ids : []
+  useEffect(() => {
+    const ids = queueData?.briefings.map(briefing => briefing.id) || []
+    setTracked(previous => {
+      const previousIds = previous.profileId === profileId ? previous.ids : []
+      const added = ids.filter(id => !previousIds.includes(id))
+      return previous.profileId === profileId && !added.length ? previous
+        : { profileId, ids: [...previousIds, ...added] }
+    })
+  }, [queueData, profileId])
+
+  // Follow jobs that leave the active queue by ID, even when history is paginated.
+  const finishedQueries = useQueries({
+    queries: trackedIds.filter(id => !activeBriefings.some(briefing => briefing.id === id)).map(id => ({
+      queryKey: ['briefing', id, profileId],
+      queryFn: () => briefingsApi.get(id, profileId),
+      refetchInterval: (query: { state: { data?: Briefing } }) => {
+        const status = query.state.data?.status
+        return status === 'pending' || status === 'queued' || status === 'generating' ? 2000 : false as const
+      },
+    })),
+  })
+  useEffect(() => {
+    const completed = finishedQueries.map(query => query.data).filter((briefing): briefing is Briefing =>
+      !!briefing && ['completed', 'failed', 'cancelled'].includes(briefing.status) &&
+      !handledCompletions.current.has(briefing.id))
+    if (!completed.length) return
+    completed.forEach(briefing => handledCompletions.current.add(briefing.id))
+    const playable = completed.filter(briefing => briefing.status === 'completed' && !!briefing.audio_url)
+    if (playable.length) {
+      setReady(previous => ({ profileId, briefings: [
+        ...(previous.profileId === profileId ? previous.briefings : []), ...playable,
+      ] }))
+    }
+    const autoPlayable = findAutoPlayableCompletion(completed, new Set(trackedIds), useStore.getState())
+    if (autoPlayable && useStore.getState().currentProfile?.id === profileId) {
+      playAudio({ id: autoPlayable.id, type: 'briefing', title: autoPlayable.title,
+        audioUrl: autoPlayable.audio_url!, transcript: autoPlayable.transcript, chapters: autoPlayable.chapters })
+      navigate(`/briefing/${autoPlayable.id}`)
+    }
+    setTracked(previous => ({ ...previous, ids: previous.ids.filter(id => !completed.some(briefing => briefing.id === id)) }))
+    queryClient.invalidateQueries({ queryKey: ['briefings'] })
+  }, [finishedQueries, trackedIds, profileId, playAudio, navigate, queryClient])
+
   // Fetch topics
   const { data: topicsData, isLoading: topicsLoading } = useQuery({
     queryKey: ['topics'],
@@ -84,36 +130,6 @@ export default function DashboardGenerate({ onGenerateStarted }: DashboardGenera
   const topics = topicsData?.topics || []
   const casts = castsData?.casts || []
   const defaultCast = casts.find(c => c.is_default)
-  
-  // Check if there's a briefing currently in progress (pending or generating)
-  const briefingInProgress = data?.briefings.find(
-    (b) => b.status === 'pending' || b.status === 'generating'
-  )
-  
-  // Check if there's a briefing queued
-  const queuedBriefing = data?.briefings.find(
-    (b) => b.status === 'queued'
-  )
-  
-  // Find newly completed briefing
-  const newlyCompletedBriefing = useMemo(() => {
-    if (!data?.briefings) return null
-    
-    const currentInProgressIds = new Set(
-      data.briefings
-        .filter((b) => b.status === 'pending' || b.status === 'generating' || b.status === 'queued')
-        .map((b) => b.id)
-    )
-    
-    const newlyCompleted = findAutoPlayableCompletion(
-      data.briefings,
-      prevInProgressIdsRef.current
-    )
-    
-    prevInProgressIdsRef.current = currentInProgressIds
-    
-    return newlyCompleted
-  }, [data?.briefings])
   
   // Handle starting playback and navigating
   const handlePlayAndNavigate = (briefing: Briefing) => {
@@ -132,59 +148,49 @@ export default function DashboardGenerate({ onGenerateStarted }: DashboardGenera
     navigate(`/briefing/${briefing.id}`)
   }
   
-  // Auto-play when a briefing finishes generating
-  // Note: This may not auto-play on mobile due to browser restrictions (requires user interaction)
-  // The audio will be loaded and ready to play when the user taps the play button
-  useEffect(() => {
-    if (newlyCompletedBriefing && newlyCompletedBriefing.audio_url) {
-      if (!autoPlayedBriefingsRef.current.has(newlyCompletedBriefing.id)) {
-        autoPlayedBriefingsRef.current.add(newlyCompletedBriefing.id)
-        
-        // Load the audio (setCurrentAudio now properly loads the source)
-        setCurrentAudio({
-          id: newlyCompletedBriefing.id,
-          type: 'briefing',
-          title: newlyCompletedBriefing.title,
-          audioUrl: newlyCompletedBriefing.audio_url,
-          transcript: newlyCompletedBriefing.transcript,
-          chapters: newlyCompletedBriefing.chapters,
-          initialPosition: newlyCompletedBriefing.playback_position || undefined,
-        })
-        
-        // Try to auto-play (will fail silently on mobile without user interaction)
-        setIsPlaying(true)
-        
-        navigate(`/briefing/${newlyCompletedBriefing.id}`)
-      }
-    }
-  }, [newlyCompletedBriefing, setCurrentAudio, setIsPlaying, navigate])
-  
   const generateMutation = useMutation({
-    mutationFn: (options?: { topicIds?: string[]; castId?: string }) => briefingsApi.generate({ 
+    mutationFn: (options: { topicIds?: string[]; castId?: string; profileId: string }) => briefingsApi.generate({
       topic_ids: options?.topicIds && options.topicIds.length > 0 ? options.topicIds : undefined,
-      cast_id: options?.castId,
-    }),
-    onSuccess: () => {
-      prevInProgressIdsRef.current = new Set()
-      autoPlayedBriefingsRef.current.clear()
+      cast_id: options.castId,
+    }, options.profileId),
+    onSuccess: (briefing, options) => {
       queryClient.invalidateQueries({ queryKey: ['briefings'] })
       setIsGenerating(false)
+      if (useStore.getState().currentProfile?.id !== options.profileId) return
+      setTracked(previous => trackAcceptedBriefing(
+        previous, briefing.id, options.profileId, useStore.getState().currentProfile?.id,
+      ))
+      onGenerateStarted?.()
     },
-    onError: (error: Error & { response?: { status: number } }) => {
-      if (error.response?.status === 409) {
-        queryClient.invalidateQueries({ queryKey: ['briefings'] })
-      }
+    onError: (error: Error, options) => {
       setIsGenerating(false)
+      if (useStore.getState().currentProfile?.id !== options.profileId) return
+      setPromptError(error.message || 'Could not queue this briefing. Try again.')
     },
   })
-  
+
+  const [cancellingIds, setCancellingIds] = useState<Set<string>>(new Set())
   const cancelMutation = useMutation({
-    mutationFn: (id: string) => briefingsApi.cancel(id),
+    mutationFn: (request: { id: string; profileId: string }) => briefingsApi.cancel(request.id, request.profileId),
+    onMutate: ({ id }) => {
+      setPromptError(null)
+      setCancellingIds(previous => new Set(previous).add(id))
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['briefings'] })
     },
+    onError: (error: Error, request) => {
+      if (useStore.getState().currentProfile?.id === request.profileId) {
+        setPromptError(error.message || 'Could not cancel this briefing. Try again.')
+      }
+    },
+    onSettled: (_data, _error, { id }) => setCancellingIds(previous => {
+      const next = new Set(previous)
+      next.delete(id)
+      return next
+    }),
   })
-  
+
   // Persist selectedCastId to localStorage
   useEffect(() => {
     if (selectedCastId) {
@@ -236,6 +242,8 @@ export default function DashboardGenerate({ onGenerateStarted }: DashboardGenera
   }
   
   const handleGenerate = async () => {
+    const requestProfileId = profileId
+    if (!requestProfileId) return
     setIsGenerating(true)
     setPromptError(null)
     
@@ -313,17 +321,17 @@ export default function DashboardGenerate({ onGenerateStarted }: DashboardGenera
         
         // Generate briefing with combined topics (prompt-generated + pre-selected)
         generateMutation.mutate({
+          profileId: requestProfileId,
           topicIds: finalTopicIds.length > 0 ? finalTopicIds : undefined,
           castId: selectedCastId,
         })
-        onGenerateStarted?.()
       } else {
         // No prompt, just generate with selected topics
         generateMutation.mutate({
+          profileId: requestProfileId,
           topicIds: selectedTopicIds.length > 0 ? selectedTopicIds : undefined,
           castId: selectedCastId,
         })
-        onGenerateStarted?.()
       }
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to create topic from prompt'
@@ -332,119 +340,6 @@ export default function DashboardGenerate({ onGenerateStarted }: DashboardGenera
     }
   }
   
-  // Animation items for progress
-  const animationItems = useMemo(() => {
-    if (!briefingInProgress) return []
-    
-    const items: Array<{ type: 'topic' | 'source' | 'article' | 'step'; text: string }> = []
-    
-    const selectedTopics = topics.filter(t => selectedTopicIds.includes(t.id))
-    selectedTopics.forEach(topic => {
-      items.push({ type: 'topic', text: topic.name })
-    })
-    
-    if (briefingInProgress.sources && briefingInProgress.sources.length > 0) {
-      briefingInProgress.sources.slice(0, 5).forEach(source => {
-        items.push({ type: 'source', text: source.title })
-      })
-    }
-    
-    items.push({ type: 'step', text: 'Gathering news articles...' })
-    items.push({ type: 'step', text: 'Analyzing stories...' })
-    items.push({ type: 'step', text: 'Writing script...' })
-    items.push({ type: 'step', text: 'Generating audio...' })
-    
-    return items
-  }, [briefingInProgress, topics, selectedTopicIds])
-  
-  // Animated item component
-  const AnimatedGenerationItem = ({ items }: { items: Array<{ type: string; text: string }> }) => {
-    const [currentIndex, setCurrentIndex] = useState(0)
-    const [fadeState, setFadeState] = useState<'in' | 'out'>('in')
-    const intervalRef = useRef<number | null>(null)
-    const timeoutRef = useRef<number | null>(null)
-    const itemsRef = useRef(items)
-    const isInitializedRef = useRef(false)
-    
-    useEffect(() => {
-      itemsRef.current = items
-      if (items.length > 0 && currentIndex >= items.length) {
-        setCurrentIndex(0)
-      }
-    }, [items, currentIndex])
-    
-    useEffect(() => {
-      if (items.length === 0) {
-        if (intervalRef.current) {
-          clearInterval(intervalRef.current)
-          intervalRef.current = null
-        }
-        if (timeoutRef.current) {
-          clearTimeout(timeoutRef.current)
-          timeoutRef.current = null
-        }
-        isInitializedRef.current = false
-        return
-      }
-      
-      if (!isInitializedRef.current) {
-        isInitializedRef.current = true
-        setFadeState('in')
-        
-        intervalRef.current = setInterval(() => {
-          setFadeState('out')
-          
-          timeoutRef.current = setTimeout(() => {
-            setCurrentIndex((prev) => {
-              const currentItems = itemsRef.current
-              if (currentItems.length === 0) return 0
-              return (prev + 1) % currentItems.length
-            })
-            setFadeState('in')
-          }, 500)
-        }, 2500)
-      }
-    }, [])
-    
-    useEffect(() => {
-      return () => {
-        if (intervalRef.current) {
-          clearInterval(intervalRef.current)
-          intervalRef.current = null
-        }
-        if (timeoutRef.current) {
-          clearTimeout(timeoutRef.current)
-          timeoutRef.current = null
-        }
-        isInitializedRef.current = false
-      }
-    }, [])
-    
-    if (items.length === 0) return null
-    
-    const safeIndex = currentIndex >= items.length ? 0 : currentIndex
-    const currentItem = items[safeIndex]
-    
-    return (
-      <div className="relative h-8 sm:h-10 flex items-center overflow-hidden">
-        <div
-          key={`${safeIndex}-${currentItem.text}`}
-          className={clsx(
-            'absolute inset-0 flex items-center gap-2 transition-opacity duration-500 ease-in-out',
-            fadeState === 'in' ? 'opacity-100' : 'opacity-0'
-          )}
-        >
-          {currentItem.type === 'topic' && <Tag className="w-4 h-4 text-augustus-400 flex-shrink-0" />}
-          {currentItem.type === 'source' && <FileText className="w-4 h-4 text-augustus-400 flex-shrink-0" />}
-          {(currentItem.type === 'article' || currentItem.type === 'step') && <Sparkles className="w-4 h-4 text-yellow-400 flex-shrink-0" />}
-          <span className="text-xs sm:text-sm text-augustus-300 truncate">
-            {currentItem.text}
-          </span>
-        </div>
-      </div>
-    )
-  }
-
   return (
     <div className="card mb-6 sm:mb-8">
       <h2 className="text-base font-semibold text-white mb-4 flex items-center gap-2">
@@ -542,124 +437,69 @@ export default function DashboardGenerate({ onGenerateStarted }: DashboardGenera
         </div>
       )}
       
-      {/* Show newly completed briefing button */}
-      {newlyCompletedBriefing && !briefingInProgress && (
-        <div className="mb-4 sm:mb-6 p-4 sm:p-5 bg-green-500/10 border border-green-500/20 rounded-lg">
-          <div className="flex items-start gap-3 sm:gap-4">
-            <CheckCircle className="w-5 h-5 sm:w-6 sm:h-6 text-green-400 flex-shrink-0 mt-0.5" />
+      {ready.profileId === profileId && ready.briefings.map(briefing => (
+        <div key={briefing.id} className="mb-4 p-4 bg-green-500/10 border border-green-500/20 rounded-lg">
+          <div className="flex items-start gap-3">
+            <CheckCircle className="w-5 h-5 text-green-400 flex-shrink-0" />
             <div className="flex-1 min-w-0">
-              <p className="text-green-400 font-medium text-sm sm:text-base mb-1">
-                Briefing ready!
-              </p>
-              <p className="text-xs sm:text-sm text-augustus-400 mb-3 sm:mb-4 truncate">
-                {newlyCompletedBriefing.title}
-              </p>
-              <button
-                onClick={() => handlePlayAndNavigate(newlyCompletedBriefing)}
-                className="btn btn-primary flex items-center justify-center gap-2 w-full sm:w-auto"
-              >
-                <Play className="w-4 h-4 sm:w-5 sm:h-5" />
-                Play & View Details
+              <p className="text-green-400 font-medium">Briefing ready!</p>
+              <p className="text-sm text-augustus-400 mb-3 truncate">{briefing.title}</p>
+              <button onClick={() => handlePlayAndNavigate(briefing)} className="btn btn-primary flex items-center gap-2">
+                <Play className="w-4 h-4" /> Play & View Details
               </button>
             </div>
           </div>
         </div>
-      )}
-      
-      {/* Show queued message */}
-      {queuedBriefing && (
-        <div className="p-3 sm:p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg mb-4">
-          <div className="flex items-start justify-between gap-3 sm:gap-4">
-            <div className="flex items-start gap-2 sm:gap-3 flex-1 min-w-0">
-              <Clock className="w-5 h-5 text-blue-400 mt-0.5 flex-shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-blue-400 font-medium text-sm sm:text-base">Queued</p>
-                <p className="text-xs sm:text-sm text-augustus-400 mb-1 truncate">
-                  {queuedBriefing.title}
-                </p>
-                <p className="text-xs text-blue-300/70">
-                  Another briefing is being generated. Yours will start automatically when ready.
-                </p>
+      ))}
+
+      {queueError && <p role="alert" className="text-sm text-red-400 mb-4">Could not load the generation queue. Retrying automatically.</p>}
+      {activeBriefings.length > 0 && (
+        <div className="mb-6 space-y-3" aria-label="Generation queue">
+          <p className="text-sm text-augustus-400">{activeBriefings.length} briefing{activeBriefings.length === 1 ? '' : 's'} in progress or queued. You can add more below.</p>
+          {activeBriefings.map(briefing => {
+            const generating = briefing.status === 'generating'
+            const progress = briefing.extra_data?.progress
+            const cancelling = cancellingIds.has(briefing.id)
+            return (
+              <div key={briefing.id} className={clsx('p-4 border rounded-lg', generating
+                ? 'bg-yellow-500/10 border-yellow-500/20' : 'bg-blue-500/10 border-blue-500/30')}>
+                <div className="flex items-start justify-between gap-3">
+                  {generating ? <Loader2 className="w-5 h-5 animate-spin text-yellow-400 flex-shrink-0" />
+                    : <Clock className="w-5 h-5 text-blue-400 flex-shrink-0" />}
+                  <div className="flex-1 min-w-0">
+                    <p className={clsx('font-medium text-sm', generating ? 'text-yellow-400' : 'text-blue-400')}>
+                      {generating ? 'Generating briefing…' : 'Queued for generation'}
+                    </p>
+                    <p className="text-sm text-augustus-400 truncate">{briefing.title}</p>
+                    {!generating && <p className="text-xs text-blue-300/70 mt-1">Will start automatically in request order.</p>}
+                    {generating && progress && (
+                      <div className="mt-3 space-y-1">
+                        <p className="text-xs text-augustus-400">{progress.step_name} · {progress.percent}%</p>
+                        <div className="h-2 bg-augustus-800 rounded-full overflow-hidden">
+                          <div className="h-full bg-yellow-500 rounded-full transition-all duration-500" style={{ width: `${progress.percent}%` }} />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  <button onClick={() => profileId && cancelMutation.mutate({ id: briefing.id, profileId })} disabled={cancelling}
+                    className="btn btn-ghost p-2 text-augustus-400 hover:text-red-400 hover:bg-red-500/10 flex-shrink-0"
+                    aria-label={`Cancel ${briefing.title}`} title="Cancel briefing">
+                    {cancelling ? <Loader2 className="w-5 h-5 animate-spin" /> : <XCircle className="w-5 h-5" />}
+                  </button>
+                </div>
               </div>
-            </div>
-            
-            <button
-              onClick={() => cancelMutation.mutate(queuedBriefing.id)}
-              disabled={cancelMutation.isPending}
-              className="btn btn-ghost p-2 text-augustus-400 hover:text-red-400 hover:bg-red-500/10 flex-shrink-0"
-              title="Cancel queued briefing"
-            >
-              {cancelMutation.isPending ? (
-                <Loader2 className="w-5 h-5 animate-spin" />
-              ) : (
-                <XCircle className="w-5 h-5" />
-              )}
-            </button>
-          </div>
+            )
+          })}
         </div>
       )}
-      
-      {/* Show in-progress message or generate button */}
-      {briefingInProgress ? (
-        <div className="p-3 sm:p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
-          <div className="flex items-start justify-between gap-3 sm:gap-4">
-            <div className="flex items-start gap-2 sm:gap-3 flex-1 min-w-0">
-              <Loader2 className="w-5 h-5 animate-spin text-yellow-400 mt-0.5 flex-shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-yellow-400 font-medium text-sm sm:text-base">Generating briefing...</p>
-                <p className="text-xs sm:text-sm text-augustus-400 mb-2 sm:mb-3 truncate">
-                  {briefingInProgress.title}
-                </p>
-                
-                {animationItems.length > 0 && (
-                  <div className="mb-2 sm:mb-3">
-                    <AnimatedGenerationItem items={animationItems} />
-                  </div>
-                )}
-                
-                {briefingInProgress.extra_data?.progress && (
-                  <div className="space-y-1 sm:space-y-2">
-                    <div className="flex justify-between text-xs">
-                      <span className="text-augustus-400 truncate mr-2">
-                        Step {briefingInProgress.extra_data.progress.step}/{briefingInProgress.extra_data.progress.total_steps}: {briefingInProgress.extra_data.progress.step_name}
-                      </span>
-                      <span className="text-augustus-500 flex-shrink-0">
-                        {briefingInProgress.extra_data.progress.percent}%
-                      </span>
-                    </div>
-                    <div className="h-2 bg-augustus-800 rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-yellow-500 rounded-full transition-all duration-500"
-                        style={{ width: `${briefingInProgress.extra_data.progress.percent}%` }}
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-            
-            <button
-              onClick={() => cancelMutation.mutate(briefingInProgress.id)}
-              disabled={cancelMutation.isPending}
-              className="btn btn-ghost p-2 text-augustus-400 hover:text-red-400 hover:bg-red-500/10 flex-shrink-0"
-              title="Cancel briefing"
-            >
-              {cancelMutation.isPending ? (
-                <Loader2 className="w-5 h-5 animate-spin" />
-              ) : (
-                <XCircle className="w-5 h-5" />
-              )}
-            </button>
-          </div>
-        </div>
-      ) : queuedBriefing ? null : (
+
         <div className="space-y-3">
           <div>
             <p className="text-sm text-augustus-400">Generate your briefing:</p>
           </div>
            <button
              onClick={handleGenerate}
-             disabled={isGenerating || generateMutation.isPending || (!topicPrompt.trim() && selectedTopicIds.length === 0 && topics.length > 0)}
+             disabled={isGenerating || generateMutation.isPending}
              className="btn btn-primary flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
            >
              {(isGenerating || generateMutation.isPending) ? (
@@ -670,7 +510,7 @@ export default function DashboardGenerate({ onGenerateStarted }: DashboardGenera
              ) : (
                <>
                  <Sparkles className="w-5 h-5" />
-                 Create Briefing Now
+                 {activeBriefings.length ? 'Queue Another Briefing' : 'Create Briefing Now'}
                </>
              )}
            </button>
@@ -680,7 +520,6 @@ export default function DashboardGenerate({ onGenerateStarted }: DashboardGenera
              </p>
            )}
         </div>
-      )}
     </div>
   )
 }

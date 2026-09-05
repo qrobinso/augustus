@@ -320,6 +320,13 @@ export interface Profile {
 
 // API functions
 export const briefingsApi = {
+  queue: async (profileId: string) => {
+    const { data } = await api.get<{ briefings: Briefing[]; total: number }>('/api/briefings/queue', {
+      headers: { 'X-Profile-ID': profileId },
+    })
+    return data
+  },
+
   list: async (
     limit = 10,
     offset = 0,
@@ -365,8 +372,10 @@ export const briefingsApi = {
     topic_ids?: string[]
     max_duration_minutes?: number
     cast_id?: string
-  } = {}) => {
-    const { data } = await api.post<Briefing>('/api/briefings/generate', options)
+  } = {}, profileId?: string) => {
+    const { data } = await api.post<Briefing>('/api/briefings/generate', options, {
+      ...(profileId ? { headers: { 'X-Profile-ID': profileId } } : {}),
+    })
     return data
   },
 
@@ -411,8 +420,10 @@ export const briefingsApi = {
     return data
   },
   
-  cancel: async (id: string) => {
-    const { data } = await api.post<Briefing>(`/api/briefings/${id}/cancel`)
+  cancel: async (id: string, profileId?: string) => {
+    const { data } = await api.post<Briefing>(`/api/briefings/${id}/cancel`, undefined, {
+      ...(profileId ? { headers: { 'X-Profile-ID': profileId } } : {}),
+    })
     return data
   },
 }

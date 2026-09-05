@@ -9,7 +9,7 @@ export interface QueueItem {
     profileId: string
     sourceBriefingId: string
     chapterIndex: number
-    status: 'requesting' | 'generating' | 'ready' | 'failed'
+    status: 'requesting' | 'queued' | 'generating' | 'ready' | 'failed'
     error?: string
   }
 }

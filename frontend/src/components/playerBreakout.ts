@@ -26,7 +26,8 @@ function applyBriefing(item: QueueItem, briefing: Briefing): QueueItem {
     chapters: briefing.chapters,
     breakout: {
       ...item.breakout!,
-      status: failed ? 'failed' : briefing.status === 'completed' ? 'ready' : 'generating',
+      status: failed ? 'failed' : briefing.status === 'completed' ? 'ready'
+        : briefing.status === 'generating' ? 'generating' : 'queued',
       error: failed ? briefing.error_message || 'Deep dive unavailable. Please try again.' : undefined,
     },
   }
@@ -70,7 +71,7 @@ export async function startPlayerBreakout(source: Briefing, playbackTime: number
 /** Poll persisted reservations, updating their existing slots without re-adding removed items. */
 export async function refreshQueuedBreakouts(): Promise<void> {
   const { queue, currentProfile } = useStore.getState()
-  const pending = queue.filter(item => item.breakout?.status === 'generating' &&
+  const pending = queue.filter(item => (item.breakout?.status === 'queued' || item.breakout?.status === 'generating') &&
     item.breakout.profileId === currentProfile?.id)
   await Promise.all(pending.map(async item => {
     if (polling.has(item.id)) return

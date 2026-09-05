@@ -138,6 +138,14 @@ describe('findAutoPlayableCompletion', () => {
     )).toBeNull()
   })
 
+  it('does not interrupt existing audio or a reserved playback queue', () => {
+    const completed = [completedBriefing('daily-1')]
+    const previous = new Set(['daily-1'])
+    expect(findAutoPlayableCompletion(completed, previous, { currentAudio: { id: 'playing' }, queue: [] })).toBeNull()
+    expect(findAutoPlayableCompletion(completed, previous, { currentAudio: null, queue: [{ id: 'reserved' }] })).toBeNull()
+    expect(findAutoPlayableCompletion(completed, previous, { currentAudio: null, queue: [] })?.id).toBe('daily-1')
+  })
+
   it('still selects a regular briefing that just completed', () => {
     expect(findAutoPlayableCompletion(
       [completedBriefing('daily-1')],

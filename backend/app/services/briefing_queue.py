@@ -22,8 +22,9 @@ class BriefingQueue:
         self._queue: list[QueuedScheduledBriefing] = []
         self._processing = False
         self._lock = asyncio.Lock()
-        # Global flag to track if any briefing (on-demand or scheduled) is being generated
-        self._global_generating = False
+        # One execution slot shared by every entry point, including schedules.
+        self.generation_lock = asyncio.Lock()
+        self.worker_lock = asyncio.Lock()
     
     async def enqueue(
         self,
@@ -108,13 +109,7 @@ class BriefingQueue:
     
     async def is_global_generating(self) -> bool:
         """Check if any briefing (on-demand or scheduled) is currently being generated."""
-        return self._global_generating
-    
-    async def set_global_generating(self, value: bool):
-        """Set the global generating flag."""
-        async with self._lock:
-            self._global_generating = value
-            print(f"[BriefingQueue] Global generating set to {value}")
+        return self.generation_lock.locked()
     
     async def clear(self):
         """Clear the entire queue."""

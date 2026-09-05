@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import selectinload
 
 from app.config import get_settings
@@ -74,11 +74,10 @@ class BriefingService:
         if cancel_is_cancelled(briefing_id):
             raise BriefingCancelledException("Briefing was cancelled by user")
 
-        result = await self.db.execute(
-            select(Briefing).where(Briefing.id == briefing_id)
+        status = await self.db.scalar(
+            select(Briefing.status).where(Briefing.id == briefing_id)
         )
-        briefing = result.scalar_one_or_none()
-        if briefing and briefing.status == "cancelled":
+        if status == "cancelled":
             raise BriefingCancelledException("Briefing was cancelled by user")
     
     async def create_briefing(
@@ -89,6 +88,8 @@ class BriefingService:
         max_duration_minutes: int = 10,
         name: Optional[str] = None,
         initial_status: str = "pending",
+        cast_id: Optional[str] = None,
+        profile_name: Optional[str] = None,
     ) -> Briefing:
         """Create a new briefing record.
         
@@ -116,9 +117,12 @@ class BriefingService:
             profile_id=profile_id,
             title=title,
             status=initial_status,
+            cast_id=cast_id,
             extra_data={
                 "topic_ids": topic_ids or [],
                 "target_duration": max_duration_minutes,
+                "max_duration": max_duration_minutes,
+                "profile_name": profile_name,
             },
         )
         
@@ -179,6 +183,21 @@ class BriefingService:
         max_duration_minutes: Optional[int] = None,
         profile_name: Optional[str] = None,
     ) -> Briefing:
+        """Run in the single execution slot shared by queued and scheduled work."""
+        from app.services.briefing_queue import briefing_queue
+
+        async with briefing_queue.generation_lock:
+            return await self._generate_briefing_serialized(
+                briefing_id, topic_ids, max_duration_minutes, profile_name,
+            )
+
+    async def _generate_briefing_serialized(
+        self,
+        briefing_id: str,
+        topic_ids: Optional[list[str]] = None,
+        max_duration_minutes: Optional[int] = None,
+        profile_name: Optional[str] = None,
+    ) -> Briefing:
         """Generate audio content for a briefing.
         
         Args:
@@ -194,11 +213,16 @@ class BriefingService:
             select(Briefing)
             .options(selectinload(Briefing.profile))
             .where(Briefing.id == briefing_id)
+            .execution_options(populate_existing=True)
         )
         briefing = result.scalar_one_or_none()
         
         if not briefing:
             raise ValueError(f"Briefing {briefing_id} not found")
+        if briefing.status == "cancelled":
+            raise BriefingCancelledException("Briefing was cancelled by user")
+        if briefing.status not in ("pending", "queued"):
+            return briefing
         
         # Use duration from extra_data if not provided, then fall back to settings
         if max_duration_minutes is None:
@@ -283,7 +307,20 @@ class BriefingService:
             is_breakout = requested_breakout
 
             # Update status and initialize progress
-            briefing.status = "generating"
+            # Cancellation may arrive after selection but before this update.
+            claimed = await self.db.execute(
+                update(Briefing).where(
+                    Briefing.id == briefing_id,
+                    Briefing.status.in_(["pending", "queued"]),
+                ).values(status="generating")
+            )
+            await self.db.commit()
+            await self.db.refresh(briefing)
+            if not claimed.rowcount:
+                if briefing.status == "cancelled":
+                    raise BriefingCancelledException("Briefing was cancelled by user")
+                return briefing
+            await self._check_cancelled(briefing_id)
             total_steps = 8
             briefing.extra_data = {
                 **briefing.extra_data,
@@ -1391,11 +1428,21 @@ class BriefingService:
         result = await self.db.execute(
             select(Briefing)
             .where(Briefing.status == "queued")
-            .order_by(Briefing.created_at.asc())
+            .order_by(Briefing.created_at.asc(), Briefing.id.asc())
             .limit(1)
         )
         return result.scalar_one_or_none()
-    
+
+    async def list_active_briefings(self, user_id: str, profile_id: str) -> list[Briefing]:
+        """Return this profile's complete generation queue, independent of history paging."""
+        result = await self.db.scalars(
+            select(Briefing).where(
+                Briefing.user_id == user_id, Briefing.profile_id == profile_id,
+                Briefing.status.in_(["queued", "pending", "generating"]),
+            ).order_by(Briefing.created_at.asc(), Briefing.id.asc())
+        )
+        return list(result.all())
+
     async def cancel_briefing(self, briefing_id: str) -> Optional[Briefing]:
         """Cancel a briefing that is pending or generating.
         

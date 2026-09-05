@@ -38,16 +38,17 @@ needed anywhere).
 
 Important behaviours:
 - Briefing generation is ASYNCHRONOUS. `generate_briefing` returns immediately with a \
-briefing whose status is "queued" or "pending" — the audio and transcript are NOT \
+briefing whose status is "queued" — the audio and transcript are NOT \
 ready yet. Producing them usually takes ~2-8 minutes. Poll `get_briefing(briefing_id)` \
 until status is "completed" (or "failed"/"cancelled"); don't claim it's done or read \
 the transcript before then.
 - `generate_breakout_podcast` is also asynchronous and follows the same polling and result \
 link workflow. Give it exactly one target: a typed `topic`, a saved `topic_id`, or a \
 `source_briefing_id` together with `chapter_index`.
-- Only one briefing per profile generates at a time. `generate_briefing` errors (HTTP \
-409) if one is already in progress or queued — wait for it to finish, or \
-`cancel_briefing` it first.
+- You can queue multiple daily briefings and breakout podcasts for the same profile. \
+Each request returns a separate id. Jobs run one at a time, oldest first, across profiles. \
+Waiting jobs survive backend restarts; interrupted generation is marked failed. \
+Poll each id independently, or cancel any job you no longer want.
 - For a briefing about a NEW subject: `create_topic(name=...)` → take the `id` from \
 the response → `generate_briefing(topic_ids=[that id])`. With no `topic_ids`, \
 generation uses the profile's currently-active topics.
@@ -314,7 +315,7 @@ bound to — so you never pass a profile or user id.
 ## Briefing generation is asynchronous — wait for it
 
 `generate_briefing` **queues** the work and returns immediately. The briefing it returns has
-`status` `"queued"` or `"pending"`; `transcript`, `audio_filename`/`audio_url`, and
+`status` `"queued"`; `transcript`, `audio_filename`/`audio_url`, and
 `duration_seconds` are empty until generation finishes. End-to-end (fetch news → rank → write
 script → text-to-speech) usually takes **~2-8 minutes**, sometimes longer.
 
@@ -329,9 +330,12 @@ To detect completion, poll:
 Do not tell the user the briefing is ready, or read its transcript, before
 `status == "completed"`.
 
-**One at a time:** a profile can have only one briefing generating or queued. Calling
-`generate_briefing` while one is in progress returns an HTTP 409 error. Either wait for the
-current one (poll `list_briefings` / `get_briefing`) or `cancel_briefing(briefing_id)` first.
+**Multiple queued episodes:** submit as many daily briefings and breakout podcasts as
+needed, retaining each returned id. The shared worker generates one episode at a time in
+first-in, first-out order across profiles. Waiting jobs are stored in the database and
+resume after a backend restart. A generation interrupted by a restart is marked `failed`;
+legacy `pending` jobs are returned to the queue. Poll each id independently or cancel it.
+`GET /api/briefings/queue` lists all active jobs for the authenticated profile, oldest first.
 
 `generate_breakout_podcast` queues the same kind of briefing result and uses the same polling
 loop. Pass exactly one subject selector: `topic="<typed subject>"`, `topic_id="<saved id>"`,

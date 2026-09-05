@@ -241,7 +241,7 @@ async def test_breakout_mcp_tool_proxies_request_and_enriches_result(monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_breakout_mcp_proxy_reaches_api_with_key_bound_identity(db_session, monkeypatch):
+async def test_breakout_mcp_proxy_queues_multiple_jobs_with_key_bound_identity(db_session, monkeypatch):
     """Catches losing key scope between the stdio proxy and the real breakout route."""
     _, _, bound, _ = await _seed_identity(
         db_session,
@@ -254,7 +254,7 @@ async def test_breakout_mcp_proxy_reaches_api_with_key_bound_identity(db_session
 
     app.dependency_overrides[get_db] = override_db
     app.include_router(briefing_routes.router, prefix="/api/briefings")
-    monkeypatch.setattr(briefing_routes, "generate_briefing_task", AsyncMock())
+    monkeypatch.setattr(briefing_routes, "process_generation_queue", AsyncMock())
     server = installed_mcp_server
     monkeypatch.setattr(
         server,
@@ -269,15 +269,25 @@ async def test_breakout_mcp_proxy_reaches_api_with_key_bound_identity(db_session
 
     result = await server._proxy(
         tool,
-        {"topic": "Fusion power", "focus": "Recent confinement evidence"},
+        {"topic": "Fusion power", "focus": "Recent confinement evidence", "max_duration_minutes": 5},
     )
 
-    assert result["status"] == "pending"
+    assert result["status"] == "queued"
     assert result["extra_data"]["kind"] == "breakout"
     assert result["extra_data"]["breakout"]["topic"] == "Fusion power"
     stored = await db_session.get(Briefing, result["id"])
     assert stored.profile_id == bound.id
-    briefing_routes.generate_briefing_task.assert_awaited_once()
+    second = await server._proxy(
+        tool,
+        {"topic": "Ocean currents", "max_duration_minutes": 20},
+    )
+    assert second["status"] == "queued"
+    assert second["id"] != result["id"]
+    assert second["extra_data"]["breakout"]["topic"] == "Ocean currents"
+    assert second["extra_data"]["target_duration"] == 20
+    assert stored.extra_data["target_duration"] == 5
+    assert (await db_session.get(Briefing, second["id"])).profile_id == bound.id
+    assert briefing_routes.process_generation_queue.await_count == 2
 
 
 def test_breakout_tool_catalog_and_schema_match_api_contract():

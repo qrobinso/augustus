@@ -86,8 +86,10 @@ export function findActiveChapterIndex(chapters: Chapter[] | undefined, currentT
 
 export function findAutoPlayableCompletion(
   briefings: Briefing[],
-  previousInProgressIds: ReadonlySet<string>
+  previousInProgressIds: ReadonlySet<string>,
+  playback?: { currentAudio: { id: string } | null; queue: ReadonlyArray<{ id: string }> }
 ): Briefing | null {
+  if (playback?.currentAudio || playback?.queue.length) return null
   return briefings.find((briefing) =>
     briefing.status === 'completed' &&
     previousInProgressIds.has(briefing.id) &&

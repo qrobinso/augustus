@@ -50,6 +50,34 @@ describe('one-click player breakout', () => {
     expect(audioManager.setSourceAndPlay).not.toHaveBeenCalled()
   })
 
+  it('keeps multiple chapter reservations in playback order while generation advances FIFO', async () => {
+    vi.spyOn(briefingsApi, 'generateBreakout')
+      .mockResolvedValueOnce({ ...generated, id: 'first-chapter' })
+      .mockResolvedValueOnce({ ...generated, id: 'second-chapter' })
+    await startPlayerBreakout(source, 5)
+    await startPlayerBreakout(source, 42)
+    expect(useStore.getState().queue.map(item => item.id)).toEqual(['second-chapter', 'first-chapter', 'later'])
+    expect(useStore.getState().queue.slice(0, 2).map(item => item.breakout?.status)).toEqual(['queued', 'queued'])
+    useStore.setState({ isPlaying: false })
+    useStore.getState().playFromQueueHead()
+    const get = vi.spyOn(briefingsApi, 'get').mockImplementation(async id => ({
+      ...generated, id,
+      status: id === 'first-chapter' ? 'completed' : 'generating',
+      audio_url: id === 'first-chapter' ? '/first.mp3' : undefined,
+    }))
+    await refreshQueuedBreakouts()
+    expect(useStore.getState().waitingForQueue).toBe(true)
+    expect(useStore.getState().currentAudio?.id).toBe('source')
+    expect(useStore.getState().queue.map(item => item.breakout?.status)).toEqual(['generating', 'ready', undefined])
+    expect(audioManager.setSourceAndPlay).not.toHaveBeenCalled()
+    get.mockResolvedValue({ ...generated, id: 'second-chapter', status: 'completed', audio_url: '/second.mp3' })
+    await refreshQueuedBreakouts()
+    expect(useStore.getState().currentAudio?.id).toBe('second-chapter')
+    expect(useStore.getState().queue.map(item => item.id)).toEqual(['first-chapter', 'later'])
+    useStore.getState().playFromQueueHead()
+    expect(useStore.getState().currentAudio?.id).toBe('first-chapter')
+  })
+
   it('deduplicates repeat clicks for the same chapter', async () => {
     const generate = vi.spyOn(briefingsApi, 'generateBreakout').mockResolvedValue(generated)
     await Promise.all([startPlayerBreakout(source, 42), startPlayerBreakout(source, 43)])
@@ -123,7 +151,7 @@ describe('one-click player breakout', () => {
     await startPlayerBreakout(source, 42)
     vi.spyOn(briefingsApi, 'get').mockRejectedValue(new Error('Offline'))
     await refreshQueuedBreakouts()
-    expect(useStore.getState().queue[0].breakout?.status).toBe('generating')
+    expect(useStore.getState().queue[0].breakout?.status).toBe('queued')
   })
 
   it('keeps the latest request intact if an older removed request resolves late', async () => {
@@ -182,7 +210,7 @@ describe('one-click player breakout', () => {
     useStore.setState({ queue: [] })
     localStorage.setItem('augustus-profile-storage', persisted)
     await useStore.persist.rehydrate()
-    expect(useStore.getState().queue[0].breakout?.status).toBe('generating')
+    expect(useStore.getState().queue[0].breakout?.status).toBe('queued')
     vi.spyOn(briefingsApi, 'get').mockResolvedValue({ ...generated, status: 'completed', audio_url: '/deep.mp3' })
     await refreshQueuedBreakouts()
     expect(useStore.getState().queue[0].audioUrl).toBe('/deep.mp3')

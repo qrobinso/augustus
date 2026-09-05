@@ -56,7 +56,7 @@ Choose **Breakout podcast** on the dashboard for the configurable workflow: a sa
 
 Breakouts research one subject across background, mechanisms, evidence, differing views and implications. They bypass daily novelty filtering and quiet-day shortening. Available fetched sources determine what can be supported; insufficient research fails clearly. Breakouts do not mark the source episode listened or add research sections as new story-memory events. Length is a target, not a guaranteed audio runtime.
 
-**API:** `POST /api/briefings/breakout` returns a normal briefing with HTTP **202** and status `pending` or `queued`. Supply exactly one target:
+**API:** `POST /api/briefings/breakout` returns a normal briefing with HTTP **202** and status `queued`. Supply exactly one target:
 
 ```json
 {"topic": "Atlantic ocean circulation", "focus": "How it works and what changes could mean", "max_duration_minutes": 10}
@@ -66,7 +66,9 @@ Or use `{"topic_id": "<saved-topic-id>"}`, or `{"source_briefing_id": "<episode-
 
 Use `X-Profile-ID` for the local UI/API profile, or an `X-API-Key` generated in the MCP management page for a bound external client. API keys cannot override their bound profile. Allow **generate_breakout_podcast** on restricted keys; also allow **get_briefing** to poll for completion and **cancel_briefing** if cancellation is needed. API-key identity does not replace network access protection for this self-hosted app.
 
-**MCP:** install the backend dependencies (`pip install -r backend/requirements.txt`) in the Python environment used by the MCP server; this includes the supported v1 MCP SDK. Then call `generate_breakout_podcast(topic="Atlantic ocean circulation", max_duration_minutes=10)`, or pass the saved-topic/chapter selectors above. The tool uses the same queue and returns the standard detail/listen links. Poll `get_briefing(briefing_id)` until `completed`, `failed`, or `cancelled`; do not treat HTTP 202 as finished audio. Restart the MCP client/server after updating to refresh its tool catalog. Only one episode may be queued or generating per profile; another request returns **409** until that episode completes or is cancelled.
+**MCP:** install the backend dependencies (`pip install -r backend/requirements.txt`) in the Python environment used by the MCP server; this includes the supported v1 MCP SDK. Then call `generate_breakout_podcast(topic="Atlantic ocean circulation", max_duration_minutes=10)`, or pass the saved-topic/chapter selectors above. The tool uses the same queue and returns the standard detail/listen links. Poll `get_briefing(briefing_id)` until `completed`, `failed`, or `cancelled`; do not treat HTTP 202 as finished audio. Restart the MCP client/server after updating to refresh its tool catalog.
+
+**Generation queue:** You can submit multiple daily briefings and breakout podcasts for the same profile; every accepted request gets its own episode ID. The shared worker processes episodes one at a time in first-in, first-out order across profiles. Waiting jobs persist in the database and resume after a backend restart. An episode interrupted during generation is marked failed, and legacy pending jobs are returned to the queue. Poll or cancel each episode independently. `GET /api/briefings/queue` returns all active jobs for the current profile, oldest first, as `{briefings: [...], total: ...}`.
 
 ### Content Management
 
@@ -329,7 +331,8 @@ Augustus provides a comprehensive platform for creating personalized audio conte
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/api/briefings` | GET | List all briefings (with filters) |
-| `/api/briefings/generate` | POST | Generate new briefing |
+| `/api/briefings/generate` | POST | Queue a new briefing |
+| `/api/briefings/queue` | GET | List all active generation jobs for the current profile |
 | `/api/briefings/{id}` | GET | Get briefing details |
 | `/api/briefings/{id}/listened` | PATCH | Update listened status |
 | `/api/briefings/{id}/playback-position` | PATCH | Update playback position |
