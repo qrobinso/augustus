@@ -11,6 +11,7 @@ import {
   Plug
 } from 'lucide-react'
 import clsx from 'clsx'
+import { version } from '../../package.json'
 import AudioPlayer from './AudioPlayer'
 import { useStore } from '../store/useStore'
 import { useProfileSlug } from '../utils/profileSlug'
@@ -177,7 +178,7 @@ export default function Layout() {
           </button>
           
           <p className="text-xs text-augustus-600 text-center">
-            Augustus v0.1.0
+            Augustus v{version}
           </p>
         </div>
       </aside>

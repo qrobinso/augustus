@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Literal, Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
+from app import __version__
 
 
 def find_env_file() -> Optional[str]:
@@ -40,7 +41,7 @@ class Settings(BaseSettings):
     
     # Application
     app_name: str = "Augustus"
-    app_version: str = "0.1.0"
+    app_version: str = __version__
     debug: bool = False
     
     # Database

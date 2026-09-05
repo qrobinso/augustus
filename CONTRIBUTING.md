@@ -17,6 +17,31 @@ Thank you for your interest in contributing to Augustus! This document provides 
 
 See the [README.md](README.md) for development setup instructions.
 
+### Automatic app versions
+
+After cloning, enable the repository hooks (Python 3 must be on your PATH):
+
+```bash
+git config core.hooksPath .githooks
+```
+
+Each nonempty commit on `main` automatically increments the patch version and
+includes synchronized changes to `frontend/package.json`, its lockfile, and
+`backend/app/__init__.py`. The sidebar and API use those values. Other branches
+do not bump automatically. Stage or stash edits to these files before committing;
+the hook will stop rather than include unfinished edits.
+
+For a larger release, bump explicitly before testing and committing:
+
+```bash
+python3 scripts/version.py --bump minor  # or major
+git add frontend/package.json frontend/package-lock.json backend/app/__init__.py
+python3 scripts/version.py --check
+```
+
+The hook preserves that staged increase. Hooks are local to each clone and can
+be bypassed by Git; keep them enabled when working directly on `main`.
+
 ### Backend Development
 
 ```bash
@@ -111,4 +136,3 @@ Open an issue for any questions or concerns. We're happy to help!
 ## Code of Conduct
 
 Please be respectful and constructive in all interactions. We aim to maintain a welcoming and inclusive community.
-
