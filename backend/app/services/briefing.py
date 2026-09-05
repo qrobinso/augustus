@@ -492,6 +492,7 @@ class BriefingService:
                     focus=breakout_metadata.get("focus", ""),
                     source_context=breakout_metadata.get("source_context", ""),
                     check_cancelled=lambda: self._check_cancelled(briefing_id),
+                    llm=self.llm,
                 )
                 ranked_items = []
                 analysis_summary, raw_analysis, story_analysis_usage = None, "", {}

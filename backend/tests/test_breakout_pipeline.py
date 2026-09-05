@@ -275,3 +275,80 @@ async def test_breakout_with_missing_metadata_fails_without_entering_daily_pipel
     assert briefing.status == "failed"
     assert llm.calls == []
     assert audio_calls == []
+
+
+class BlockedSearch:
+    """DuckDuckGo behind a bot challenge: every query returns nothing."""
+
+    def __init__(self):
+        self.queries = []
+
+    async def search(self, query, num_results=5):
+        self.queries.append(query)
+        return []
+
+    async def fetch_page_content(self, url):
+        raise AssertionError("no pages should be fetched when search returns nothing")
+
+
+class PluginLLM(FakeLLM):
+    supports_web_search_plugin = True
+
+
+def _plugin_response(index):
+    from app.services.llm.base import LLMResponse
+
+    return LLMResponse(
+        content=f"Angle {index} findings drawn from the retrieved reporting.",
+        model="fake",
+        usage={},
+        annotations=[{
+            "type": "url_citation",
+            "url_citation": {
+                "url": f"https://plugin.example/{index}",
+                "title": f"Plugin source {index}",
+                "content": f"Verbatim retrieved passage number {index}. " * 20,
+            },
+        }],
+    )
+
+
+@pytest.mark.asyncio
+async def test_research_breakout_uses_llm_web_plugin_before_duckduckgo():
+    search = BlockedSearch()
+    llm = PluginLLM([_plugin_response(i) for i in range(1, 5)])
+
+    result = await research_breakout(search=search, topic="Fusion energy", llm=llm)
+
+    assert search.queries == []
+    assert len(llm.calls) == 4
+    assert all(call["plugins"] and call["plugins"][0]["id"] == "web" for call in llm.calls)
+    assert {source["url"] for source in result.sources} == {
+        f"https://plugin.example/{i}" for i in range(1, 5)
+    }
+    assert all(source["retrieval"] == "web_plugin" for source in result.sources)
+    assert "Angle 1 findings" in result.content
+    assert "Verbatim retrieved passage number 1" in result.content
+
+
+@pytest.mark.asyncio
+async def test_research_breakout_falls_back_to_page_fetching_when_plugin_is_thin():
+    search = FocusedSearch()
+    llm = PluginLLM([_plugin_response(1), "no citations here"])
+
+    result = await research_breakout(search=search, topic="Fusion energy", llm=llm)
+
+    assert len(search.queries) == 4
+    assert all(source["retrieval"] == "fetched_page" for source in result.sources)
+
+
+@pytest.mark.asyncio
+async def test_research_breakout_reports_blocked_search_when_every_path_is_empty():
+    search = BlockedSearch()
+    llm = PluginLLM("no citations here")
+
+    with pytest.raises(BreakoutResearchError) as excinfo:
+        await research_breakout(search=search, topic="Fusion energy", llm=llm)
+
+    assert "0 usable" in str(excinfo.value)
+    assert "search returned no results" in str(excinfo.value).lower()

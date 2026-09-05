@@ -64,7 +64,11 @@ class SearchService:
             response.raise_for_status()
             
             soup = BeautifulSoup(response.text, 'html.parser')
-            
+
+            if response.status_code == 202 or "bots use DuckDuckGo too" in response.text:
+                print("DuckDuckGo search blocked: bot challenge served instead of results")
+                return []
+
             results = []
             for result in soup.select('.result')[:num_results]:
                 title_elem = result.select_one('.result__title')
