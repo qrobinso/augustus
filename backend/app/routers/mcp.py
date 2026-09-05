@@ -29,18 +29,26 @@ _MCP_SCRIPT_PATH = os.path.join(_BACKEND_DIR, "mcp_server.py")
 # Static catalog of tools the stdio MCP server exposes.
 # Keep in sync with backend/mcp_server.py.
 MCP_TOOL_CATALOG = [
-    {"name": "list_briefings", "description": "List briefings for the connected profile.", "category": "read"},
-    {"name": "get_briefing", "description": "Fetch a briefing by id, including transcript.", "category": "read"},
-    {"name": "generate_briefing", "description": "Generate a new briefing (queues it).", "category": "write"},
-    {"name": "generate_breakout_podcast", "description": "Generate a focused breakout podcast (queues it).", "category": "write"},
-    {"name": "cancel_briefing", "description": "Cancel a queued/in-progress briefing.", "category": "write"},
-    {"name": "regenerate_audio", "description": "Regenerate audio for a completed briefing using a different cast.", "category": "write"},
+    {"name": "list_briefings", "description": "List briefings as compact summaries, with optional filters.", "category": "read"},
+    {"name": "get_briefing", "description": "Fetch one briefing: status, chapters, transcript, sources, story ids.", "category": "read"},
+    {"name": "list_generation_queue", "description": "List briefings still queued or generating, oldest first.", "category": "read"},
+    {"name": "generate_briefing", "description": "Queue a new daily-style briefing (asynchronous).", "category": "write"},
+    {"name": "generate_breakout_podcast", "description": "Queue a focused breakout podcast about a topic, saved topic, or chapter (asynchronous).", "category": "write"},
+    {"name": "cancel_briefing", "description": "Cancel a queued or in-progress briefing.", "category": "write"},
+    {"name": "delete_briefing", "description": "Permanently delete a briefing and its audio.", "category": "write"},
+    {"name": "regenerate_audio", "description": "Re-narrate a completed briefing with a different cast (asynchronous).", "category": "write"},
     {"name": "set_briefing_favorite", "description": "Mark a briefing favorite/unfavorite.", "category": "write"},
     {"name": "set_briefing_listened", "description": "Mark a briefing listened/unlistened.", "category": "write"},
+    {"name": "set_story_preference", "description": "Follow a story more closely, cover it less, or reset to normal.", "category": "write"},
     {"name": "list_topics", "description": "List topics for the connected profile.", "category": "read"},
     {"name": "create_topic", "description": "Create a new topic; returns its id for use with generate_briefing.", "category": "write"},
+    {"name": "update_topic", "description": "Rename, describe, recolor, or activate/deactivate a topic.", "category": "write"},
+    {"name": "delete_topic", "description": "Permanently delete a topic.", "category": "write"},
     {"name": "list_casts", "description": "List casts (host personalities) for the connected profile.", "category": "read"},
-    {"name": "list_scheduled_briefings", "description": "List scheduled briefings.", "category": "read"},
+    {"name": "list_scheduled_briefings", "description": "List recurring briefing schedules.", "category": "read"},
+    {"name": "create_scheduled_briefing", "description": "Create a recurring briefing schedule.", "category": "write"},
+    {"name": "toggle_scheduled_briefing", "description": "Enable or disable a schedule.", "category": "write"},
+    {"name": "trigger_scheduled_briefing", "description": "Run a schedule now (asynchronous).", "category": "write"},
     {"name": "list_profiles", "description": "List all profiles on this Augustus instance.", "category": "read"},
 ]
 ALL_TOOL_NAMES = [t["name"] for t in MCP_TOOL_CATALOG]

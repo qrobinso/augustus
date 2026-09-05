@@ -304,13 +304,13 @@ def test_breakout_tool_catalog_and_schema_match_api_contract():
         "maximum": 30,
         "default": 10,
     }
-    assert schema["properties"]["chapter_index"] == {"type": "integer", "minimum": 0}
-    assert [branch["required"] for branch in schema["oneOf"]] == [
-        ["topic"],
-        ["topic_id"],
-        ["source_briefing_id", "chapter_index"],
-    ]
-    assert all("not" in branch for branch in schema["oneOf"])
+    assert schema["properties"]["chapter_index"]["type"] == "integer"
+    assert schema["properties"]["chapter_index"]["minimum"] == 0
+    assert schema["additionalProperties"] is False
+    # Claude rejects top-level oneOf; the exactly-one rule lives in the description
+    # and is enforced by BreakoutGenerateRequest on the API side.
+    assert "oneOf" not in schema
+    assert "exactly one" in tool["description"].lower()
 
 
 @pytest.mark.asyncio
@@ -376,19 +376,16 @@ async def test_real_mcp_sdk_lists_and_calls_breakout_tool(monkeypatch):
 
     assert "generate_breakout_podcast" in (initialized.instructions or "")
     assert [tool.name for tool in listed.tools] == ["generate_breakout_podcast"]
-    assert listed.tools[0].inputSchema["oneOf"][2]["required"] == [
-        "source_briefing_id",
-        "chapter_index",
-    ]
+    assert "source_briefing_id" in listed.tools[0].inputSchema["properties"]
+    assert listed.tools[0].annotations.readOnlyHint is False
     assert result.isError is False
     assert len(result.content) == 1
     assert isinstance(result.content[0], TextContent)
-    assert json.loads(result.content[0].text) == {
-        "id": "sdk-breakout",
-        "status": "queued",
-        "audio_url": None,
-        "detail_url": "http://ui.test/briefing/sdk-breakout",
-    }
+    payload = json.loads(result.content[0].text)
+    assert payload["id"] == "sdk-breakout"
+    assert payload["status"] == "queued"
+    assert payload["detail_url"] == "http://ui.test/briefing/sdk-breakout"
+    assert "listen_url" not in payload  # audio does not exist yet
     breakout_request = next(
         request for request in requests if request.url.path == "/api/briefings/breakout"
     )

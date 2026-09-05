@@ -21,7 +21,7 @@ from pydantic import AnyUrl
 from mcp.server import Server
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.stdio import stdio_server
-from mcp.types import Resource, TextContent, Tool
+from mcp.types import Resource, TextContent, Tool, ToolAnnotations
 
 API_URL = os.environ.get("AUGUSTUS_API_URL", "http://localhost:8000").rstrip("/")
 API_KEY = os.environ.get("AUGUSTUS_API_KEY", "")
@@ -45,6 +45,10 @@ the transcript before then.
 - `generate_breakout_podcast` is also asynchronous and follows the same polling and result \
 link workflow. Give it exactly one target: a typed `topic`, a saved `topic_id`, or a \
 `source_briefing_id` together with `chapter_index`.
+- Briefing results are trimmed for you: `list_briefings` returns summaries, and \
+`get_briefing` adds the transcript, sources, and a `stories` list whose `story_id` values \
+feed `set_story_preference` (follow / less / normal) to steer future coverage.
+- `delete_briefing` and `delete_topic` are permanent. Confirm with the user before calling them.
 - You can queue multiple daily briefings and breakout podcasts for the same profile. \
 Each request returns a separate id. Jobs run one at a time, oldest first, across profiles. \
 Waiting jobs survive backend restarts; interrupted generation is marked failed. \
@@ -69,49 +73,91 @@ def _client() -> httpx.AsyncClient:
     )
 
 
-# (name, description, JSON schema, handler) - handler returns dict/list to JSON-encode
+def _id(desc: str) -> dict:
+    return {"type": "string", "minLength": 1, "maxLength": 100, "description": desc}
+
+
+READ = {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False}
+WRITE = {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False}
+IDEMPOTENT_WRITE = {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False}
+DESTRUCTIVE = {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": True, "openWorldHint": False}
+
+# Each entry: name, description, JSON schema, MCP annotations, and how to proxy it.
+# `kind` is how arguments map onto the REST call: query string, JSON body,
+# path-only, or path plus a JSON body built from `json_keys`.
+# Keep names and categories in sync with MCP_TOOL_CATALOG in app/routers/mcp.py
+# (a test enforces it).
 TOOL_DEFS: list[dict[str, Any]] = [
     {
         "name": "list_briefings",
-        "description": "List briefings for the connected profile. Optional filters.",
+        "description": (
+            "List briefings for the connected profile as compact summaries (no transcript). "
+            "Optional filters. Use get_briefing for the transcript and sources."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
-                "limit": {"type": "integer", "default": 10},
-                "offset": {"type": "integer", "default": 0},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 10},
+                "offset": {"type": "integer", "minimum": 0, "default": 0},
                 "listened": {"type": "boolean"},
                 "favorite": {"type": "boolean"},
                 "cast_id": {"type": "string"},
                 "topic_ids": {"type": "array", "items": {"type": "string"}},
             },
         },
+        "annotations": READ,
         "method": "GET",
         "path": "/api/briefings",
         "kind": "query",
     },
     {
         "name": "get_briefing",
-        "description": "Fetch a single briefing by id, including full transcript and metadata.",
+        "description": (
+            "Fetch one briefing by id: status, chapters, transcript, sources, and the "
+            "story ids behind each chapter (for set_story_preference)."
+        ),
         "inputSchema": {
             "type": "object",
-            "properties": {"briefing_id": {"type": "string"}},
+            "properties": {
+                "briefing_id": _id("Briefing id"),
+                "include_transcript": {
+                    "type": "boolean",
+                    "default": True,
+                    "description": "Set false to poll status without the full transcript.",
+                },
+            },
             "required": ["briefing_id"],
         },
+        "annotations": READ,
         "method": "GET",
         "path": "/api/briefings/{briefing_id}",
         "kind": "path",
+        "local_keys": ["include_transcript"],
+    },
+    {
+        "name": "list_generation_queue",
+        "description": "List briefings still queued, pending, or generating for this profile, oldest first.",
+        "inputSchema": {"type": "object", "properties": {}},
+        "annotations": READ,
+        "method": "GET",
+        "path": "/api/briefings/queue",
+        "kind": "query",
     },
     {
         "name": "generate_briefing",
-        "description": "Queue generation of a new briefing. topic_ids and cast_id optional.",
+        "description": (
+            "Queue generation of a new daily-style briefing (asynchronous; poll get_briefing). "
+            "topic_ids and cast_id optional."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "topic_ids": {"type": "array", "items": {"type": "string"}},
                 "cast_id": {"type": "string"},
-                "max_duration_minutes": {"type": "integer"},
+                "max_duration_minutes": {"type": "integer", "minimum": 1, "maximum": 60},
             },
         },
+        "annotations": WRITE,
         "method": "POST",
         "path": "/api/briefings/generate",
         "kind": "json",
@@ -119,62 +165,28 @@ TOOL_DEFS: list[dict[str, Any]] = [
     {
         "name": "generate_breakout_podcast",
         "description": (
-            "Queue a focused standalone podcast about one typed topic, saved topic, "
-            "or source briefing chapter. Poll get_briefing until it completes."
+            "Queue a focused standalone podcast (asynchronous; poll get_briefing). Give it "
+            "EXACTLY ONE subject: `topic` (typed subject), `topic_id` (saved topic), or "
+            "`source_briefing_id` together with `chapter_index` (a chapter of an existing "
+            "briefing). The backend rejects requests with zero or multiple subjects."
         ),
         "inputSchema": {
             "type": "object",
             "additionalProperties": False,
             "properties": {
-                "topic": {"type": "string", "minLength": 1, "maxLength": 300},
-                "topic_id": {"type": "string", "minLength": 1, "maxLength": 100},
-                "source_briefing_id": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 100,
-                },
-                "chapter_index": {"type": "integer", "minimum": 0},
-                "focus": {"type": "string", "maxLength": 1000, "default": ""},
-                "max_duration_minutes": {
-                    "type": "integer",
-                    "minimum": 3,
-                    "maximum": 30,
-                    "default": 10,
-                },
-                "cast_id": {"type": "string", "minLength": 1, "maxLength": 100},
+                "topic": {"type": "string", "minLength": 1, "maxLength": 300,
+                          "description": "Typed subject to research"},
+                "topic_id": _id("Saved topic id (from list_topics)"),
+                "source_briefing_id": _id("Briefing id; requires chapter_index"),
+                "chapter_index": {"type": "integer", "minimum": 0,
+                                  "description": "Zero-based chapter index in the source briefing"},
+                "focus": {"type": "string", "maxLength": 1000, "default": "",
+                          "description": "Optional narrower angle within the subject"},
+                "max_duration_minutes": {"type": "integer", "minimum": 3, "maximum": 30, "default": 10},
+                "cast_id": _id("Cast id (from list_casts)"),
             },
-            "oneOf": [
-                {
-                    "required": ["topic"],
-                    "not": {
-                        "anyOf": [
-                            {"required": ["topic_id"]},
-                            {"required": ["source_briefing_id"]},
-                            {"required": ["chapter_index"]},
-                        ]
-                    },
-                },
-                {
-                    "required": ["topic_id"],
-                    "not": {
-                        "anyOf": [
-                            {"required": ["topic"]},
-                            {"required": ["source_briefing_id"]},
-                            {"required": ["chapter_index"]},
-                        ]
-                    },
-                },
-                {
-                    "required": ["source_briefing_id", "chapter_index"],
-                    "not": {
-                        "anyOf": [
-                            {"required": ["topic"]},
-                            {"required": ["topic_id"]},
-                        ]
-                    },
-                },
-            ],
         },
+        "annotations": WRITE,
         "method": "POST",
         "path": "/api/briefings/breakout",
         "kind": "json",
@@ -184,24 +196,36 @@ TOOL_DEFS: list[dict[str, Any]] = [
         "description": "Cancel a queued, pending, or generating briefing.",
         "inputSchema": {
             "type": "object",
-            "properties": {"briefing_id": {"type": "string"}},
+            "properties": {"briefing_id": _id("Briefing id")},
             "required": ["briefing_id"],
         },
+        "annotations": IDEMPOTENT_WRITE,
         "method": "POST",
         "path": "/api/briefings/{briefing_id}/cancel",
         "kind": "path",
     },
     {
-        "name": "regenerate_audio",
-        "description": "Regenerate audio for a completed briefing using a different cast.",
+        "name": "delete_briefing",
+        "description": "Permanently delete a briefing and its audio. Confirm with the user first.",
         "inputSchema": {
             "type": "object",
-            "properties": {
-                "briefing_id": {"type": "string"},
-                "cast_id": {"type": "string"},
-            },
+            "properties": {"briefing_id": _id("Briefing id")},
+            "required": ["briefing_id"],
+        },
+        "annotations": DESTRUCTIVE,
+        "method": "DELETE",
+        "path": "/api/briefings/{briefing_id}",
+        "kind": "path",
+    },
+    {
+        "name": "regenerate_audio",
+        "description": "Regenerate audio for a completed briefing using a different cast (asynchronous).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"briefing_id": _id("Briefing id"), "cast_id": _id("Cast id")},
             "required": ["briefing_id", "cast_id"],
         },
+        "annotations": WRITE,
         "method": "POST",
         "path": "/api/briefings/{briefing_id}/regenerate-audio",
         "kind": "path_json",
@@ -212,12 +236,10 @@ TOOL_DEFS: list[dict[str, Any]] = [
         "description": "Mark a briefing as favorite or unfavorite.",
         "inputSchema": {
             "type": "object",
-            "properties": {
-                "briefing_id": {"type": "string"},
-                "favorite": {"type": "boolean"},
-            },
+            "properties": {"briefing_id": _id("Briefing id"), "favorite": {"type": "boolean"}},
             "required": ["briefing_id", "favorite"],
         },
+        "annotations": IDEMPOTENT_WRITE,
         "method": "PATCH",
         "path": "/api/briefings/{briefing_id}/favorite",
         "kind": "path_json",
@@ -228,21 +250,40 @@ TOOL_DEFS: list[dict[str, Any]] = [
         "description": "Mark a briefing as listened or unlistened.",
         "inputSchema": {
             "type": "object",
-            "properties": {
-                "briefing_id": {"type": "string"},
-                "listened": {"type": "boolean"},
-            },
+            "properties": {"briefing_id": _id("Briefing id"), "listened": {"type": "boolean"}},
             "required": ["briefing_id", "listened"],
         },
+        "annotations": IDEMPOTENT_WRITE,
         "method": "PATCH",
         "path": "/api/briefings/{briefing_id}/listened",
         "kind": "path_json",
         "json_keys": ["listened"],
     },
     {
+        "name": "set_story_preference",
+        "description": (
+            "Tell the profile's story memory to follow a story more closely, cover it less, "
+            "or return to normal. Story ids come from get_briefing's `stories` list."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "story_id": _id("Story id from get_briefing"),
+                "preference": {"type": "string", "enum": ["normal", "follow", "less"]},
+            },
+            "required": ["story_id", "preference"],
+        },
+        "annotations": IDEMPOTENT_WRITE,
+        "method": "PATCH",
+        "path": "/api/stories/{story_id}/preference",
+        "kind": "path_json",
+        "json_keys": ["preference"],
+    },
+    {
         "name": "list_topics",
-        "description": "List topics for the connected profile.",
+        "description": "List topics for the connected profile, including whether each is active.",
         "inputSchema": {"type": "object", "properties": {}},
+        "annotations": READ,
         "method": "GET",
         "path": "/api/topics",
         "kind": "query",
@@ -257,43 +298,137 @@ TOOL_DEFS: list[dict[str, Any]] = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "name": {"type": "string", "description": "Display name for the topic"},
-                "description": {"type": "string", "description": "Optional short description"},
+                "name": {"type": "string", "maxLength": 100, "description": "Display name for the topic"},
+                "description": {"type": "string", "maxLength": 500, "description": "Optional short description"},
                 "color": {"type": "string", "description": "Optional hex color, e.g. #3B82F6"},
                 "use_newsapi": {"type": "boolean", "default": True, "description": "Include NewsAPI results for this topic"},
                 "enable_site_generation": {"type": "boolean", "default": True, "description": "Allow AI site discovery for this topic"},
             },
             "required": ["name"],
         },
+        "annotations": WRITE,
         "method": "POST",
         "path": "/api/topics",
         "kind": "json",
     },
     {
+        "name": "update_topic",
+        "description": "Update a topic: rename, describe, recolor, or activate/deactivate it (is_active).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "topic_id": _id("Topic id"),
+                "name": {"type": "string", "maxLength": 100},
+                "description": {"type": "string", "maxLength": 500},
+                "color": {"type": "string"},
+                "is_active": {"type": "boolean"},
+                "use_newsapi": {"type": "boolean"},
+                "enable_site_generation": {"type": "boolean"},
+            },
+            "required": ["topic_id"],
+        },
+        "annotations": IDEMPOTENT_WRITE,
+        "method": "PUT",
+        "path": "/api/topics/{topic_id}",
+        "kind": "path_json",
+        "json_keys": ["name", "description", "color", "is_active", "use_newsapi", "enable_site_generation"],
+    },
+    {
+        "name": "delete_topic",
+        "description": "Permanently delete a topic. Confirm with the user first.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"topic_id": _id("Topic id")},
+            "required": ["topic_id"],
+        },
+        "annotations": DESTRUCTIVE,
+        "method": "DELETE",
+        "path": "/api/topics/{topic_id}",
+        "kind": "path",
+    },
+    {
         "name": "list_casts",
         "description": "List casts (host personalities) for the connected profile.",
         "inputSchema": {"type": "object", "properties": {}},
+        "annotations": READ,
         "method": "GET",
         "path": "/api/casts",
         "kind": "query",
     },
     {
         "name": "list_scheduled_briefings",
-        "description": "List scheduled briefings.",
+        "description": "List scheduled (recurring) briefings for the connected profile.",
         "inputSchema": {"type": "object", "properties": {}},
+        "annotations": READ,
         "method": "GET",
         "path": "/api/scheduled-briefings",
         "kind": "query",
     },
     {
+        "name": "create_scheduled_briefing",
+        "description": (
+            "Create a recurring briefing schedule. Times are HH:MM in the profile's timezone; "
+            "days are 0=Monday .. 6=Sunday. Empty topic_ids means the profile's active topics."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "minLength": 1, "maxLength": 500},
+                "schedule_time": {"type": "string", "pattern": "^([0-1][0-9]|2[0-3]):[0-5][0-9]$"},
+                "schedule_days": {"type": "array", "items": {"type": "integer", "minimum": 0, "maximum": 6},
+                                  "minItems": 1},
+                "topic_ids": {"type": "array", "items": {"type": "string"}},
+                "cast_id": {"type": "string"},
+                "max_duration_minutes": {"type": "integer", "minimum": 1, "maximum": 60},
+                "is_active": {"type": "boolean", "default": True},
+            },
+            "required": ["name", "schedule_time", "schedule_days"],
+        },
+        "annotations": WRITE,
+        "method": "POST",
+        "path": "/api/scheduled-briefings",
+        "kind": "json",
+    },
+    {
+        "name": "toggle_scheduled_briefing",
+        "description": "Enable or disable a schedule (flips its is_active flag).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"schedule_id": _id("Schedule id")},
+            "required": ["schedule_id"],
+        },
+        "annotations": WRITE,
+        "method": "PATCH",
+        "path": "/api/scheduled-briefings/{schedule_id}/toggle",
+        "kind": "path",
+    },
+    {
+        "name": "trigger_scheduled_briefing",
+        "description": "Run a schedule now, queuing a briefing with that schedule's settings (asynchronous).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"schedule_id": _id("Schedule id")},
+            "required": ["schedule_id"],
+        },
+        "annotations": WRITE,
+        "method": "POST",
+        "path": "/api/scheduled-briefings/{schedule_id}/trigger",
+        "kind": "path",
+    },
+    {
         "name": "list_profiles",
-        "description": "List all profiles on this Augustus instance.",
+        "description": "List all profiles on this Augustus instance (informational; you still act as your key's profile).",
         "inputSchema": {"type": "object", "properties": {}},
+        "annotations": READ,
         "method": "GET",
         "path": "/api/profiles",
         "kind": "query",
     },
 ]
+
+
+def _annotations(tool: dict[str, Any]) -> ToolAnnotations:
+    return ToolAnnotations(**tool["annotations"])
 
 
 # Full agent-facing docs, served as the `augustus://guide` MCP resource.
@@ -377,27 +512,64 @@ For a briefing about subjects the profile already follows, skip step 1 and call
 `regenerate_audio(briefing_id, cast_id)` — also asynchronous; poll `get_briefing` until
 `status == "completed"`.
 
+## Workflow: steer future coverage (story memory)
+
+Daily briefings are built on a per-profile **story memory**: each chapter is tied to a
+story that carries across episodes. `get_briefing` returns a `stories` list with
+`story_id`, `title`, `chapter_index`, and the current `preference`. When the user says
+"keep me updated on this" or "I'm tired of hearing about that", call
+`set_story_preference(story_id, preference)` with `"follow"`, `"less"`, or `"normal"`.
+
+## Workflow: manage what the profile follows
+
+- `list_topics()` shows every topic and whether it is active (active topics feed
+  `generate_briefing()` when no `topic_ids` are given).
+- `update_topic(topic_id, is_active=false)` pauses a topic without deleting it;
+  `delete_topic` is permanent — confirm first.
+- `create_scheduled_briefing(name, schedule_time="07:30", schedule_days=[0,1,2,3,4])` sets up a
+  recurring episode; `toggle_scheduled_briefing` pauses/resumes it and
+  `trigger_scheduled_briefing` runs it immediately.
+
+## Payload shapes
+
+Raw briefings carry large pipeline internals. The tools trim them:
+
+- `list_briefings` / `list_generation_queue` items: `id`, `title`, `status`, `kind`
+  (`daily` or `breakout`), `duration_seconds`, chapter titles, flags, links.
+- `get_briefing`: the summary plus `transcript` (omit with `include_transcript=false` when
+  only polling), `sources` (title, url, source), and `stories`.
+
 ## Tool reference
 
 Read:
-- `list_briefings(limit, offset, listened, favorite, cast_id, topic_ids)` — recent briefings.
-- `get_briefing(briefing_id)` — one briefing with full transcript, chapters, status, error.
+- `list_briefings(limit, offset, listened, favorite, cast_id, topic_ids)` — recent briefings
+  as summaries.
+- `get_briefing(briefing_id, include_transcript?)` — one briefing with transcript, chapters,
+  sources, stories, status, error.
+- `list_generation_queue()` — briefings still queued/pending/generating, oldest first.
 - `list_topics()` / `list_casts()` / `list_scheduled_briefings()` — the profile's topics,
   casts, and schedules.
 - `list_profiles()` — all profiles on this instance (informational; you still act as your
   key's profile).
 
 Write:
-- `create_topic(name, description?, color?, use_newsapi?, enable_site_generation?)` — new
-  topic; returns its `id`.
 - `generate_briefing(topic_ids?, cast_id?, max_duration_minutes?)` — queue a briefing (async).
 - `generate_breakout_podcast(topic? | topic_id? | source_briefing_id + chapter_index, focus?,`
   `max_duration_minutes?, cast_id?)` — queue one focused standalone podcast (async).
 - `cancel_briefing(briefing_id)` — cancel a queued/pending/generating briefing.
+- `delete_briefing(briefing_id)` — permanent; confirm first.
 - `regenerate_audio(briefing_id, cast_id)` — re-narrate a completed briefing with another
   cast (async).
 - `set_briefing_favorite(briefing_id, favorite)` / `set_briefing_listened(briefing_id, listened)`
   — toggle flags.
+- `set_story_preference(story_id, preference)` — `follow`, `less`, or `normal`.
+- `create_topic(name, description?, color?, use_newsapi?, enable_site_generation?)` — new
+  topic; returns its `id`.
+- `update_topic(topic_id, name?, description?, color?, is_active?, ...)` /
+  `delete_topic(topic_id)` (permanent; confirm first).
+- `create_scheduled_briefing(name, schedule_time, schedule_days, topic_ids?, cast_id?,`
+  `max_duration_minutes?, is_active?)` / `toggle_scheduled_briefing(schedule_id)` /
+  `trigger_scheduled_briefing(schedule_id)`.
 
 Write actions are recorded in the app's MCP activity log.
 """
@@ -408,6 +580,8 @@ async def _proxy(tool: dict[str, Any], args: dict[str, Any]) -> Any:
     path = tool["path"]
     kind = tool["kind"]
     args = dict(args or {})
+    for key in tool.get("local_keys", []):
+        args.pop(key, None)
 
     # Substitute path params
     if "{" in path:
@@ -455,12 +629,16 @@ async def _audit(tool_name: str, status: str, error: Optional[str], duration_ms:
         pass
 
 
-# Tools whose result is a briefing object (or {"briefings": [...]}). We add an
-# absolute `listen_url` (playable audio) and `detail_url` (in-app page) to each
-# briefing so the agent can hand the user exact links without guessing.
+# Tools whose result is a briefing object (or {"briefings": [...]}). Raw
+# briefings carry large pipeline internals (per-chapter fetched pages, TTS
+# segment timings) that an agent never needs, so results are reshaped:
+# list items become compact summaries, get_briefing keeps the transcript,
+# chapters, trimmed sources, and story ids. Each briefing also gains an
+# absolute `listen_url` and `detail_url` so the agent hands out exact links.
 _BRIEFING_RESULT_TOOLS = {
     "list_briefings",
     "get_briefing",
+    "list_generation_queue",
     "generate_briefing",
     "generate_breakout_podcast",
     "cancel_briefing",
@@ -468,6 +646,60 @@ _BRIEFING_RESULT_TOOLS = {
     "set_briefing_favorite",
     "set_briefing_listened",
 }
+
+_SUMMARY_KEYS = (
+    "id", "title", "status", "error_message", "duration_seconds", "cast_id",
+    "favorite", "listened", "listened_at", "playback_position", "created_at",
+    "generated_at", "audio_url",
+)
+
+
+def _summarize_briefing(b: dict) -> dict:
+    out = {k: b[k] for k in _SUMMARY_KEYS if k in b}
+    out["chapters"] = [
+        {k: c.get(k) for k in ("title", "start_time", "end_time") if k in c}
+        for c in b.get("chapters") or [] if isinstance(c, dict)
+    ]
+    extra = b.get("extra_data") or {}
+    if isinstance(extra, dict):
+        out["kind"] = extra.get("kind") or "daily"
+        breakout = extra.get("breakout")
+        if isinstance(breakout, dict):
+            out["breakout_topic"] = breakout.get("topic")
+            out["breakout_focus"] = breakout.get("focus") or None
+            out["source_briefing_id"] = breakout.get("source_briefing_id")
+        if extra.get("cast_member_names"):
+            out["hosts"] = extra["cast_member_names"]
+    return out
+
+
+def _detail_briefing(b: dict, include_transcript: bool) -> dict:
+    out = _summarize_briefing(b)
+    if include_transcript and b.get("transcript"):
+        out["transcript"] = b["transcript"]
+    out["sources"] = [
+        {
+            "title": src.get("title"),
+            "url": src.get("url"),
+            "source": src.get("source"),
+            "chapter_index": src.get("chapter_index"),
+        }
+        for src in b.get("sources") or [] if isinstance(src, dict) and src.get("url")
+    ]
+    extra = b.get("extra_data") or {}
+    stories = extra.get("chapter_stories") if isinstance(extra, dict) else None
+    out["stories"] = []
+    if isinstance(stories, dict):
+        for index, story in sorted(stories.items(), key=lambda kv: int(kv[0]) if str(kv[0]).isdigit() else 0):
+            if isinstance(story, dict) and story.get("story_id"):
+                out["stories"].append({
+                    "chapter_index": int(index) if str(index).isdigit() else index,
+                    "story_id": story["story_id"],
+                    "title": story.get("title"),
+                    "preference": story.get("preference"),
+                    "change_type": story.get("change_type"),
+                })
+    return out
 
 
 def _add_briefing_urls(result: Any, web_url: Optional[str]) -> Any:
@@ -487,6 +719,20 @@ def _add_briefing_urls(result: Any, web_url: Optional[str]) -> Any:
         if isinstance(result.get("briefings"), list):
             return {**result, "briefings": [enrich(b) for b in result["briefings"]]}
         return enrich(result)
+    return result
+
+
+def _shape_briefing_result(tool_name: str, result: Any, args: dict[str, Any]) -> Any:
+    """Reduce raw API briefings to what an agent needs before adding links."""
+    if isinstance(result, dict) and isinstance(result.get("briefings"), list):
+        return {**result, "briefings": [
+            _summarize_briefing(b) if isinstance(b, dict) and "id" in b else b
+            for b in result["briefings"]
+        ]}
+    if isinstance(result, dict) and "id" in result:
+        if tool_name == "get_briefing":
+            return _detail_briefing(result, args.get("include_transcript", True) is not False)
+        return _summarize_briefing(result)
     return result
 
 
@@ -537,7 +783,12 @@ async def main_async() -> None:
     @server.list_tools()
     async def list_tools() -> list[Tool]:
         return [
-            Tool(name=t["name"], description=t["description"], inputSchema=t["inputSchema"])
+            Tool(
+                name=t["name"],
+                description=t["description"],
+                inputSchema=t["inputSchema"],
+                annotations=_annotations(t),
+            )
             for t in TOOL_DEFS
             if enabled_tools is None or t["name"] in enabled_tools
         ]
@@ -556,7 +807,7 @@ async def main_async() -> None:
         try:
             result = await _proxy(tool, arguments or {})
             if name in _BRIEFING_RESULT_TOOLS:
-                result = _add_briefing_urls(result, web_url)
+                result = _add_briefing_urls(_shape_briefing_result(name, result, arguments or {}), web_url)
             dur = int((time.perf_counter() - started) * 1000)
             await _audit(name, "success", None, dur, arguments)
             return [TextContent(type="text", text=json.dumps(result, indent=2, default=str))]

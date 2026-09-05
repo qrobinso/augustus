@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Plug,
   BookOpen,
+  FileText,
   Key,
   ToggleLeft,
   Activity,
@@ -28,10 +29,11 @@ import {
   Profile,
 } from '../api/client'
 
-type Tab = 'setup' | 'keys' | 'tools' | 'activity'
+type Tab = 'setup' | 'docs' | 'keys' | 'tools' | 'activity'
 
 const TAB_DEFS: { id: Tab; label: string; icon: typeof BookOpen }[] = [
   { id: 'setup', label: 'Setup', icon: BookOpen },
+  { id: 'docs', label: 'Docs', icon: FileText },
   { id: 'keys', label: 'API Keys', icon: Key },
   { id: 'tools', label: 'Tools', icon: ToggleLeft },
   { id: 'activity', label: 'Activity', icon: Activity },
@@ -78,6 +80,7 @@ export default function Mcp() {
       </div>
 
       {activeTab === 'setup' && <SetupTab />}
+      {activeTab === 'docs' && <DocsTab />}
       {activeTab === 'keys' && <KeysTab />}
       {activeTab === 'tools' && <ToolsTab />}
       {activeTab === 'activity' && <ActivityTab />}
@@ -166,10 +169,271 @@ function SetupTab() {
         <h2 className="text-lg font-semibold text-white mb-2">3. Verify</h2>
         <p className="text-sm text-augustus-400">
           Restart your client. Ask the agent: <em className="text-white">"List my Augustus briefings."</em>{' '}
-          Activity will show under the <strong className="text-white">Activity</strong> tab.
+          Activity will show under the <strong className="text-white">Activity</strong> tab. The{' '}
+          <strong className="text-white">Docs</strong> tab explains what each tool does and the
+          workflows agents should follow.
         </p>
       </div>
     </div>
+  )
+}
+
+// ============================================================
+// Docs
+// ============================================================
+
+// Groups and parameter hints for the tool reference. Names and descriptions
+// come from the live catalog (/api/mcp/tools); anything listed here that the
+// backend no longer exposes is simply not rendered.
+const TOOL_GROUPS: { title: string; blurb: string; tools: string[] }[] = [
+  {
+    title: 'Briefings',
+    blurb: 'Read, generate, and manage episodes. Generation is asynchronous.',
+    tools: [
+      'list_briefings',
+      'get_briefing',
+      'list_generation_queue',
+      'generate_briefing',
+      'generate_breakout_podcast',
+      'cancel_briefing',
+      'regenerate_audio',
+      'set_briefing_favorite',
+      'set_briefing_listened',
+      'delete_briefing',
+    ],
+  },
+  {
+    title: 'Story memory',
+    blurb: 'Steer what future daily briefings emphasise.',
+    tools: ['set_story_preference'],
+  },
+  {
+    title: 'Topics',
+    blurb: 'What the profile follows. Active topics feed briefings with no explicit topic_ids.',
+    tools: ['list_topics', 'create_topic', 'update_topic', 'delete_topic'],
+  },
+  {
+    title: 'Schedules',
+    blurb: 'Recurring briefings.',
+    tools: [
+      'list_scheduled_briefings',
+      'create_scheduled_briefing',
+      'toggle_scheduled_briefing',
+      'trigger_scheduled_briefing',
+    ],
+  },
+  {
+    title: 'Casts and profiles',
+    blurb: 'Voices and hosts, plus instance-level information.',
+    tools: ['list_casts', 'list_profiles'],
+  },
+]
+
+const TOOL_PARAMS: Record<string, string> = {
+  list_briefings: 'limit?, offset?, listened?, favorite?, cast_id?, topic_ids?',
+  get_briefing: 'briefing_id, include_transcript? (default true)',
+  list_generation_queue: '',
+  generate_briefing: 'topic_ids?, cast_id?, max_duration_minutes?',
+  generate_breakout_podcast:
+    'topic | topic_id | source_briefing_id + chapter_index, focus?, max_duration_minutes? (3-30), cast_id?',
+  cancel_briefing: 'briefing_id',
+  regenerate_audio: 'briefing_id, cast_id',
+  set_briefing_favorite: 'briefing_id, favorite',
+  set_briefing_listened: 'briefing_id, listened',
+  delete_briefing: 'briefing_id',
+  set_story_preference: 'story_id, preference ("follow" | "less" | "normal")',
+  list_topics: '',
+  create_topic: 'name, description?, color?, use_newsapi?, enable_site_generation?',
+  update_topic: 'topic_id, name?, description?, color?, is_active?, use_newsapi?, enable_site_generation?',
+  delete_topic: 'topic_id',
+  list_scheduled_briefings: '',
+  create_scheduled_briefing:
+    'name, schedule_time ("HH:MM"), schedule_days (0=Mon..6=Sun), topic_ids?, cast_id?, max_duration_minutes?, is_active?',
+  toggle_scheduled_briefing: 'schedule_id',
+  trigger_scheduled_briefing: 'schedule_id',
+  list_casts: '',
+  list_profiles: '',
+}
+
+const DESTRUCTIVE_TOOLS = new Set(['delete_briefing', 'delete_topic'])
+const ASYNC_TOOLS = new Set([
+  'generate_briefing',
+  'generate_breakout_podcast',
+  'regenerate_audio',
+  'trigger_scheduled_briefing',
+])
+
+function DocsTab() {
+  const { data: tools } = useQuery({ queryKey: ['mcp', 'tools'], queryFn: mcpApi.listTools })
+  const byName = useMemo(
+    () => new Map((tools || []).map((t) => [t.name, t] as const)),
+    [tools],
+  )
+
+  return (
+    <div className="space-y-6">
+      <div className="card">
+        <h2 className="text-lg font-semibold text-white mb-2">How it works</h2>
+        <ul className="text-sm text-augustus-400 space-y-2 list-disc pl-5">
+          <li>
+            The MCP server is a thin proxy over the Augustus REST API. Every tool call runs
+            with the <strong className="text-white">API key's bound profile</strong>; agents
+            never pass a profile or user id, and a key cannot switch profiles.
+          </li>
+          <li>
+            Each key can be restricted to a subset of tools under{' '}
+            <strong className="text-white">Tools</strong>. Disabled tools are hidden from the
+            agent and denied if called anyway.
+          </li>
+          <li>
+            Every call (success, error, or denied) is written to the{' '}
+            <strong className="text-white">Activity</strong> audit log with its arguments.
+          </li>
+          <li>
+            The server also publishes an <code className="text-augustus-300">augustus://guide</code>{' '}
+            resource: a longer agent-facing version of this page that clients can read on demand.
+          </li>
+          <li>
+            API-key identity is not network security. Keep the backend behind your own access
+            controls; revoke a key from <strong className="text-white">API Keys</strong> if it leaks.
+          </li>
+        </ul>
+      </div>
+
+      <div className="card">
+        <h2 className="text-lg font-semibold text-white mb-2">Generation is asynchronous</h2>
+        <p className="text-sm text-augustus-400 mb-3">
+          <code className="text-augustus-300">generate_briefing</code>,{' '}
+          <code className="text-augustus-300">generate_breakout_podcast</code>,{' '}
+          <code className="text-augustus-300">regenerate_audio</code>, and{' '}
+          <code className="text-augustus-300">trigger_scheduled_briefing</code> return
+          immediately with status <code className="text-augustus-300">queued</code>. Audio and
+          transcript usually take 2 to 8 minutes. Agents poll{' '}
+          <code className="text-augustus-300">get_briefing</code> until the status is{' '}
+          <code className="text-augustus-300">completed</code>,{' '}
+          <code className="text-augustus-300">failed</code>, or{' '}
+          <code className="text-augustus-300">cancelled</code>. Jobs run one at a time, oldest
+          first, survive restarts, and can be listed with{' '}
+          <code className="text-augustus-300">list_generation_queue</code>.
+        </p>
+        <p className="text-sm text-augustus-400">
+          Every briefing the tools return carries two ready-made links:{' '}
+          <code className="text-augustus-300">detail_url</code> (the in-app page, available
+          right away) and <code className="text-augustus-300">listen_url</code> (the audio file,
+          present once completed). Agents hand these to you verbatim.
+        </p>
+      </div>
+
+      <div className="card">
+        <h2 className="text-lg font-semibold text-white mb-3">Common workflows</h2>
+        <div className="space-y-4">
+          <Workflow
+            title="Briefing about a new subject"
+            steps={[
+              'create_topic(name) → note the returned id',
+              'generate_briefing(topic_ids=[id]) → note the briefing id',
+              'poll get_briefing(briefing_id, include_transcript=false) until completed',
+            ]}
+          />
+          <Workflow
+            title="Deep dive (breakout podcast)"
+            steps={[
+              'Pick exactly one subject: topic="…", topic_id="…", or source_briefing_id + chapter_index',
+              'Optionally add focus, max_duration_minutes (3-30), cast_id',
+              'generate_breakout_podcast(...) then poll get_briefing as above',
+            ]}
+          />
+          <Workflow
+            title="Steer future coverage (story memory)"
+            steps={[
+              'get_briefing(briefing_id) → read the stories list (story_id per chapter)',
+              'set_story_preference(story_id, "follow") to hear more, "less" to hear less, "normal" to reset',
+            ]}
+          />
+          <Workflow
+            title="Manage what the profile follows"
+            steps={[
+              'list_topics() shows every topic and whether it is active',
+              'update_topic(topic_id, is_active=false) pauses a topic; delete_topic removes it permanently',
+              'create_scheduled_briefing(name, schedule_time, schedule_days) sets up a recurring episode',
+            ]}
+          />
+        </div>
+      </div>
+
+      <div className="card">
+        <h2 className="text-lg font-semibold text-white mb-1">Tool reference</h2>
+        <p className="text-xs text-augustus-500 mb-4">
+          {tools
+            ? `${tools.length} tools exposed by this server. Restart a connected client after upgrading Augustus so it refreshes the list.`
+            : 'Loading catalog…'}
+        </p>
+        <div className="space-y-6">
+          {TOOL_GROUPS.map((group) => {
+            const present = group.tools.filter((name) => byName.has(name))
+            if (present.length === 0) return null
+            return (
+              <div key={group.title}>
+                <h3 className="text-sm font-semibold text-white">{group.title}</h3>
+                <p className="text-xs text-augustus-500 mb-2">{group.blurb}</p>
+                <div className="divide-y divide-augustus-800/60 border border-augustus-800 rounded-lg overflow-hidden">
+                  {present.map((name) => {
+                    const t = byName.get(name) as McpToolCatalogItem
+                    return (
+                      <div key={name} className="px-3 py-2 bg-augustus-950/40">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm text-white font-mono">{t.name}</span>
+                          <Badge tone={t.category === 'write' ? 'amber' : 'muted'}>{t.category}</Badge>
+                          {ASYNC_TOOLS.has(name) && <Badge tone="blue">async</Badge>}
+                          {DESTRUCTIVE_TOOLS.has(name) && <Badge tone="red">permanent</Badge>}
+                        </div>
+                        <p className="text-xs text-augustus-400 mt-0.5">{t.description}</p>
+                        {TOOL_PARAMS[name] ? (
+                          <p className="text-[11px] text-augustus-500 font-mono mt-1 break-words">
+                            {TOOL_PARAMS[name]}
+                          </p>
+                        ) : (
+                          <p className="text-[11px] text-augustus-600 mt-1">no arguments</p>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function Workflow({ title, steps }: { title: string; steps: string[] }) {
+  return (
+    <div>
+      <h3 className="text-sm font-semibold text-white mb-1">{title}</h3>
+      <ol className="text-xs text-augustus-400 space-y-1 list-decimal pl-5 font-mono">
+        {steps.map((step) => (
+          <li key={step}>{step}</li>
+        ))}
+      </ol>
+    </div>
+  )
+}
+
+function Badge({ tone, children }: { tone: 'amber' | 'muted' | 'blue' | 'red'; children: string }) {
+  return (
+    <span
+      className={clsx(
+        'text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wide',
+        tone === 'amber' && 'bg-amber-500/20 text-amber-300',
+        tone === 'muted' && 'bg-augustus-800 text-augustus-400',
+        tone === 'blue' && 'bg-sky-500/20 text-sky-300',
+        tone === 'red' && 'bg-red-500/20 text-red-300',
+      )}
+    >
+      {children}
+    </span>
   )
 }
 
