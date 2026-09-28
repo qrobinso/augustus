@@ -3,7 +3,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { StaticRouter } from 'react-router-dom/server'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import DashboardGenerate, { trackAcceptedBriefing } from './DashboardGenerate'
+import DashboardGenerate, { briefingSummary, durationChoices, filterTopics, trackAcceptedBriefing } from './DashboardGenerate'
 import { useStore } from '../store/useStore'
 import { api, briefingsApi, type Briefing, type Profile } from '../api/client'
 
@@ -53,13 +53,13 @@ describe('generation queue display', () => {
     }
     expect(markup).toContain('Generating briefing')
     expect(markup).toContain('Queued for generation')
-    expect(markup).toContain('Queue Another Briefing')
+    expect(markup).toContain('Queue another briefing')
     expect(markup).not.toContain('disabled=""')
   })
 
   it('offers creation when no work is queued', () => {
     const markup = renderQueue([])
-    expect(markup).toContain('Create Briefing Now')
+    expect(markup).toContain('Create briefing')
     expect(markup).not.toContain('aria-label="Generation queue"')
   })
 })
@@ -95,5 +95,29 @@ describe('generation request ownership', () => {
     } finally {
       api.defaults.adapter = originalAdapter
     }
+  })
+})
+
+
+describe('new briefing form helpers', () => {
+  it('offers the configured default length alongside the presets', () => {
+    expect(durationChoices(10)).toEqual([5, 10, 15, 20, 30])
+    expect(durationChoices(12)).toEqual([5, 10, 12, 15, 20, 30])
+    expect(durationChoices(undefined)).toEqual([5, 10, 15, 20, 30])
+  })
+
+  it('summarizes what will be generated', () => {
+    expect(briefingSummary({ mode: 'existing', selectedTopicNames: [], durationMinutes: 10 })).toBe('10 min · All topics')
+    expect(briefingSummary({ mode: 'existing', selectedTopicNames: ['AI', 'EVs'], durationMinutes: 5, castName: 'Morning Crew' }))
+      .toBe('5 min · AI & EVs · Morning Crew')
+    expect(briefingSummary({ mode: 'existing', selectedTopicNames: ['A', 'B', 'C'] })).toBe('3 topics')
+    expect(briefingSummary({ mode: 'new', selectedTopicNames: ['ignored'], durationMinutes: 15 })).toBe('15 min · New topic')
+  })
+
+  it('filters topics by name but keeps selected ones visible', () => {
+    const topics = [{ id: '1', name: 'NFL' }, { id: '2', name: 'Android Gaming' }, { id: '3', name: 'Retro gaming' }]
+    expect(filterTopics(topics, '', []).map(t => t.id)).toEqual(['1', '2', '3'])
+    expect(filterTopics(topics, 'GAMING', []).map(t => t.id)).toEqual(['2', '3'])
+    expect(filterTopics(topics, 'gaming', ['1']).map(t => t.id)).toEqual(['1', '2', '3'])
   })
 })

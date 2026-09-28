@@ -1,16 +1,18 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query'
-import { 
+import {
   Play,
-  Loader2, 
-  Sparkles, 
+  Loader2,
+  Sparkles,
   CheckCircle,
   XCircle,
   Clock,
-  AlertCircle
+  AlertCircle,
+  Check,
+  Search,
 } from 'lucide-react'
 import clsx from 'clsx'
-import { briefingsApi, topicsApi, castsApi, customSitesApi, Briefing } from '../api/client'
+import { briefingsApi, topicsApi, castsApi, customSitesApi, settingsApi, Briefing } from '../api/client'
 import { useStore } from '../store/useStore'
 import { useProfileNavigate } from '../utils/profileSlug'
 import { findAutoPlayableCompletion } from '../components/breakout'
@@ -39,12 +41,54 @@ export function trackAcceptedBriefing(
   return { profileId: requestProfileId, ids: [...new Set([...ids, id])] }
 }
 
+const DURATION_PRESETS = [5, 10, 15, 20, 30]
+
+/** Length choices offered in the form, always including the configured default. */
+export function durationChoices(defaultMinutes?: number): number[] {
+  if (!defaultMinutes || DURATION_PRESETS.includes(defaultMinutes)) return DURATION_PRESETS
+  return [...DURATION_PRESETS, defaultMinutes].sort((a, b) => a - b)
+}
+
+const TOPIC_FILTER_THRESHOLD = 12
+
+/** Topics matching the filter text; selected topics always stay visible so they can be unselected. */
+export function filterTopics<T extends { id: string; name: string }>(topics: T[], query: string, selectedIds: string[]): T[] {
+  const needle = query.trim().toLowerCase()
+  if (!needle) return topics
+  return topics.filter(topic => selectedIds.includes(topic.id) || topic.name.toLowerCase().includes(needle))
+}
+
+export type TopicMode = 'existing' | 'new'
+
+/** One-line recap shown next to the create button. */
+export function briefingSummary(options: {
+  mode: TopicMode
+  selectedTopicNames: string[]
+  durationMinutes?: number
+  castName?: string
+}): string {
+  const about = options.mode === 'new'
+    ? 'New topic'
+    : options.selectedTopicNames.length === 0
+      ? 'All topics'
+      : options.selectedTopicNames.length <= 2
+        ? options.selectedTopicNames.join(' & ')
+        : `${options.selectedTopicNames.length} topics`
+  return [
+    options.durationMinutes ? `${options.durationMinutes} min` : null,
+    about,
+    options.castName || null,
+  ].filter(Boolean).join(' · ')
+}
+
 interface DashboardGenerateProps {
   /** Called once generation has been kicked off (used by the sheet to dismiss itself). */
   onGenerateStarted?: () => void
+  /** Called when the form navigates elsewhere (used by the sheet to close itself). */
+  onNavigateAway?: () => void
 }
 
-export default function DashboardGenerate({ onGenerateStarted }: DashboardGenerateProps) {
+export default function DashboardGenerate({ onGenerateStarted, onNavigateAway }: DashboardGenerateProps) {
   const navigate = useProfileNavigate()
   const queryClient = useQueryClient()
   const profileId = useStore((s) => s.currentProfile?.id)
@@ -56,6 +100,10 @@ export default function DashboardGenerate({ onGenerateStarted }: DashboardGenera
     return saved || undefined
   })
   
+  const [topicMode, setTopicMode] = useState<TopicMode>('existing')
+  const [durationMinutes, setDurationMinutes] = useState<number | undefined>(undefined)
+  const [topicFilter, setTopicFilter] = useState('')
+
   // Prompt-based topic generation state
   const [topicPrompt, setTopicPrompt] = useState('')
   const [promptError, setPromptError] = useState<string | null>(null)
@@ -127,9 +175,16 @@ export default function DashboardGenerate({ onGenerateStarted }: DashboardGenera
     queryFn: () => castsApi.list(),
   })
   
+  const { data: settings } = useQuery({
+    queryKey: ['settings'],
+    queryFn: () => settingsApi.get(),
+  })
+
   const topics = topicsData?.topics || []
   const casts = castsData?.casts || []
   const defaultCast = casts.find(c => c.is_default)
+  const defaultDuration = settings?.briefing_duration_minutes
+  const selectedDuration = durationMinutes ?? defaultDuration
   
   // Handle starting playback and navigating
   const handlePlayAndNavigate = (briefing: Briefing) => {
@@ -149,9 +204,10 @@ export default function DashboardGenerate({ onGenerateStarted }: DashboardGenera
   }
   
   const generateMutation = useMutation({
-    mutationFn: (options: { topicIds?: string[]; castId?: string; profileId: string }) => briefingsApi.generate({
+    mutationFn: (options: { topicIds?: string[]; castId?: string; durationMinutes?: number; profileId: string }) => briefingsApi.generate({
       topic_ids: options?.topicIds && options.topicIds.length > 0 ? options.topicIds : undefined,
       cast_id: options.castId,
+      max_duration_minutes: options.durationMinutes,
     }, options.profileId),
     onSuccess: (briefing, options) => {
       queryClient.invalidateQueries({ queryKey: ['briefings'] })
@@ -241,27 +297,29 @@ export default function DashboardGenerate({ onGenerateStarted }: DashboardGenera
     return existingTopic?.id || null
   }
   
+  const [stage, setStage] = useState<string | null>(null)
+  const busy = isGenerating || generateMutation.isPending
+  const canSubmit = !busy && !!profileId && (topicMode === 'existing' || !!topicPrompt.trim())
+
   const handleGenerate = async () => {
     const requestProfileId = profileId
-    if (!requestProfileId) return
+    if (!requestProfileId || !canSubmit) return
     setIsGenerating(true)
     setPromptError(null)
     
     try {
-      // If there's a prompt, generate and create the topic first
-      if (topicPrompt.trim()) {
-        // Generate topic from prompt
+      let topicIds = selectedTopicIds
+      if (topicMode === 'new') {
+        // Turn the prompt into a saved topic (reusing a same-named one) with suggested sites
+        setStage('Drafting topic…')
         const generatedTopic = await topicsApi.generateFromPrompt(topicPrompt.trim())
         
-        // Check if a topic with the same name already exists
         const existingTopicId = findExistingTopic(generatedTopic.name)
         let topicToUse
         
         if (existingTopicId) {
-          // Use existing topic
           topicToUse = topics.find(t => t.id === existingTopicId)!
         } else {
-          // Create the topic with a random color
           const topicColor = PRESET_COLORS[Math.floor(Math.random() * PRESET_COLORS.length)]
           topicToUse = await topicsApi.create({
             name: generatedTopic.name,
@@ -271,13 +329,12 @@ export default function DashboardGenerate({ onGenerateStarted }: DashboardGenera
           })
         }
         
-        // Get all existing sites to check for duplicates
+        setStage('Adding sources…')
         const existingSitesData = await customSitesApi.list()
         const existingUrls = new Set(
           existingSitesData.sites.map(site => normalizeUrl(site.url))
         )
         
-        // Create all sites (no selection needed - create all recommended sites)
         const seenUrls = new Set<string>()
         const sitesToCreate: Array<{ name: string; url: string }> = []
         
@@ -307,136 +364,214 @@ export default function DashboardGenerate({ onGenerateStarted }: DashboardGenera
           }
         }
         
-        // Refresh topics and sites
         queryClient.invalidateQueries({ queryKey: ['topics'] })
         queryClient.invalidateQueries({ queryKey: ['custom-sites'] })
         
-        // Combine the prompt-generated topic with any pre-selected topics
-        const finalTopicIds = selectedTopicIds.includes(topicToUse.id)
-          ? selectedTopicIds  // Topic already selected, use all selected topics
-          : [...selectedTopicIds, topicToUse.id]  // Add prompt topic to selected topics
-        
-        // Clear the prompt
+        topicIds = [topicToUse.id]
         setTopicPrompt('')
-        
-        // Generate briefing with combined topics (prompt-generated + pre-selected)
-        generateMutation.mutate({
-          profileId: requestProfileId,
-          topicIds: finalTopicIds.length > 0 ? finalTopicIds : undefined,
-          castId: selectedCastId,
-        })
-      } else {
-        // No prompt, just generate with selected topics
-        generateMutation.mutate({
-          profileId: requestProfileId,
-          topicIds: selectedTopicIds.length > 0 ? selectedTopicIds : undefined,
-          castId: selectedCastId,
-        })
+        setTopicMode('existing')
+        setSelectedTopicIds([topicToUse.id])
       }
+
+      setStage('Starting…')
+      generateMutation.mutate({
+        profileId: requestProfileId,
+        topicIds: topicIds.length > 0 ? topicIds : undefined,
+        castId: selectedCastId,
+        durationMinutes: selectedDuration,
+      })
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to create topic from prompt'
       setPromptError(errorMessage)
       setIsGenerating(false)
     }
   }
+
+  const goToTopics = () => {
+    onNavigateAway?.()
+    navigate('/topics')
+  }
+
+  const showTopicFilter = topics.length > TOPIC_FILTER_THRESHOLD
+  const visibleTopics = showTopicFilter ? filterTopics(topics, topicFilter, selectedTopicIds) : topics
+
+  const selectedCast = casts.find(c => c.id === selectedCastId)
+  const summary = briefingSummary({
+    mode: topicMode,
+    selectedTopicNames: topics.filter(t => selectedTopicIds.includes(t.id)).map(t => t.name),
+    durationMinutes: selectedDuration,
+    castName: casts.length > 1 ? selectedCast?.name : undefined,
+  })
+
+  const chipClass = (active: boolean) => clsx(
+    'px-3 py-1.5 rounded-full text-sm font-medium transition-all flex items-center gap-1.5 min-h-[36px]',
+    active
+      ? 'bg-accent text-white'
+      : 'bg-augustus-800 text-augustus-300 hover:bg-augustus-700 active:bg-augustus-600'
+  )
   
   return (
-    <div className="card mb-6 sm:mb-8">
-      <h2 className="text-base font-semibold text-white mb-4 flex items-center gap-2">
-        <Sparkles className="w-5 h-5 text-accent" />
-        Generate New Briefing
-      </h2>
-      
-       {/* Prompt Box for Creating New Topic */}
-       <div className="mb-6">
-         <div className="space-y-4">
-           <div className="relative">
-             <textarea
-               value={topicPrompt}
-               onChange={(e) => setTopicPrompt(e.target.value)}
-               placeholder="e.g. I want to follow the latest developments in electric vehicles and sustainable transportation..."
-               className="input min-h-[80px] sm:min-h-[100px] resize-none pr-4"
-               disabled={isGenerating || generateMutation.isPending}
-             />
-           </div>
-           
-           {promptError && (
-             <div className="flex items-center gap-2 text-red-400 text-sm">
-               <AlertCircle className="w-4 h-4 flex-shrink-0" />
-               <span>{promptError}</span>
-             </div>
-           )}
-         </div>
-       </div>
-      
-      {/* Existing Topics Selection */}
-      <div className="mb-4">
-        <div className="mb-2">
-          <p className="text-sm text-augustus-400">Or select existing topics to include:</p>
+    <div>
+      {/* What it's about */}
+      <section className="mb-6" aria-labelledby="briefing-about">
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <h3 id="briefing-about" className="text-sm font-medium text-white">What's it about?</h3>
+          <div className="inline-flex bg-augustus-800/60 p-1 rounded-full" role="radiogroup" aria-label="Topic source">
+            {([['existing', 'My topics'], ['new', 'Something new']] as const).map(([mode, label]) => (
+              <button
+                key={mode}
+                type="button"
+                role="radio"
+                aria-checked={topicMode === mode}
+                onClick={() => { setTopicMode(mode); setPromptError(null) }}
+                disabled={busy}
+                className={clsx(
+                  'px-3 py-1.5 rounded-full text-xs sm:text-sm font-medium transition-all',
+                  topicMode === mode ? 'bg-accent text-white' : 'text-augustus-300 hover:text-white'
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
-        {topicsLoading ? (
+
+        {topicMode === 'new' ? (
+          <div>
+            <label htmlFor="briefing-prompt" className="sr-only">Describe what you want to hear about</label>
+            <textarea
+              id="briefing-prompt"
+              value={topicPrompt}
+              onChange={(e) => setTopicPrompt(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault()
+                  handleGenerate()
+                }
+              }}
+              placeholder="e.g. The latest in electric vehicles and sustainable transportation"
+              className="input min-h-[96px] resize-none"
+              disabled={busy}
+              autoFocus
+            />
+            <p className="text-xs text-augustus-500 mt-2">
+              Saves this as a new topic with suggested sources, so you can reuse it or edit it later in Topics.
+            </p>
+          </div>
+        ) : topicsLoading ? (
           <div className="flex items-center gap-2 text-augustus-500">
             <Loader2 className="w-4 h-4 animate-spin" />
             <span className="text-sm">Loading topics...</span>
           </div>
-        ) : topics.length === 0 ? (
-          <p className="text-sm text-augustus-500">
-            No topics found. <a href="/topics" className="text-accent hover:underline">Create some topics</a> first.
-          </p>
         ) : (
-          <div className="flex flex-wrap gap-2">
-            {topics.map((topic) => (
-              <button
-                key={topic.id}
-                onClick={() => toggleTopic(topic.id)}
-                className={clsx(
-                  'px-3 py-1.5 rounded-full text-sm font-medium transition-all flex items-center gap-1.5 min-h-[36px]',
-                  selectedTopicIds.includes(topic.id)
-                    ? 'text-white'
-                    : 'bg-augustus-800 text-augustus-300 hover:bg-augustus-700 active:bg-augustus-600'
-                )}
-                style={selectedTopicIds.includes(topic.id) ? {
-                  backgroundColor: topic.color || '#3B82F6',
-                } : undefined}
-              >
-                <span
-                  className="w-2 h-2 rounded-full flex-shrink-0"
-                  style={{ backgroundColor: topic.color || '#3B82F6' }}
+          <div>
+            {showTopicFilter && (
+              <div className="relative mb-3">
+                <Search className="w-4 h-4 text-augustus-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="search"
+                  value={topicFilter}
+                  onChange={(e) => setTopicFilter(e.target.value)}
+                  placeholder={`Filter ${topics.length} topics`}
+                  aria-label="Filter topics"
+                  className="input pl-9 py-2 text-sm"
+                  disabled={busy}
                 />
-                {topic.name}
+              </div>
+            )}
+            <div className={clsx('flex flex-wrap gap-2', showTopicFilter && 'max-h-52 sm:max-h-64 overflow-y-auto overscroll-contain pr-1')}>
+              <button
+                type="button"
+                aria-pressed={selectedTopicIds.length === 0}
+                onClick={() => setSelectedTopicIds([])}
+                disabled={busy}
+                className={chipClass(selectedTopicIds.length === 0)}
+              >
+                {selectedTopicIds.length === 0 && <Check className="w-3.5 h-3.5" />}
+                All topics
               </button>
-            ))}
+              {visibleTopics.map((topic) => {
+                const selected = selectedTopicIds.includes(topic.id)
+                return (
+                  <button
+                    key={topic.id}
+                    type="button"
+                    aria-pressed={selected}
+                    onClick={() => toggleTopic(topic.id)}
+                    disabled={busy}
+                    className={clsx(
+                      'px-3 py-1.5 rounded-full text-sm font-medium transition-all flex items-center gap-1.5 min-h-[36px]',
+                      selected
+                        ? 'text-white'
+                        : 'bg-augustus-800 text-augustus-300 hover:bg-augustus-700 active:bg-augustus-600'
+                    )}
+                    style={selected ? { backgroundColor: topic.color || '#3B82F6' } : undefined}
+                  >
+                    {selected
+                      ? <Check className="w-3.5 h-3.5" />
+                      : <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: topic.color || '#3B82F6' }} />}
+                    {topic.name}
+                  </button>
+                )
+              })}
+            </div>
+            {showTopicFilter && topicFilter.trim() && visibleTopics.length === selectedTopicIds.length && (
+              <p className="text-sm text-augustus-500 mt-3">No other topics match "{topicFilter.trim()}".</p>
+            )}
+            {topics.length === 0 && (
+              <p className="text-sm text-augustus-500 mt-3">
+                You haven't created any topics yet, so this covers your general news sources.{' '}
+                <button type="button" onClick={goToTopics} className="text-accent hover:underline">Set up topics</button>
+                {' '}or try <button type="button" onClick={() => setTopicMode('new')} className="text-accent hover:underline">Something new</button>.
+              </p>
+            )}
           </div>
         )}
-        {selectedTopicIds.length === 0 && topics.length > 0 && (
-          <p className="text-sm text-augustus-500 mt-2">
-            No topics selected - all topics will be included
-          </p>
-        )}
-      </div>
-      
-      {/* Cast selector */}
+      </section>
+
+      {/* Length */}
+      <section className="mb-6" aria-labelledby="briefing-length">
+        <h3 id="briefing-length" className="text-sm font-medium text-white mb-3">Length</h3>
+        <div className="flex flex-wrap gap-2" role="radiogroup" aria-labelledby="briefing-length">
+          {durationChoices(defaultDuration).map(minutes => (
+            <button
+              key={minutes}
+              type="button"
+              role="radio"
+              aria-checked={selectedDuration === minutes}
+              onClick={() => setDurationMinutes(minutes)}
+              disabled={busy}
+              className={chipClass(selectedDuration === minutes)}
+            >
+              {minutes} min
+              {minutes === defaultDuration && (
+                <span className={clsx('text-xs', selectedDuration === minutes ? 'text-white/70' : 'text-augustus-500')}>· default</span>
+              )}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {/* Hosts */}
       {casts.length > 1 && (
-        <div className="mb-4">
-          <div className="mb-2">
-            <label className="text-sm text-augustus-400">
-              Select cast:
-            </label>
-          </div>
+        <section className="mb-6">
+          <label htmlFor="briefing-cast" className="block text-sm font-medium text-white mb-3">Hosts</label>
           <select
+            id="briefing-cast"
             value={selectedCastId || ''}
             onChange={(e) => setSelectedCastId(e.target.value || undefined)}
+            disabled={busy}
             className="input w-full"
           >
             {casts.map((cast) => (
               <option key={cast.id} value={cast.id}>
-                {cast.name}{cast.is_default ? ' ★' : ''}
+                {cast.name}{cast.is_default ? ' (default)' : ''}
               </option>
             ))}
           </select>
-        </div>
+        </section>
       )}
-      
+
       {ready.profileId === profileId && ready.briefings.map(briefing => (
         <div key={briefing.id} className="mb-4 p-4 bg-green-500/10 border border-green-500/20 rounded-lg">
           <div className="flex items-start gap-3">
@@ -454,72 +589,73 @@ export default function DashboardGenerate({ onGenerateStarted }: DashboardGenera
 
       {queueError && <p role="alert" className="text-sm text-red-400 mb-4">Could not load the generation queue. Retrying automatically.</p>}
       {activeBriefings.length > 0 && (
-        <div className="mb-6 space-y-3" aria-label="Generation queue">
-          <p className="text-sm text-augustus-400">{activeBriefings.length} briefing{activeBriefings.length === 1 ? '' : 's'} in progress or queued. You can add more below.</p>
+        <section className="mb-6 space-y-2" aria-label="Generation queue">
+          <h3 className="text-sm font-medium text-white">
+            In progress <span className="text-augustus-500 font-normal">· {activeBriefings.length}</span>
+          </h3>
           {activeBriefings.map(briefing => {
             const generating = briefing.status === 'generating'
             const progress = briefing.extra_data?.progress
             const cancelling = cancellingIds.has(briefing.id)
             return (
-              <div key={briefing.id} className={clsx('p-4 border rounded-lg', generating
-                ? 'bg-yellow-500/10 border-yellow-500/20' : 'bg-blue-500/10 border-blue-500/30')}>
-                <div className="flex items-start justify-between gap-3">
-                  {generating ? <Loader2 className="w-5 h-5 animate-spin text-yellow-400 flex-shrink-0" />
-                    : <Clock className="w-5 h-5 text-blue-400 flex-shrink-0" />}
+              <div key={briefing.id} className="p-3 rounded-lg bg-augustus-800/50 border border-augustus-700/50">
+                <div className="flex items-center gap-3">
+                  {generating ? <Loader2 className="w-4 h-4 animate-spin text-accent flex-shrink-0" />
+                    : <Clock className="w-4 h-4 text-augustus-400 flex-shrink-0" />}
                   <div className="flex-1 min-w-0">
-                    <p className={clsx('font-medium text-sm', generating ? 'text-yellow-400' : 'text-blue-400')}>
-                      {generating ? 'Generating briefing…' : 'Queued for generation'}
+                    <p className="text-sm text-augustus-100 truncate">{briefing.title}</p>
+                    <p className="text-xs text-augustus-500">
+                      {generating
+                        ? `Generating briefing${progress ? ` · ${progress.step_name} · ${progress.percent}%` : '…'}`
+                        : 'Queued for generation · starts automatically'}
                     </p>
-                    <p className="text-sm text-augustus-400 truncate">{briefing.title}</p>
-                    {!generating && <p className="text-xs text-blue-300/70 mt-1">Will start automatically in request order.</p>}
                     {generating && progress && (
-                      <div className="mt-3 space-y-1">
-                        <p className="text-xs text-augustus-400">{progress.step_name} · {progress.percent}%</p>
-                        <div className="h-2 bg-augustus-800 rounded-full overflow-hidden">
-                          <div className="h-full bg-yellow-500 rounded-full transition-all duration-500" style={{ width: `${progress.percent}%` }} />
-                        </div>
+                      <div className="mt-2 h-1 bg-augustus-800 rounded-full overflow-hidden">
+                        <div className="h-full bg-accent rounded-full transition-all duration-500" style={{ width: `${progress.percent}%` }} />
                       </div>
                     )}
                   </div>
                   <button onClick={() => profileId && cancelMutation.mutate({ id: briefing.id, profileId })} disabled={cancelling}
                     className="btn btn-ghost p-2 text-augustus-400 hover:text-red-400 hover:bg-red-500/10 flex-shrink-0"
                     aria-label={`Cancel ${briefing.title}`} title="Cancel briefing">
-                    {cancelling ? <Loader2 className="w-5 h-5 animate-spin" /> : <XCircle className="w-5 h-5" />}
+                    {cancelling ? <Loader2 className="w-4 h-4 animate-spin" /> : <XCircle className="w-4 h-4" />}
                   </button>
                 </div>
               </div>
             )
           })}
-        </div>
+        </section>
       )}
 
-        <div className="space-y-3">
-          <div>
-            <p className="text-sm text-augustus-400">Generate your briefing:</p>
+      {/* Action bar stays in reach while the sheet scrolls */}
+      <div className="sticky bottom-0 -mx-4 sm:-mx-6 px-4 sm:px-6 pt-3 pb-1 bg-augustus-900/95 backdrop-blur-sm border-t border-augustus-800">
+        {promptError && (
+          <div role="alert" className="flex items-start gap-2 text-red-400 text-sm mb-3">
+            <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+            <span>{promptError}</span>
           </div>
-           <button
-             onClick={handleGenerate}
-             disabled={isGenerating || generateMutation.isPending}
-             className="btn btn-primary flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-           >
-             {(isGenerating || generateMutation.isPending) ? (
-               <>
-                 <Loader2 className="w-5 h-5 animate-spin" />
-                 {topicPrompt.trim() ? 'Creating Topic & Starting...' : 'Starting...'}
-               </>
-             ) : (
-               <>
-                 <Sparkles className="w-5 h-5" />
-                 {activeBriefings.length ? 'Queue Another Briefing' : 'Create Briefing Now'}
-               </>
-             )}
-           </button>
-           {topicPrompt.trim() && (
-             <p className="text-sm text-augustus-500">
-               This will create a new topic from your prompt and generate a briefing
-             </p>
-           )}
+        )}
+        <div className="flex flex-col-reverse sm:flex-row sm:items-center gap-2 sm:gap-4">
+          <p className="text-xs text-augustus-400 flex-1 min-w-0 truncate text-center sm:text-left">{summary}</p>
+          <button
+            onClick={handleGenerate}
+            disabled={!canSubmit}
+            className="btn btn-primary flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed w-full sm:w-auto"
+          >
+            {busy ? (
+              <>
+                <Loader2 className="w-5 h-5 animate-spin" />
+                {stage || 'Starting…'}
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-5 h-5" />
+                {activeBriefings.length ? 'Queue another briefing' : 'Create briefing'}
+              </>
+            )}
+          </button>
         </div>
+      </div>
     </div>
   )
 }

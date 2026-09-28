@@ -29,7 +29,7 @@ export default function GenerateSheet({ open, onClose }: GenerateSheetProps) {
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 z-[60]" role="dialog" aria-modal="true" aria-label="Generate new briefing">
+    <div className="fixed inset-0 z-[60]" role="dialog" aria-modal="true" aria-labelledby="generate-sheet-title">
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/60 backdrop-blur-sm animate-fade-in"
@@ -39,12 +39,13 @@ export default function GenerateSheet({ open, onClose }: GenerateSheetProps) {
       {/* Panel: bottom sheet on mobile, centered dialog on sm+ */}
       <div className="absolute inset-x-0 bottom-0 sm:inset-0 sm:flex sm:items-center sm:justify-center pointer-events-none">
         <div className="pointer-events-auto bg-augustus-900 border-t sm:border border-augustus-700/60 rounded-t-3xl sm:rounded-2xl shadow-2xl shadow-black/60 w-full sm:max-w-2xl max-h-[88dvh] sm:max-h-[85dvh] overflow-y-auto overscroll-contain pb-safe animate-sheet-up">
-          {/* Grab handle (mobile) + close */}
-          <div className="sticky top-0 z-10 bg-augustus-900/95 backdrop-blur-sm rounded-t-3xl sm:rounded-t-2xl">
+          {/* Grab handle (mobile) + title + close */}
+          <div className="sticky top-0 z-10 bg-augustus-900/95 backdrop-blur-sm rounded-t-3xl sm:rounded-t-2xl border-b border-augustus-800">
             <div className="sm:hidden flex justify-center pt-3">
               <div className="w-10 h-1 rounded-full bg-augustus-700" />
             </div>
-            <div className="flex justify-end px-3 pt-2">
+            <div className="flex items-center justify-between gap-3 pl-4 sm:pl-6 pr-2 py-2">
+              <h2 id="generate-sheet-title" className="text-lg font-display font-semibold text-white">New briefing</h2>
               <button
                 onClick={onClose}
                 className="btn btn-ghost p-2 min-h-[44px] min-w-[44px] text-augustus-400 hover:text-white"
@@ -54,8 +55,8 @@ export default function GenerateSheet({ open, onClose }: GenerateSheetProps) {
               </button>
             </div>
           </div>
-          <div className="px-4 sm:px-6 pb-6 -mt-2">
-            <DashboardGenerate onGenerateStarted={onClose} />
+          <div className="px-4 sm:px-6 pt-5 pb-3">
+            <DashboardGenerate onGenerateStarted={onClose} onNavigateAway={onClose} />
           </div>
         </div>
       </div>
