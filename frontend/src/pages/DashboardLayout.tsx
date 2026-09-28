@@ -32,21 +32,16 @@ export default function DashboardLayout() {
   return (
     <div className="page-container">
       {/* Header */}
-      <div className="mb-6 sm:mb-8 flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-display font-semibold text-white mb-1 sm:mb-2">
-            {currentProfile ? (
-              <>
-                {getGreeting()}, {currentProfile.name}
-              </>
-            ) : (
-              'Dashboard'
-            )}
-          </h1>
-          <p className="text-sm sm:text-base text-augustus-400">
-            AI-generated audio briefings from your news feeds
-          </p>
-        </div>
+      <div className="mb-4 sm:mb-6 flex items-center justify-between gap-4">
+        <h1 className="text-2xl sm:text-3xl font-display font-semibold text-white min-w-0">
+          {currentProfile ? (
+            <>
+              {getGreeting()}, {currentProfile.name}
+            </>
+          ) : (
+            'Dashboard'
+          )}
+        </h1>
         <div className="hidden sm:flex items-center gap-2 flex-shrink-0">
           <button onClick={() => setGenerateOpen(true)} className="btn btn-primary items-center gap-2">
             <Plus className="w-5 h-5" />

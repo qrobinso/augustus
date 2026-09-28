@@ -13,8 +13,8 @@ import {
   CheckCircle,
   Circle,
   XCircle,
-  Tag,
   Heart,
+  Check,
   ListPlus,
   CornerUpRight,
   Search,
@@ -26,6 +26,7 @@ import { useStore } from '../store/useStore'
 import type { QueueItem } from '../store/queue'
 import { formatCompactDate } from '../utils/timezone'
 import { useProfileNavigate } from '../utils/profileSlug'
+import { statusChipLabel, castChipLabel, topicsChipLabel } from './briefFilterChips'
 
 // Completed briefings older than this stay out of Today's Stack (archive only)
 const STACK_RECENCY_DAYS = 7
@@ -69,15 +70,19 @@ export default function DashboardBriefs() {
     return () => clearTimeout(t)
   }, [searchInput])
   
-  // Filters accordion state - persisted to localStorage
-  const [filtersExpanded, setFiltersExpanded] = useState(() => {
-    const saved = localStorage.getItem('filtersExpanded')
-    return saved !== null ? JSON.parse(saved) : false
-  })
-  
+  // Which filter chip's menu is open (compact filter row)
+  const [openFilterMenu, setOpenFilterMenu] = useState<'status' | 'cast' | 'topics' | null>(null)
+  const toggleFilterMenu = (menu: 'status' | 'cast' | 'topics') =>
+    setOpenFilterMenu((current) => (current === menu ? null : menu))
+
   useEffect(() => {
-    localStorage.setItem('filtersExpanded', JSON.stringify(filtersExpanded))
-  }, [filtersExpanded])
+    if (!openFilterMenu) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpenFilterMenu(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [openFilterMenu])
   
   // Check if there's a briefing in progress to determine poll interval
   const hasBriefingInProgress = (briefings: Briefing[] | undefined) =>
@@ -514,6 +519,46 @@ export default function DashboardBriefs() {
     )
   }
 
+  // Compact filter row: chip trigger + its choice menu (a sheet on phones)
+  const chipClass = (active: boolean) =>
+    clsx(
+      'px-3 py-1.5 rounded-full text-xs sm:text-sm font-medium transition-all flex items-center gap-1.5 whitespace-nowrap',
+      'min-h-[40px] sm:min-h-[36px] border active:scale-95',
+      active
+        ? 'bg-accent/10 text-accent border-accent/30'
+        : 'bg-augustus-800/70 text-augustus-300 border-augustus-700/50 hover:bg-augustus-700 hover:text-augustus-100'
+    )
+
+  const filterMenuClass = clsx(
+    'z-[61] overflow-y-auto bg-augustus-900 border border-augustus-800 rounded-xl shadow-2xl shadow-black/50 p-1.5',
+    'fixed inset-x-4 bottom-[calc(1rem+env(safe-area-inset-bottom,0px))] max-h-[60vh]',
+    'sm:absolute sm:inset-x-auto sm:bottom-auto sm:top-full sm:right-0 sm:mt-2 sm:w-60 sm:max-h-72'
+  )
+
+  const renderMenuOption = (
+    label: string,
+    selected: boolean,
+    onSelect: () => void,
+    icon?: React.ReactNode
+  ) => (
+    <button
+      type="button"
+      role="menuitemcheckbox"
+      aria-checked={selected}
+      onClick={onSelect}
+      className={clsx(
+        'w-full flex items-center gap-2.5 px-3 py-2.5 sm:py-2 rounded-lg text-sm text-left transition-colors min-h-[44px] sm:min-h-0',
+        selected
+          ? 'bg-accent/10 text-accent'
+          : 'text-augustus-200 hover:bg-augustus-800 active:bg-augustus-800'
+      )}
+    >
+      {icon}
+      <span className="flex-1 min-w-0 truncate">{label}</span>
+      {selected && <Check className="w-4 h-4 flex-shrink-0" />}
+    </button>
+  )
+
   return (
     <div className="space-y-3 sm:space-y-4">
       {/* Today's Stack — curated unplayed queue, hidden while searching/filtering */}
@@ -711,243 +756,167 @@ export default function DashboardBriefs() {
         </div>
       )}
 
-      {/* Search bar */}
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-augustus-500 pointer-events-none" />
-        <input
-          type="search"
-          value={searchInput}
-          onChange={(e) => setSearchInput(e.target.value)}
-          placeholder="Search briefings…"
-          className="w-full bg-augustus-900 border border-augustus-800 rounded-xl pl-10 pr-10 py-2.5 text-sm text-white placeholder-augustus-500 focus:outline-none focus:border-accent transition-colors"
-          aria-label="Search briefings"
-        />
-        {searchInput && (
-          <button
-            onClick={() => setSearchInput('')}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-augustus-500 hover:text-white transition-colors"
-            aria-label="Clear search"
-          >
-            <XCircle className="w-4 h-4" />
-          </button>
-        )}
-      </div>
-
-      {/* Filter controls */}
-      <div className="card mb-6 sm:mb-8">
-        <button
-          onClick={() => setFiltersExpanded(!filtersExpanded)}
-          className="w-full flex items-center justify-between gap-2 text-left"
-        >
-          <h2 className="text-base sm:text-lg font-semibold text-white flex items-center gap-2">
-            <Tag className="w-5 h-5 text-accent" />
-            Filters
-            {(listenedFilter !== undefined || filterCastId !== undefined || filterTopicIds.length > 0 || favoriteFilter !== undefined) && (
-              <span className="text-xs sm:text-sm font-normal text-augustus-500">
-                (Active)
-              </span>
-            )}
-          </h2>
-          <ChevronDown 
-            className={clsx(
-              'w-5 h-5 text-augustus-400 transition-transform duration-200',
-              filtersExpanded && 'rotate-180'
-            )}
+      {/* Search + filter chips */}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-3 sm:mb-4">
+        <div className="relative sm:flex-1 sm:min-w-[12rem]">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-augustus-500 pointer-events-none" />
+          <input
+            type="search"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            placeholder="Search briefings…"
+            className="w-full bg-augustus-900 border border-augustus-800 rounded-xl pl-10 pr-10 py-2.5 text-sm text-white placeholder-augustus-500 focus:outline-none focus:border-accent transition-colors"
+            aria-label="Search briefings"
           />
-        </button>
-        
-        {filtersExpanded && (
-          <div className="mt-3 sm:mt-4">
-            <div className="flex flex-col gap-3 sm:gap-2.5">
-              {/* Listened filter */}
-              <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-                <span className="text-xs sm:text-sm font-medium text-augustus-300 flex-shrink-0 sm:w-16">Status</span>
-                <div className="flex items-center gap-2 overflow-x-auto scroll-smooth pb-1 sm:pb-0 -mx-1 px-1 sm:mx-0 sm:px-0">
-                  <button
-                    onClick={() => setListenedFilter(undefined)}
-                    className={clsx(
-                      'px-3 sm:px-3 py-2 sm:py-1.5 rounded-full text-xs sm:text-sm font-medium transition-all whitespace-nowrap flex-shrink-0',
-                      'min-h-[44px] sm:min-h-[32px] flex items-center justify-center',
-                      'active:scale-95',
-                      listenedFilter === undefined
-                        ? 'bg-accent text-white shadow-lg shadow-accent/20'
-                        : 'bg-augustus-800 text-augustus-300 hover:bg-augustus-700 active:bg-augustus-600'
-                    )}
-                  >
-                    All
-                  </button>
-                  <button
-                    onClick={() => setListenedFilter(true)}
-                    className={clsx(
-                      'px-3 sm:px-3 py-2 sm:py-1.5 rounded-full text-xs sm:text-sm font-medium transition-all flex items-center gap-1.5 whitespace-nowrap flex-shrink-0',
-                      'min-h-[44px] sm:min-h-[32px] justify-center',
-                      'active:scale-95',
-                      listenedFilter === true
-                        ? 'bg-accent text-white shadow-lg shadow-accent/20'
-                        : 'bg-augustus-800 text-augustus-300 hover:bg-augustus-700 active:bg-augustus-600'
-                    )}
-                  >
-                    <CheckCircle className="w-4 h-4 sm:w-3 sm:h-3" />
-                    <span>Listened</span>
-                  </button>
-                  <button
-                    onClick={() => setListenedFilter(false)}
-                    className={clsx(
-                      'px-3 sm:px-3 py-2 sm:py-1.5 rounded-full text-xs sm:text-sm font-medium transition-all flex items-center gap-1.5 whitespace-nowrap flex-shrink-0',
-                      'min-h-[44px] sm:min-h-[32px] justify-center',
-                      'active:scale-95',
-                      listenedFilter === false
-                        ? 'bg-accent text-white shadow-lg shadow-accent/20'
-                        : 'bg-augustus-800 text-augustus-300 hover:bg-augustus-700 active:bg-augustus-600'
-                    )}
-                  >
-                    <Circle className="w-4 h-4 sm:w-3 sm:h-3" />
-                    <span>Not Listened</span>
-                  </button>
-                </div>
+          {searchInput && (
+            <button
+              onClick={() => setSearchInput('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-augustus-500 hover:text-white transition-colors"
+              aria-label="Clear search"
+            >
+              <XCircle className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 min-w-0">
+          {/* Status (listened) */}
+          <div className="relative">
+            <button
+              onClick={() => toggleFilterMenu('status')}
+              className={chipClass(listenedFilter !== undefined)}
+              aria-haspopup="menu"
+              aria-expanded={openFilterMenu === 'status'}
+            >
+              {listenedFilter === true ? (
+                <CheckCircle className="w-3.5 h-3.5" />
+              ) : listenedFilter === false ? (
+                <Circle className="w-3.5 h-3.5" />
+              ) : null}
+              {statusChipLabel(listenedFilter)}
+              <ChevronDown className="w-3.5 h-3.5 opacity-70" />
+            </button>
+            {openFilterMenu === 'status' && (
+              <div className={filterMenuClass} role="menu" aria-label="Status">
+                <p className="sm:hidden px-3 pt-1 pb-2 text-xs font-medium text-augustus-500">Status</p>
+                {renderMenuOption('All', listenedFilter === undefined, () => { setListenedFilter(undefined); setOpenFilterMenu(null) })}
+                {renderMenuOption('Listened', listenedFilter === true, () => { setListenedFilter(true); setOpenFilterMenu(null) }, <CheckCircle className="w-4 h-4" />)}
+                {renderMenuOption('Not Listened', listenedFilter === false, () => { setListenedFilter(false); setOpenFilterMenu(null) }, <Circle className="w-4 h-4" />)}
               </div>
-              
-              {/* Favorites filter */}
-              <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-                <span className="text-xs sm:text-sm font-medium text-augustus-300 flex-shrink-0 sm:w-16">Favorites</span>
-                <div className="flex items-center gap-2 overflow-x-auto scroll-smooth pb-1 sm:pb-0 -mx-1 px-1 sm:mx-0 sm:px-0">
-                  <button
-                    onClick={() => setFavoriteFilter(undefined)}
-                    className={clsx(
-                      'px-3 sm:px-3 py-2 sm:py-1.5 rounded-full text-xs sm:text-sm font-medium transition-all whitespace-nowrap flex-shrink-0',
-                      'min-h-[44px] sm:min-h-[32px] flex items-center justify-center',
-                      'active:scale-95',
-                      favoriteFilter === undefined
-                        ? 'bg-accent text-white shadow-lg shadow-accent/20'
-                        : 'bg-augustus-800 text-augustus-300 hover:bg-augustus-700 active:bg-augustus-600'
-                    )}
-                  >
-                    All
-                  </button>
-                  <button
-                    onClick={() => setFavoriteFilter(true)}
-                    className={clsx(
-                      'px-3 sm:px-3 py-2 sm:py-1.5 rounded-full text-xs sm:text-sm font-medium transition-all flex items-center gap-1.5 whitespace-nowrap flex-shrink-0',
-                      'min-h-[44px] sm:min-h-[32px] justify-center',
-                      'active:scale-95',
-                      favoriteFilter === true
-                        ? 'bg-accent text-white shadow-lg shadow-accent/20'
-                        : 'bg-augustus-800 text-augustus-300 hover:bg-augustus-700 active:bg-augustus-600'
-                    )}
-                  >
-                    <Heart className={clsx('w-4 h-4 sm:w-3 sm:h-3', favoriteFilter === true && 'fill-current')} />
-                    <span>Favorites</span>
-                  </button>
-                </div>
-              </div>
-              
-              {/* Cast filter */}
-              {casts.length > 0 && (
-                <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-                  <span className="text-xs sm:text-sm font-medium text-augustus-300 flex-shrink-0 sm:w-16">Cast</span>
-                  <div className="flex items-center gap-2 overflow-x-auto scroll-smooth pb-1 sm:pb-0 -mx-1 px-1 sm:mx-0 sm:px-0">
-                    <button
-                      onClick={() => setFilterCastId(undefined)}
-                      className={clsx(
-                        'px-3 sm:px-3 py-2 sm:py-1.5 rounded-full text-xs sm:text-sm font-medium transition-all whitespace-nowrap flex-shrink-0',
-                        'min-h-[44px] sm:min-h-[32px] flex items-center justify-center',
-                        'active:scale-95',
-                        filterCastId === undefined
-                          ? 'bg-accent text-white shadow-lg shadow-accent/20'
-                          : 'bg-augustus-800 text-augustus-300 hover:bg-augustus-700 active:bg-augustus-600'
+            )}
+          </div>
+
+          {/* Favorites (single choice — toggles in place) */}
+          <button
+            onClick={() => setFavoriteFilter(favoriteFilter === true ? undefined : true)}
+            className={chipClass(favoriteFilter === true)}
+            aria-pressed={favoriteFilter === true}
+          >
+            <Heart className={clsx('w-3.5 h-3.5', favoriteFilter === true && 'fill-current')} />
+            Favorites
+          </button>
+
+          {/* Cast */}
+          {casts.length > 0 && (
+            <div className="relative">
+              <button
+                onClick={() => toggleFilterMenu('cast')}
+                className={chipClass(filterCastId !== undefined)}
+                aria-haspopup="menu"
+                aria-expanded={openFilterMenu === 'cast'}
+              >
+                <span className="max-w-[9rem] truncate">{castChipLabel(filterCastId, casts)}</span>
+                <ChevronDown className="w-3.5 h-3.5 opacity-70" />
+              </button>
+              {openFilterMenu === 'cast' && (
+                <div className={filterMenuClass} role="menu" aria-label="Cast">
+                  <p className="sm:hidden px-3 pt-1 pb-2 text-xs font-medium text-augustus-500">Cast</p>
+                  {renderMenuOption('All Casts', filterCastId === undefined, () => { setFilterCastId(undefined); setOpenFilterMenu(null) })}
+                  {casts.map((cast: Cast) => (
+                    <div key={cast.id}>
+                      {renderMenuOption(
+                        `${cast.name}${cast.is_default ? ' ★' : ''}`,
+                        filterCastId === cast.id,
+                        () => { setFilterCastId(cast.id); setOpenFilterMenu(null) }
                       )}
-                    >
-                      All Casts
-                    </button>
-                    {casts.map((cast: Cast) => (
-                      <button
-                        key={cast.id}
-                        onClick={() => setFilterCastId(cast.id)}
-                        className={clsx(
-                          'px-3 sm:px-3 py-2 sm:py-1.5 rounded-full text-xs sm:text-sm font-medium transition-all whitespace-nowrap flex-shrink-0',
-                          'min-h-[44px] sm:min-h-[32px] flex items-center justify-center',
-                          'active:scale-95',
-                          filterCastId === cast.id
-                            ? 'bg-accent text-white shadow-lg shadow-accent/20'
-                            : 'bg-augustus-800 text-augustus-300 hover:bg-augustus-700 active:bg-augustus-600'
-                        )}
-                      >
-                        {cast.name}{cast.is_default ? ' ★' : ''}
-                      </button>
-                    ))}
-                  </div>
+                    </div>
+                  ))}
                 </div>
               )}
-              
-              {/* Topics filter */}
-              {topics.length > 0 && (
-                <div className="flex flex-col sm:flex-row sm:items-start gap-2">
-                  <span className="text-xs sm:text-sm font-medium text-augustus-300 flex-shrink-0 sm:w-16 sm:pt-1.5">Topics</span>
-                  <div className="flex flex-wrap items-center gap-2 overflow-x-auto scroll-smooth pb-1 sm:pb-0 -mx-1 px-1 sm:mx-0 sm:px-0">
-                    <button
-                      onClick={() => setFilterTopicIds([])}
-                      className={clsx(
-                        'px-3 sm:px-3 py-2 sm:py-1.5 rounded-full text-xs sm:text-sm font-medium transition-all whitespace-nowrap flex-shrink-0',
-                        'min-h-[44px] sm:min-h-[32px] flex items-center justify-center',
-                        'active:scale-95',
-                        filterTopicIds.length === 0
-                          ? 'bg-accent text-white shadow-lg shadow-accent/20'
-                          : 'bg-augustus-800 text-augustus-300 hover:bg-augustus-700 active:bg-augustus-600'
-                      )}
-                    >
-                      All Topics
-                    </button>
-                    {topics.map((topic: Topic) => (
-                      <button
-                        key={topic.id}
-                        onClick={() => {
+            </div>
+          )}
+
+          {/* Topics (multi-select — menu stays open) */}
+          {topics.length > 0 && (
+            <div className="relative">
+              <button
+                onClick={() => toggleFilterMenu('topics')}
+                className={chipClass(filterTopicIds.length > 0)}
+                aria-haspopup="menu"
+                aria-expanded={openFilterMenu === 'topics'}
+              >
+                {filterTopicIds.length === 1 && (
+                  <span
+                    className="w-2 h-2 rounded-full flex-shrink-0"
+                    style={{ backgroundColor: topics.find((t) => t.id === filterTopicIds[0])?.color || '#3B82F6' }}
+                  />
+                )}
+                <span className="max-w-[9rem] truncate">{topicsChipLabel(filterTopicIds, topics)}</span>
+                <ChevronDown className="w-3.5 h-3.5 opacity-70" />
+              </button>
+              {openFilterMenu === 'topics' && (
+                <div className={filterMenuClass} role="menu" aria-label="Topics">
+                  <p className="sm:hidden px-3 pt-1 pb-2 text-xs font-medium text-augustus-500">Topics</p>
+                  {renderMenuOption('All Topics', filterTopicIds.length === 0, () => setFilterTopicIds([]))}
+                  {topics.map((topic: Topic) => (
+                    <div key={topic.id}>
+                      {renderMenuOption(
+                        topic.name,
+                        filterTopicIds.includes(topic.id),
+                        () => {
                           setFilterTopicIds((prev) =>
                             prev.includes(topic.id)
                               ? prev.filter((id) => id !== topic.id)
                               : [...prev, topic.id]
                           )
-                        }}
-                        className={clsx(
-                          'px-3 sm:px-3 py-2 sm:py-1.5 rounded-full text-xs sm:text-sm font-medium transition-all flex items-center gap-1.5 whitespace-nowrap flex-shrink-0',
-                          'min-h-[44px] sm:min-h-[32px] justify-center',
-                          'active:scale-95',
-                          filterTopicIds.includes(topic.id)
-                            ? 'text-white shadow-lg'
-                            : 'bg-augustus-800 text-augustus-300 hover:bg-augustus-700 active:bg-augustus-600'
-                        )}
-                        style={filterTopicIds.includes(topic.id) ? {
-                          backgroundColor: topic.color || '#3B82F6',
-                          boxShadow: `0 4px 14px 0 ${topic.color || '#3B82F6'}40`,
-                        } : undefined}
-                      >
+                        },
                         <span
-                          className="w-2.5 h-2.5 sm:w-2 sm:h-2 rounded-full flex-shrink-0"
+                          className="w-2.5 h-2.5 rounded-full flex-shrink-0"
                           style={{ backgroundColor: topic.color || '#3B82F6' }}
                         />
-                        {topic.name}
-                      </button>
-                    ))}
-                  </div>
+                      )}
+                    </div>
+                  ))}
                 </div>
               )}
-              
-              {/* Clear filters button */}
-              {(listenedFilter !== undefined || filterCastId !== undefined || filterTopicIds.length > 0 || favoriteFilter !== undefined) && (
-                <button
-                  onClick={() => {
-                    setListenedFilter(undefined)
-                    setFilterCastId(undefined)
-                    setFilterTopicIds([])
-                    setFavoriteFilter(undefined)
-                  }}
-                  className="sm:hidden px-4 py-2 rounded-lg text-xs font-medium bg-augustus-800 text-augustus-300 hover:bg-augustus-700 active:bg-augustus-600 transition-all active:scale-95 flex items-center justify-center gap-1.5 min-h-[44px] border border-augustus-700"
-                >
-                  <XCircle className="w-4 h-4" />
-                  Clear All Filters
-                </button>
-              )}
             </div>
-          </div>
+          )}
+
+          {/* Clear — only when a filter is active */}
+          {hasActiveFilters && (
+            <button
+              onClick={() => {
+                setListenedFilter(undefined)
+                setFilterCastId(undefined)
+                setFilterTopicIds([])
+                setFavoriteFilter(undefined)
+                setOpenFilterMenu(null)
+              }}
+              className="px-3 py-1.5 rounded-full text-xs sm:text-sm font-medium transition-all flex items-center gap-1.5 whitespace-nowrap min-h-[40px] sm:min-h-[36px] text-augustus-400 hover:text-white active:scale-95"
+            >
+              <XCircle className="w-3.5 h-3.5" />
+              Clear
+            </button>
+          )}
+        </div>
+
+        {/* Tap-outside layer for an open filter menu (dimmed sheet on phones) */}
+        {openFilterMenu && (
+          <div
+            className="fixed inset-0 z-[60] bg-black/50 sm:bg-transparent"
+            onClick={() => setOpenFilterMenu(null)}
+            aria-hidden="true"
+          />
         )}
       </div>
       
