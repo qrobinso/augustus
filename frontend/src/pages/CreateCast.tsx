@@ -8,10 +8,13 @@ import {
   Plus,
   Trash2,
   ArrowLeft,
-  Sparkles
+  Sparkles,
+  Pencil
 } from 'lucide-react'
 import clsx from 'clsx'
 import { castsApi, CastCreate, CastUpdate } from '../api/client'
+import PersonalityEditor from '../components/PersonalityEditor'
+import { applyPersonalityChange, PersonalityChange } from '../components/personalityFiles'
 
 export default function CreateCast() {
   const navigate = useProfileNavigate()
@@ -48,8 +51,15 @@ export default function CreateCast() {
   }>>([
     { name: '', voice_id: '', personality: '', order: 0 },
   ])
+  // Which host (if any) the personality editor was opened for
+  const [personalityEditor, setPersonalityEditor] = useState<{
+    index: number
+    mode: 'browse' | 'create'
+    personality: string | null
+  } | null>(null)
   // Track what we've initialized to prevent unnecessary re-initialization
-  const initializedRef = useRef<{ castId?: string; dataHash?: string }>({})
+  // (the personality list refetches after edits in the personality editor)
+  const initializedRef = useRef<{ castId?: string; dataHash?: string; createInitialized?: boolean }>({})
   
   // Create a simple hash of the cast data to detect changes
   const getCastDataHash = (cast: typeof existingCast) => {
@@ -95,11 +105,11 @@ export default function CreateCast() {
         setName('')
         setDescription('')
         setMembers([{ name: '', voice_id: '', personality: personalityOptions[0], order: 0 }])
-        initializedRef.current = {}
-      } else if (initializedRef.current.castId === undefined && initializedRef.current.dataHash === undefined) {
+        initializedRef.current = { createInitialized: true }
+      } else if (!initializedRef.current.createInitialized) {
         // First time in create mode - initialize with default
         setMembers([{ name: '', voice_id: '', personality: personalityOptions[0], order: 0 }])
-        initializedRef.current = {}
+        initializedRef.current = { createInitialized: true }
       }
     }
   }, [isEditing, existingCast, personalityOptions])
@@ -204,6 +214,13 @@ export default function CreateCast() {
     const updated = [...members]
     updated[index] = { ...updated[index], [field]: value }
     setMembers(updated)
+  }
+  
+  const handlePersonalityChange = (change: PersonalityChange) => {
+    // Select a newly created personality for the host it was created from,
+    // follow renames, and replace personalities that no longer exist.
+    const targetIndex = personalityEditor?.index ?? null
+    setMembers((prev) => applyPersonalityChange(prev, change, targetIndex))
   }
   
   const handleGenerateDescription = async () => {
@@ -426,8 +443,33 @@ export default function CreateCast() {
                   </div>
                   
                   <div>
-                    <label className="label">Personality *</label>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="label mb-0" htmlFor={`member-${index}-personality`}>Personality *</label>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setPersonalityEditor({ index, mode: 'browse', personality: member.personality || null })}
+                          disabled={isLoading || !member.personality}
+                          className="btn btn-sm btn-ghost flex items-center gap-1.5 text-augustus-400 hover:text-augustus-300"
+                          title={member.personality ? `Edit ${member.personality}` : 'Select a personality to edit'}
+                        >
+                          <Pencil className="w-4 h-4" />
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPersonalityEditor({ index, mode: 'create', personality: null })}
+                          disabled={isLoading}
+                          className="btn btn-sm btn-ghost flex items-center gap-1.5 text-augustus-400 hover:text-augustus-300"
+                          title="Create a new personality for this member"
+                        >
+                          <Plus className="w-4 h-4" />
+                          New
+                        </button>
+                      </div>
+                    </div>
                     <select
+                      id={`member-${index}-personality`}
                       value={member.personality}
                       onChange={(e) => updateMember(index, 'personality', e.target.value)}
                       className="input w-full"
@@ -487,6 +529,14 @@ export default function CreateCast() {
           </div>
         )}
       </form>
+      
+      <PersonalityEditor
+        open={personalityEditor !== null}
+        onClose={() => setPersonalityEditor(null)}
+        personality={personalityEditor?.personality}
+        mode={personalityEditor?.mode}
+        onChange={handlePersonalityChange}
+      />
     </div>
   )
 }

@@ -200,17 +200,6 @@ export default function Casts() {
           ))}
         </div>
       )}
-      
-      {/* Manage Personalities Link */}
-      <div className="mt-8 sm:mt-12 pt-6 sm:pt-8 border-t border-augustus-700">
-        <button
-          onClick={() => navigate('/casts/personalities')}
-          className="btn btn-ghost w-full sm:w-auto flex items-center justify-center gap-2"
-        >
-          <Pencil className="w-4 h-4" />
-          Manage Personalities
-        </button>
-      </div>
     </div>
   )
 }

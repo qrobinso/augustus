@@ -15,7 +15,6 @@ import EditSite from './pages/EditSite'
 import Casts from './pages/Casts'
 import CreateCast from './pages/CreateCast'
 import CreateSchedule from './pages/CreateSchedule'
-import ManagePersonalities from './pages/ManagePersonalities'
 import Settings from './pages/Settings'
 import About from './pages/About'
 import Mcp from './pages/Mcp'
@@ -168,7 +167,7 @@ function App() {
             <Route path="casts" element={<Casts />} />
             <Route path="casts/create" element={<CreateCast />} />
             <Route path="casts/:id/edit" element={<CreateCast />} />
-            <Route path="casts/personalities" element={<ManagePersonalities />} />
+            <Route path="casts/personalities" element={<Navigate to=".." relative="path" replace />} />
             <Route path="schedules/create" element={<CreateSchedule />} />
             <Route path="schedules/:id/edit" element={<CreateSchedule />} />
             <Route path="settings" element={<Settings />} />
