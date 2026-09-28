@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react'
-import { useLocation, useParams } from 'react-router-dom'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useProfileNavigate } from '../utils/profileSlug'
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query'
 import { 
@@ -17,10 +17,13 @@ import {
   Trash2,
   CheckCircle,
   XCircle,
-  Pencil
+  Pencil,
+  Wand2,
+  AlertCircle
 } from 'lucide-react'
 import clsx from 'clsx'
 import { topicsApi, customSitesApi, Topic, CustomSite } from '../api/client'
+import { describeApiError, mergePendingSites, partitionNewSites, readTopicPrompt } from './topicDraft'
 
 const PRESET_COLORS = [
   '#3B82F6', // Blue
@@ -54,6 +57,7 @@ interface TestResult {
 
 export default function CreateTopic() {
   const navigate = useProfileNavigate()
+  const routerNavigate = useNavigate()
   const location = useLocation()
   const { id } = useParams<{ id: string }>()
   const queryClient = useQueryClient()
@@ -62,6 +66,9 @@ export default function CreateTopic() {
   
   // Get the previous page from location state, default to /topics
   const previousPage = (location.state as { from?: string })?.from || '/topics'
+  
+  // Prompt handed over from the Topics page ("What do you want to follow?")
+  const incomingPrompt = isEditing ? null : readTopicPrompt(location.state)
   
   // Fetch existing topic if editing
   const { data: existingTopic, isLoading: topicLoading } = useQuery({
@@ -99,6 +106,15 @@ export default function CreateTopic() {
   const [showGeneratedSites, setShowGeneratedSites] = useState(false)
   const [tempTopicId, setTempTopicId] = useState<string | null>(null)
   
+  // AI topic draft state (create mode, opened with a prompt)
+  const [showDraftPanel] = useState(() => incomingPrompt !== null)
+  const [aiPrompt, setAiPrompt] = useState(() => incomingPrompt ?? '')
+  const [isDrafting, setIsDrafting] = useState(false)
+  const [draftError, setDraftError] = useState<string | null>(null)
+  const [draftReasoning, setDraftReasoning] = useState<string | null>(null)
+  const draftRequestRef = useRef(0)
+  const consumedPromptKeyRef = useRef<string | null>(null)
+  
   // Site testing state (for edit mode)
   const [testingId, setTestingId] = useState<string | null>(null)
   const [testResult, setTestResult] = useState<TestResult | null>(null)
@@ -131,6 +147,48 @@ export default function CreateTopic() {
     }
   }, [isEditing, existingTopic, isInitialized])
   
+  // Draft name/description/NewsAPI and suggested sites from a plain-text prompt.
+  // Only the latest request may apply its result.
+  const runDraft = useCallback(async (prompt: string) => {
+    const requestId = ++draftRequestRef.current
+    setIsDrafting(true)
+    setDraftError(null)
+    setDraftReasoning(null)
+    try {
+      const result = await topicsApi.generateFromPrompt(prompt)
+      if (requestId !== draftRequestRef.current) return
+      setName(result.name)
+      setDescription(result.description || '')
+      setUseNewsapi(result.use_newsapi)
+      setDraftReasoning(result.reasoning || null)
+      setPendingSites(prev => mergePendingSites(prev, result.sites))
+    } catch (err) {
+      if (requestId !== draftRequestRef.current) return
+      setDraftError(describeApiError(err, 'Failed to draft topic'))
+    } finally {
+      if (requestId === draftRequestRef.current) setIsDrafting(false)
+    }
+  }, [])
+  
+  // Run the draft once per incoming prompt. The ref absorbs StrictMode's double
+  // effect; replacing the history entry without the prompt keeps back/forward
+  // and reloads from drafting again.
+  useEffect(() => {
+    if (!incomingPrompt || consumedPromptKeyRef.current === location.key) return
+    consumedPromptKeyRef.current = location.key
+    routerNavigate(`${location.pathname}${location.search}`, {
+      replace: true,
+      state: { from: previousPage },
+    })
+    void runDraft(incomingPrompt)
+  }, [incomingPrompt, location.key, location.pathname, location.search, previousPage, routerNavigate, runDraft])
+  
+  const handleRedraft = (e: React.FormEvent) => {
+    e.preventDefault()
+    const prompt = aiPrompt.trim()
+    if (prompt && !isDrafting) void runDraft(prompt)
+  }
+  
   const createTopicMutation = useMutation({
     mutationFn: async () => {
       // If we have a temp topic from site generation, use it
@@ -155,18 +213,34 @@ export default function CreateTopic() {
       })
     },
     onSuccess: async (topic) => {
-      // Add all pending sites to the topic
+      // Add pending sites, skipping URLs the user already follows (the API
+      // rejects duplicates) and continuing past individual failures
+      const failures: string[] = []
       if (pendingSites.length > 0) {
-        for (const site of pendingSites) {
-          await customSitesApi.create({ 
-            name: site.name, 
-            url: site.url, 
-            topic_id: topic.id 
-          })
+        let existingUrls: string[] = []
+        try {
+          existingUrls = (await customSitesApi.list()).sites.map(site => site.url)
+        } catch {
+          // Duplicates will surface as individual failures below
+        }
+        const { toCreate } = partitionNewSites(pendingSites, existingUrls)
+        for (const site of toCreate) {
+          try {
+            await customSitesApi.create({ 
+              name: site.name, 
+              url: site.url, 
+              topic_id: topic.id 
+            })
+          } catch (err) {
+            failures.push(`• ${site.name}: ${describeApiError(err, 'Unknown error')}`)
+          }
         }
       }
       queryClient.invalidateQueries({ queryKey: ['topics'] })
       queryClient.invalidateQueries({ queryKey: ['custom-sites'] })
+      if (failures.length > 0) {
+        alert(`Topic created, but ${failures.length} site(s) could not be added:\n${failures.join('\n')}`)
+      }
       navigate(previousPage)
     },
   })
@@ -303,7 +377,7 @@ export default function CreateTopic() {
       addSelectedSitesMutation.mutate(sitesToAdd)
     } else {
       // For create mode, add to pending sites
-      setPendingSites(prev => [...prev, ...sitesToAdd])
+      setPendingSites(prev => mergePendingSites(prev, sitesToAdd))
       setShowGeneratedSites(false)
       setGeneratedSites([])
       setSelectedGeneratedSites(new Set())
@@ -390,6 +464,8 @@ export default function CreateTopic() {
   }
   
   const handleCancel = () => {
+    // Ignore any draft still in flight
+    draftRequestRef.current++
     // If we have a temp topic, delete it
     if (tempTopicId) {
       topicsApi.delete(tempTopicId).catch(console.error)
@@ -398,6 +474,8 @@ export default function CreateTopic() {
   }
   
   const isLoading = createTopicMutation.isPending || updateTopicMutation.isPending
+  // Form fields are locked while saving or while AI is drafting them
+  const fieldsLocked = isLoading || isDrafting
   
   // Show loading state while fetching existing topic
   if (isEditing && topicLoading) {
@@ -435,6 +513,66 @@ export default function CreateTopic() {
         </div>
       </div>
       
+      {/* AI draft from the Topics prompt (create mode only) */}
+      {!isEditing && showDraftPanel && (
+        <div className="card mb-6 bg-gradient-to-br from-augustus-800/50 to-augustus-900/50 border-augustus-700/50">
+          <form onSubmit={handleRedraft} className="space-y-3">
+            <label htmlFor="draft-prompt" className="flex items-center gap-2 text-base sm:text-lg font-semibold text-white">
+              <Wand2 className="w-5 h-5 text-accent flex-shrink-0" />
+              What do you want to follow?
+            </label>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <input
+                id="draft-prompt"
+                type="text"
+                value={aiPrompt}
+                onChange={(e) => setAiPrompt(e.target.value)}
+                className="input flex-1"
+                disabled={isDrafting || isLoading}
+              />
+              <button
+                type="submit"
+                disabled={!aiPrompt.trim() || isDrafting || isLoading}
+                className="btn btn-secondary flex items-center justify-center gap-2"
+              >
+                {isDrafting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Drafting...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4" />
+                    {draftError ? 'Try Again' : 'Redraft'}
+                  </>
+                )}
+              </button>
+            </div>
+            
+            {isDrafting && (
+              <p className="text-sm text-augustus-400">
+                Drafting your topic and finding sources. This can take a moment.
+              </p>
+            )}
+            
+            {!isDrafting && draftError && (
+              <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+                <p className="text-sm text-red-400">
+                  Couldn't draft this topic: {draftError}. Try again, or fill in the details below yourself.
+                </p>
+              </div>
+            )}
+            
+            {!isDrafting && !draftError && draftReasoning && (
+              <p className="text-xs sm:text-sm text-augustus-400">
+                {draftReasoning} Review the details and sites below before creating.
+              </p>
+            )}
+          </form>
+        </div>
+      )}
+      
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Topic Details */}
         <div className="card">
@@ -450,10 +588,10 @@ export default function CreateTopic() {
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="e.g., Artificial Intelligence, Climate Change"
+                placeholder={isDrafting ? 'Drafting...' : 'e.g., Artificial Intelligence, Climate Change'}
                 className="input"
                 required
-                disabled={isLoading}
+                disabled={fieldsLocked}
               />
             </div>
             
@@ -482,9 +620,9 @@ export default function CreateTopic() {
                 type="text"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                placeholder="Brief description of this topic"
+                placeholder={isDrafting ? 'Drafting...' : 'Brief description of this topic'}
                 className="input"
-                disabled={isLoading}
+                disabled={fieldsLocked}
               />
             </div>
             
@@ -495,7 +633,7 @@ export default function CreateTopic() {
                 checked={useNewsapi}
                 onChange={(e) => setUseNewsapi(e.target.checked)}
                 className="w-5 h-5 rounded border-augustus-700 bg-augustus-900 text-accent focus:ring-accent focus:ring-2"
-                disabled={isLoading}
+                disabled={fieldsLocked}
               />
               <label htmlFor="use-newsapi" className="text-sm text-augustus-300 cursor-pointer">
                 Include NewsAPI results for this topic
@@ -515,7 +653,7 @@ export default function CreateTopic() {
             <button
               type="button"
               onClick={handleGenerateSites}
-              disabled={isGenerating || !name.trim() || isLoading || addSelectedSitesMutation.isPending}
+              disabled={isGenerating || !name.trim() || fieldsLocked || addSelectedSitesMutation.isPending}
               className="btn btn-primary flex items-center gap-2"
             >
               {isGenerating ? (
@@ -526,7 +664,7 @@ export default function CreateTopic() {
               ) : (
                 <>
                   <Sparkles className="w-4 h-4" />
-                  Recommend Sites with AI
+                  {!isEditing && pendingSites.length > 0 ? 'Suggest More Sites' : 'Recommend Sites with AI'}
                 </>
               )}
             </button>
@@ -846,7 +984,7 @@ export default function CreateTopic() {
           </button>
           <button
             type="submit"
-            disabled={!name.trim() || isLoading}
+            disabled={!name.trim() || fieldsLocked}
             className="btn btn-primary w-full sm:w-auto flex items-center justify-center gap-2"
           >
             {isLoading ? (
