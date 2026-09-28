@@ -132,6 +132,7 @@ async def _seed_default_cast(user_id: str, profile_id: str, db: AsyncSession) ->
         user_id=user_id,
         profile_id=profile_id,
         name="Augustus Daily",
+        tts_provider="gemini",
         is_default=True,
         created_at=now,
         updated_at=now,

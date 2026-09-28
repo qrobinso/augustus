@@ -2,6 +2,7 @@ import { Volume2 } from 'lucide-react'
 import clsx from 'clsx'
 import type { AppSettings } from '../../api/client'
 import { SecretInput, SettingsCheckbox } from './SettingsControls'
+import { castCountHint } from '../../pages/castProviders'
 
 interface TtsSettingsProps {
   settings: AppSettings | undefined
@@ -19,6 +20,10 @@ interface TtsSettingsProps {
   onGeminiModelChange: (value: string) => void
   enableNonSpeechSounds: boolean
   onEnableNonSpeechSoundsChange: (value: boolean) => void
+  /** Casts that exist for the selected provider; undefined while loading. */
+  castCount: number | undefined
+  providerLabel: string
+  onOpenCasts: () => void
 }
 
 function ProviderOption({
@@ -77,7 +82,11 @@ export default function TtsSettings({
   onGeminiModelChange,
   enableNonSpeechSounds,
   onEnableNonSpeechSoundsChange,
+  castCount,
+  providerLabel,
+  onOpenCasts,
 }: TtsSettingsProps) {
+  const castHint = castCountHint(providerLabel, castCount)
   return (
     <div className="card mb-4 sm:mb-6">
       <h3 className="text-base sm:text-lg font-semibold text-white mb-3 sm:mb-4 flex items-center gap-2">
@@ -110,6 +119,14 @@ export default function TtsSettings({
               description="Native TTS, expressiveness"
             />
           </div>
+          {castHint && (
+            <p className={clsx('mt-2 text-xs', castCount === 0 ? 'text-yellow-400' : 'text-augustus-500')}>
+              {castHint}{' '}
+              <button type="button" onClick={onOpenCasts} className="text-accent hover:underline">
+                {castCount === 0 ? 'Create a cast →' : 'Manage casts →'}
+              </button>
+            </p>
+          )}
         </div>
 
         {provider === 'piper' && (

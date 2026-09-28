@@ -38,7 +38,7 @@ async def test_breakout_request_validation(api_app, body):
 
 
 @pytest.mark.asyncio
-async def test_breakout_persists_target_before_scheduling(api_app, db_session):
+async def test_breakout_persists_target_before_scheduling(api_app, db_session, gemini_default_cast):
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=api_app), base_url='http://test') as client:
         response = await client.post('/api/briefings/breakout', json={'topic':' Ocean currents ', 'focus':'Why circulation changes'})
         assert response.status_code == 202
@@ -93,7 +93,7 @@ async def test_chapter_target_scoped_snapshot_cast_and_queue(api_app, db_session
 
 @pytest.mark.asyncio
 async def test_breakout_chapter_keeps_parent_subject_when_chapter_title_is_conceptual(
-    api_app, db_session
+    api_app, db_session, gemini_default_cast
 ):
     parent = Briefing(
         id='source-breakout', user_id='u', profile_id='p', title='Fusion deep dive',
@@ -125,7 +125,7 @@ async def test_breakout_chapter_keeps_parent_subject_when_chapter_title_is_conce
 
 @pytest.mark.asyncio
 async def test_daily_chapter_prefers_story_title_to_generic_chapter_label(
-    api_app, db_session
+    api_app, db_session, gemini_default_cast
 ):
     parent = Briefing(
         id='source-daily', user_id='u', profile_id='p', title='Daily briefing',
@@ -176,7 +176,7 @@ async def test_breakout_rejects_disabled_api_tool(api_app):
         assert (await client.post('/api/briefings/breakout',json={'topic':'Ocean'})).status_code == 403
 
 @pytest.mark.asyncio
-async def test_saved_topic_target_and_invalid_chapter(api_app, db_session):
+async def test_saved_topic_target_and_invalid_chapter(api_app, db_session, gemini_default_cast):
     db_session.add(Topic(id='local-topic',user_id='u',profile_id='p',name='Ocean currents',slug='ocean',description='Explain the physical mechanisms'))
     db_session.add(Briefing(id='local-source',user_id='u',profile_id='p',title='Source',status='completed',extra_data={'chapters':[]}))
     await db_session.commit()
@@ -192,7 +192,7 @@ async def test_saved_topic_target_and_invalid_chapter(api_app, db_session):
 
 
 @pytest.mark.asyncio
-async def test_simultaneous_breakout_clicks_admit_independent_jobs(api_app, monkeypatch):
+async def test_simultaneous_breakout_clicks_admit_independent_jobs(api_app, monkeypatch, gemini_default_cast):
     import asyncio
     monkeypatch.setattr(routes, '_generation_request_lock', asyncio.Lock())
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=api_app), base_url='http://test') as client:
@@ -206,7 +206,7 @@ async def test_simultaneous_breakout_clicks_admit_independent_jobs(api_app, monk
     assert [response.json()['extra_data']['max_duration'] for response in responses] == [5, 20]
 
 @pytest.mark.asyncio
-async def test_daily_and_breakout_can_queue_together(api_app, monkeypatch):
+async def test_daily_and_breakout_can_queue_together(api_app, monkeypatch, gemini_default_cast):
     import asyncio
     monkeypatch.setattr(routes, '_generation_request_lock', asyncio.Lock())
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=api_app), base_url='http://test') as client:

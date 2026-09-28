@@ -19,6 +19,7 @@ from app.models.user import User
 from app.models.cast import Cast
 from app.models.article import Article
 from app.services.cast import CastService
+from app.services.tts.registry import active_tts_provider
 from app.services.llm.openrouter import get_llm_provider
 from app.services.llm.agents.orchestrator import BriefingOrchestrator
 from app.services.tts.factory import TTSFactory
@@ -560,17 +561,14 @@ class BriefingService:
             # Step 5: Load cast for this briefing (needed by per-host research below)
             await update_progress(5, "Loading cast configuration", 60)
             cast_service = CastService(self.db)
-            if briefing.cast_id:
-                cast = await cast_service.get_cast(briefing.cast_id, briefing.user_id, briefing.profile_id)
-                if not cast:
-                    print(f"[Briefing] Cast {briefing.cast_id} not found, using default")
-                    cast = await cast_service.get_default_cast(briefing.user_id, briefing.profile_id)
-            else:
-                cast = await cast_service.get_default_cast(briefing.user_id, briefing.profile_id)
-
-            # Save the cast_id to the briefing so it can be looked up later
-            if cast and not briefing.cast_id:
-                briefing.cast_id = cast.id
+            # Read the provider once: the cast and the audio must use the same one
+            # even if Settings change while this briefing generates.
+            tts_provider = active_tts_provider()
+            cast = await cast_service.resolve_for_generation(
+                briefing.user_id, briefing.profile_id, briefing.cast_id, tts_provider,
+            )
+            # Record the cast actually used so the player shows the right hosts.
+            briefing.cast_id = cast.id
 
             # Prepare cast members for prompt
             cast_members = []
@@ -749,6 +747,7 @@ class BriefingService:
                     voice_map=voice_map,  # Use cast voice IDs
                     briefing_id=briefing_id,
                     style_prompt=build_delivery_style(cast_members, cast.description),
+                    provider_name=tts_provider,
                 )
                 await self._check_cancelled(briefing_id)
             except BriefingCancelledException:

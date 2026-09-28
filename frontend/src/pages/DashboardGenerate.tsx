@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import clsx from 'clsx'
 import { briefingsApi, topicsApi, castsApi, customSitesApi, settingsApi, Briefing } from '../api/client'
+import { providerLabel } from './castProviders'
 import { useStore } from '../store/useStore'
 import { useProfileNavigate } from '../utils/profileSlug'
 import { findAutoPlayableCompletion } from '../components/breakout'
@@ -392,6 +393,11 @@ export default function DashboardGenerate({ onGenerateStarted, onNavigateAway }:
     navigate('/topics')
   }
 
+  const goToCreateCast = () => {
+    onNavigateAway?.()
+    navigate('/casts/create')
+  }
+
   const showTopicFilter = topics.length > TOPIC_FILTER_THRESHOLD
   const visibleTopics = showTopicFilter ? filterTopics(topics, topicFilter, selectedTopicIds) : topics
 
@@ -552,7 +558,14 @@ export default function DashboardGenerate({ onGenerateStarted, onNavigateAway }:
         </div>
       </section>
 
-      {/* Hosts */}
+      {/* Hosts: only the active voice provider's casts can read a briefing */}
+      {castsData && casts.length === 0 && (
+        <div className="mb-6 rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3 text-sm text-yellow-300">
+          No {providerLabel(castsData.providers, castsData.active_provider)} cast yet.{' '}
+          <button type="button" className="underline" onClick={goToCreateCast}>Create one</button>
+          {' '}to generate briefings.
+        </div>
+      )}
       {casts.length > 1 && (
         <section className="mb-6">
           <label htmlFor="briefing-cast" className="block text-sm font-medium text-white mb-3">Hosts</label>

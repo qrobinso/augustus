@@ -46,6 +46,9 @@ async def init_db():
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Existing databases need columns that create_all cannot add.
+        from app.migrations.add_tts_provider_to_casts import upgrade as upgrade_cast_providers
+        await upgrade_cast_providers(conn, settings.tts_provider)
 
 
 async def close_db():

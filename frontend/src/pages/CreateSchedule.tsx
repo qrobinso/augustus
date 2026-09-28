@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Clock, Mail, Webhook, Loader2, Calendar } from 'lucide-react'
 import clsx from 'clsx'
 import { scheduledBriefingsApi, topicsApi, settingsApi, castsApi } from '../api/client'
+import { castPickerValue, providerLabel, savedCastUnavailable } from './castProviders'
 import { parseSchedulePrefill } from './schedulePrefill'
 
 const DAYS_OF_WEEK = [
@@ -408,12 +409,12 @@ export default function CreateSchedule() {
             </div>
           )}
           
-          {/* Cast selector */}
+          {/* Cast selector (only the active voice provider's casts) */}
           {castsData && castsData.casts.length > 1 && (
             <div>
               <label className="label">Cast</label>
               <select
-                value={selectedCastId || castsData.casts.find(c => c.is_default)?.id || ''}
+                value={castPickerValue(selectedCastId, castsData.casts)}
                 onChange={(e) => setSelectedCastId(e.target.value || undefined)}
                 className="input"
               >
@@ -424,6 +425,13 @@ export default function CreateSchedule() {
                 ))}
               </select>
             </div>
+          )}
+          {castsData && existingSchedule?.cast_id && selectedCastId === existingSchedule.cast_id
+            && savedCastUnavailable(existingSchedule.cast_id, castsData.casts) && (
+            <p className="text-xs text-augustus-500">
+              This schedule's saved cast uses another voice provider, so it will use your default{' '}
+              {providerLabel(castsData.providers, castsData.active_provider)} cast.
+            </p>
           )}
           
           {/* Duration */}

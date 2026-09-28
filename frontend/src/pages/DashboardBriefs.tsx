@@ -210,10 +210,10 @@ export default function DashboardBriefs() {
     queryFn: () => topicsApi.list(),
   })
   
-  // Fetch casts for filters
+  // Fetch casts for filters: past briefings may have used any provider's cast.
   const { data: castsData } = useQuery({
-    queryKey: ['casts'],
-    queryFn: () => castsApi.list(),
+    queryKey: ['casts', 'all'],
+    queryFn: () => castsApi.list(undefined, 'all'),
   })
   
   const topics = topicsData?.topics || []

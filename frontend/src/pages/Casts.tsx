@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useProfileNavigate } from '../utils/profileSlug'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { 
@@ -7,19 +8,23 @@ import {
   Trash2,
   Pencil,
   Star,
-  RotateCcw
+  RotateCcw,
+  ChevronDown
 } from 'lucide-react'
 import clsx from 'clsx'
 import { castsApi, Cast } from '../api/client'
+import { providerLabel, splitCastsByProvider, voiceName } from './castProviders'
 
 export default function Casts() {
   const navigate = useProfileNavigate()
   const queryClient = useQueryClient()
   
   const { data, isLoading, error } = useQuery({
-    queryKey: ['casts'],
-    queryFn: () => castsApi.list(),
+    queryKey: ['casts', 'all'],
+    queryFn: () => castsApi.list(undefined, 'all'),
   })
+  const { data: voices } = useQuery({ queryKey: ['cast-voices'], queryFn: () => castsApi.voices(), staleTime: 30_000 })
+  const [showOther, setShowOther] = useState(false)
   
   const deleteMutation = useMutation({
     mutationFn: (id: string) => castsApi.delete(id),
@@ -42,7 +47,9 @@ export default function Casts() {
     },
   })
   
-  const casts = data?.casts || []
+  const activeProvider = data?.active_provider ?? ''
+  const label = providerLabel(data?.providers ?? [], activeProvider)
+  const { active: casts, other: otherCasts } = splitCastsByProvider(data?.casts ?? [], activeProvider)
   
   const handleDelete = async (cast: Cast) => {
     if (cast.is_default) {
@@ -59,7 +66,7 @@ export default function Casts() {
   }
   
   const handleRestoreDefault = () => {
-    if (confirm('Restore the default cast to "Alex and Sam" with default voices?')) {
+    if (confirm('Restore the default cast to Alex and Sebastian with the built-in Gemini voices?')) {
       restoreDefaultMutation.mutate()
     }
   }
@@ -92,10 +99,13 @@ export default function Casts() {
       <div className="mb-6 sm:mb-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl sm:text-3xl font-display font-semibold text-white mb-1 sm:mb-2">
-            Casts
+            {label ? `${label} casts` : 'Casts'}
           </h1>
           <p className="text-sm sm:text-base text-augustus-400">
-            Manage your podcast host configurations
+            Hosts for your active voice provider ·{' '}
+            <button type="button" className="text-accent hover:underline" onClick={() => navigate('/settings')}>
+              Change in Settings
+            </button>
           </p>
         </div>
         <button
@@ -110,12 +120,12 @@ export default function Casts() {
       {casts.length === 0 ? (
         <div className="card text-center py-10 sm:py-12">
           <Users className="w-10 sm:w-12 h-10 sm:h-12 text-augustus-600 mx-auto mb-3 sm:mb-4" />
-          <p className="text-sm sm:text-base text-augustus-400 mb-4">No casts yet. Create your first one!</p>
+          <p className="text-sm sm:text-base text-augustus-400 mb-4">No {label} casts yet. Briefings need one before they can play.</p>
           <button
             onClick={() => navigate('/casts/create', { state: { from: '/casts' } })}
             className="btn btn-primary"
           >
-            Create Your First Cast
+            Create a {label} cast
           </button>
         </div>
       ) : (
@@ -168,7 +178,7 @@ export default function Casts() {
                   >
                     <div className="font-medium text-white mb-1">{member.name}</div>
                     <div className="text-augustus-400 text-xs space-y-1">
-                      <div>Voice: <span className="text-augustus-300">{member.voice_id}</span></div>
+                      <div>Voice: <span className="text-augustus-300">{voiceName(member.voice_id, voices?.voices ?? [])}</span></div>
                       <div>Personality: <span className="text-augustus-300">{member.personality}</span></div>
                     </div>
                   </div>
@@ -176,7 +186,7 @@ export default function Casts() {
               </div>
               
               {cast.is_default ? (
-                <button
+                activeProvider === 'gemini' && <button
                   onClick={handleRestoreDefault}
                   disabled={restoreDefaultMutation.isPending}
                   className="mt-4 w-full btn btn-sm btn-ghost text-xs flex items-center justify-center gap-2"
@@ -198,6 +208,49 @@ export default function Casts() {
               )}
             </div>
           ))}
+        </div>
+      )}
+
+      {otherCasts.length > 0 && (
+        <div className="mt-8">
+          <button
+            type="button"
+            onClick={() => setShowOther(v => !v)}
+            className="flex items-center gap-2 text-sm text-augustus-400 hover:text-augustus-300"
+            aria-expanded={showOther}
+          >
+            <ChevronDown className={clsx('w-4 h-4 transition-transform', showOther && 'rotate-180')} />
+            {otherCasts.length} cast{otherCasts.length === 1 ? '' : 's'} for other providers
+          </button>
+          {showOther && (
+            <div className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 opacity-60">
+              {otherCasts.map(cast => (
+                <div key={cast.id} className="rounded-lg border border-augustus-700 bg-augustus-800/30 p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <h3 className="font-semibold text-white">{cast.name}</h3>
+                      <span className="mt-1 inline-block rounded bg-augustus-700 px-1.5 py-0.5 text-xs text-augustus-300">
+                        {providerLabel(data?.providers ?? [], cast.tts_provider)}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => handleEdit(cast)} className="btn-icon btn btn-ghost" title="View">
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                      {!cast.is_default && (
+                        <button onClick={() => handleDelete(cast)} className="btn-icon btn btn-ghost text-red-400" title="Delete">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <p className="mt-2 text-xs text-augustus-500">
+                    {cast.members.map(m => m.name).join(', ')} · switch provider in Settings to use
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -190,9 +190,40 @@ export interface Cast {
   name: string
   description?: string
   is_default: boolean
+  tts_provider: string
   members: CastMember[]
   created_at: string
   updated_at: string
+}
+
+export interface ProviderInfo {
+  id: string
+  label: string
+  allows_custom_voice: boolean
+}
+
+export interface CastList {
+  casts: Cast[]
+  active_provider: string
+  providers: ProviderInfo[]
+}
+
+export interface VoiceOption {
+  id: string
+  name: string
+  description?: string | null
+}
+
+export interface CastVoices {
+  provider: string
+  provider_label: string
+  voices: VoiceOption[]
+  allows_custom: boolean
+}
+
+export interface CastSummary {
+  active_provider: string
+  counts: Record<string, number>
 }
 
 export interface CastCreate {
@@ -703,14 +734,25 @@ export const scheduledBriefingsApi = {
 }
 
 export const castsApi = {
-  list: async (profileId?: string) => {
-    const { data } = await api.get<{ casts: Cast[] }>(
-      '/api/casts',
-      profileId ? { headers: { 'X-Profile-ID': profileId } } : undefined
-    )
+  /** Casts for the active TTS provider; pass provider 'all' for every provider. */
+  list: async (profileId?: string, provider?: string) => {
+    const { data } = await api.get<CastList>('/api/casts', {
+      params: provider ? { provider } : undefined,
+      headers: profileId ? { 'X-Profile-ID': profileId } : undefined,
+    })
     return data
   },
-  
+
+  voices: async (provider?: string) => {
+    const { data } = await api.get<CastVoices>('/api/casts/voices', { params: provider ? { provider } : undefined })
+    return data
+  },
+
+  summary: async () => {
+    const { data } = await api.get<CastSummary>('/api/casts/summary')
+    return data
+  },
+
   get: async (id: string) => {
     const { data } = await api.get<Cast>(`/api/casts/${id}`)
     return data

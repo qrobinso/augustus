@@ -14,6 +14,8 @@ import {
 import clsx from 'clsx'
 import { castsApi, CastCreate, CastUpdate } from '../api/client'
 import PersonalityEditor from '../components/PersonalityEditor'
+import VoicePicker from '../components/VoicePicker'
+import { isCastReadOnly, voiceChoice } from './castProviders'
 import { applyPersonalityChange, PersonalityChange } from '../components/personalityFiles'
 
 export default function CreateCast() {
@@ -39,6 +41,22 @@ export default function CreateCast() {
     enabled: isEditing,
     refetchOnMount: true, // Always refetch when component mounts to get latest data
   })
+
+  const { data: voices, isLoading: voicesLoading, error: voicesError } = useQuery({
+    queryKey: ['cast-voices'],
+    queryFn: () => castsApi.voices(),
+    staleTime: 30_000,
+  })
+  // The active provider comes from the cast list, independent of the voices query,
+  // so a failing voice list can't unlock another provider's cast.
+  const { data: castList } = useQuery({
+    queryKey: ['casts'],
+    queryFn: () => castsApi.list(),
+  })
+  const activeProvider = castList?.active_provider
+  // Casts belong to the provider active when they were created; editable only once that's confirmed.
+  const readOnly = isEditing && isCastReadOnly(existingCast, activeProvider)
+  const otherProvider = readOnly && !!existingCast && !!activeProvider
   
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
@@ -137,6 +155,8 @@ export default function CreateCast() {
   
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
+    // Enter in a disabled form can't submit, but never save another provider's cast.
+    if (readOnly) return
     
     if (!name.trim()) {
       alert('Cast name is required')
@@ -157,6 +177,10 @@ export default function CreateCast() {
       }
       if (!member.voice_id.trim()) {
         alert(`Member ${i + 1} voice ID is required`)
+        return
+      }
+      if (voices && voiceChoice(member.voice_id, voices.voices, voices.allows_custom).kind === 'missing') {
+        alert(`Member ${i + 1}: choose a ${voices.provider_label} voice`)
         return
       }
     }
@@ -290,11 +314,24 @@ export default function CreateCast() {
             <p className="text-sm sm:text-base text-augustus-400">
               {isEditing ? 'Update your podcast host configuration' : 'Create a new podcast host configuration'}
             </p>
+            {voices && !readOnly && (
+              <p className="mt-1 text-xs text-augustus-400">
+                These hosts use <span className="font-medium text-accent">{voices.provider_label}</span> voices
+                {' · '}change the provider in Settings.
+              </p>
+            )}
           </div>
         </div>
       </div>
       
+      {otherProvider && (
+        <div className="mb-6 rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3 text-sm text-yellow-300">
+          This cast uses another provider's voices. Switch the voice provider in Settings to edit it.
+        </div>
+      )}
+
       <form onSubmit={handleSubmit} className="space-y-6">
+        <fieldset disabled={readOnly} className="space-y-6">
         {/* Cast Details */}
         <div className="card">
           <h2 className="text-base sm:text-lg font-semibold text-white mb-3 sm:mb-4 flex items-center gap-2">
@@ -427,19 +464,21 @@ export default function CreateCast() {
                   </div>
                   
                   <div>
-                    <label className="label">Voice ID *</label>
-                    <input
-                      type="text"
-                      value={member.voice_id}
-                      onChange={(e) => updateMember(index, 'voice_id', e.target.value)}
-                      className="input w-full"
-                      placeholder="e.g., 21m00Tcm4TlvDq8ikWAM"
-                      required
-                      disabled={isLoading}
-                    />
-                    <p className="text-xs text-augustus-500 mt-1">
-                      Voice ID from your TTS provider (ElevenLabs, Gemini, etc.)
-                    </p>
+                    <label className="label" htmlFor={`member-${index}-voice`}>Voice *</label>
+                    {readOnly ? (
+                      // Another provider's voice can't be matched against the active provider's list.
+                      <input id={`member-${index}-voice`} type="text" value={member.voice_id} className="input w-full" readOnly />
+                    ) : (
+                      <VoicePicker
+                        id={`member-${index}-voice`}
+                        value={member.voice_id}
+                        onChange={(voiceId) => updateMember(index, 'voice_id', voiceId)}
+                        voices={voices}
+                        loading={voicesLoading}
+                        error={voicesError ? `Couldn't load voices: ${(voicesError as Error).message}` : undefined}
+                        disabled={isLoading}
+                      />
+                    )}
                   </div>
                   
                   <div>
@@ -492,6 +531,7 @@ export default function CreateCast() {
             ))}
           </div>
         </div>
+        </fieldset>
         
         {/* Create / Cancel buttons */}
         <div className="flex flex-col-reverse sm:flex-row items-center gap-3">
@@ -503,7 +543,7 @@ export default function CreateCast() {
           >
             Cancel
           </button>
-          <button
+          {!readOnly && <button
             type="submit"
             disabled={!name.trim() || isLoading}
             className="btn btn-primary w-full sm:w-auto flex items-center justify-center gap-2"
@@ -518,7 +558,7 @@ export default function CreateCast() {
                 {isEditing ? 'Update Cast' : 'Create Cast'}
               </>
             )}
-          </button>
+          </button>}
         </div>
         
         {(createMutation.isError || updateMutation.isError) && (

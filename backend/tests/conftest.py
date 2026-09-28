@@ -110,3 +110,24 @@ class FakeSearch:
 
     async def fetch_page_content(self, url):
         return self._page_content
+
+
+@pytest.fixture(autouse=True)
+def _pin_tts_provider(monkeypatch):
+    """Tests must not depend on the developer's .env TTS provider."""
+    from app.config import get_settings
+    monkeypatch.setenv("TTS_PROVIDER", "gemini")
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
+@pytest_asyncio.fixture
+async def gemini_default_cast(db_session):
+    """Default Gemini cast for user 'u' / profile 'p' (the ids the API tests use)."""
+    from app.models.cast import Cast
+    cast = Cast(id="default-cast", user_id="u", profile_id="p", name="Default",
+                tts_provider="gemini", is_default=True)
+    db_session.add(cast)
+    await db_session.commit()
+    return cast

@@ -1,6 +1,8 @@
 """Casts API router."""
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,9 +17,18 @@ from app.schemas.cast import (
     CastResponse,
     CastListResponse,
     CastMemberBase,
+    ProviderInfo,
+    CastVoicesResponse,
+    VoiceOption,
+    CastSummaryResponse,
 )
-from app.services.cast import CastService
+from app.services.cast import CastService, CastProviderMismatchError
 from app.services.llm.openrouter import get_llm_provider
+from app.services.tts.registry import (
+    TTS_PROVIDERS,
+    active_tts_provider,
+    list_provider_voices,
+)
 
 # Import personalities registry with error handling
 try:
@@ -40,22 +51,66 @@ async def create_cast(
     """Create a new cast."""
     service = CastService(db)
     try:
-        cast = await service.create_cast(user.id, cast_data, profile_id=profile.id)
+        cast = await service.create_cast(user.id, cast_data, profile_id=profile.id, provider=active_tts_provider())
         return CastResponse.model_validate(cast)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
+def _provider_infos() -> list[ProviderInfo]:
+    return [ProviderInfo(id=s.id, label=s.label, allows_custom_voice=s.allows_custom_voice)
+            for s in TTS_PROVIDERS.values()]
+
+
 @router.get("", response_model=CastListResponse)
 async def list_casts(
+    provider: Optional[str] = Query(None, description="'all', a provider id, or omit for the active provider"),
     user: User = Depends(get_current_user),
     profile: Profile = Depends(get_current_profile),
     db: AsyncSession = Depends(get_db),
 ):
-    """List all casts for the current profile."""
-    service = CastService(db)
-    casts = await service.get_user_casts(user.id, profile_id=profile.id)
-    return CastListResponse(casts=[CastResponse.model_validate(c) for c in casts])
+    """List casts for the current profile; the active provider's casts by default."""
+    active = active_tts_provider()
+    scope = None if provider == "all" else (provider or active)
+    casts = await CastService(db).get_user_casts(user.id, profile_id=profile.id, provider=scope)
+    return CastListResponse(
+        casts=[CastResponse.model_validate(c) for c in casts],
+        active_provider=active,
+        providers=_provider_infos(),
+    )
+
+
+@router.get("/voices", response_model=CastVoicesResponse)
+async def list_voices(
+    provider: Optional[str] = None,
+    user: User = Depends(get_current_user),
+):
+    """Voices a cast can use with a provider (the active one by default)."""
+    provider = provider or active_tts_provider()
+    spec = TTS_PROVIDERS.get(provider)
+    if spec is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Unknown TTS provider: {provider}")
+    try:
+        voices = await list_provider_voices(provider)
+    except Exception as error:  # provider servers (e.g. Voicebox) can be down
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(error))
+    return CastVoicesResponse(
+        provider=provider,
+        provider_label=spec.label,
+        voices=[VoiceOption(id=v.id, name=v.name, description=v.description) for v in voices],
+        allows_custom=spec.allows_custom_voice,
+    )
+
+
+@router.get("/summary", response_model=CastSummaryResponse)
+async def cast_summary(
+    user: User = Depends(get_current_user),
+    profile: Profile = Depends(get_current_profile),
+    db: AsyncSession = Depends(get_db),
+):
+    """Cast counts per provider, for the Settings provider hint."""
+    counts = await CastService(db).count_by_provider(user.id, profile.id)
+    return CastSummaryResponse(active_provider=active_tts_provider(), counts=counts)
 
 
 @router.get("/personalities", response_model=list[str])
@@ -177,7 +232,7 @@ async def update_cast(
     """Update a cast."""
     service = CastService(db)
     try:
-        cast = await service.update_cast(cast_id, user.id, cast_data, profile_id=profile.id)
+        cast = await service.update_cast(cast_id, user.id, cast_data, profile.id, active_tts_provider())
         if not cast:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cast not found")
         return CastResponse.model_validate(cast)
@@ -211,7 +266,10 @@ async def set_default_cast(
 ):
     """Set a cast as the default for the profile."""
     service = CastService(db)
-    cast = await service.set_default_cast(cast_id, user.id, profile_id=profile.id)
+    try:
+        cast = await service.set_default_cast(cast_id, user.id, profile.id, active_tts_provider())
+    except CastProviderMismatchError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     if not cast:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cast not found")
     return CastResponse.model_validate(cast)
@@ -223,9 +281,12 @@ async def restore_default_cast(
     profile: Profile = Depends(get_current_profile),
     db: AsyncSession = Depends(get_db),
 ):
-    """Restore the default cast to its original values (Augustus Daily with Zephyr/Sadachbia voices)."""
+    """Restore the Gemini default cast to its original hosts (Alex/Kore, Sebastian/Puck)."""
     service = CastService(db)
-    cast = await service.restore_default_cast(user.id, profile_id=profile.id)
+    try:
+        cast = await service.restore_default_cast(user.id, profile.id, active_tts_provider())
+    except CastProviderMismatchError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     return CastResponse.model_validate(cast)
 
 

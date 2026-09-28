@@ -20,6 +20,7 @@ import mcp_server as installed_mcp_server
 from app.database import get_db
 from app.models.api_key import ApiKey
 from app.models.briefing import Briefing
+from app.models.cast import Cast
 from app.models.profile import Profile
 from app.models.user import User
 from app.routers import briefings as briefing_routes
@@ -247,6 +248,9 @@ async def test_breakout_mcp_proxy_queues_multiple_jobs_with_key_bound_identity(d
         db_session,
         enabled_tools=["generate_breakout_podcast"],
     )
+    db_session.add(Cast(id="cast-bound", user_id="user-1", profile_id=bound.id, name="Hosts",
+                        tts_provider="gemini", is_default=True))
+    await db_session.commit()
     app = FastAPI()
 
     async def override_db():

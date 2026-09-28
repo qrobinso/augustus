@@ -26,8 +26,10 @@ from app.schemas.briefing import (
     ListeningCoverageResponse,
 )
 from app.services.briefing import BriefingService
+from app.services.cast import CastService, CastProviderMismatchError, NoCastForProviderError
 from app.services.listening import ListeningService
 from app.services.generation_queue import process_generation_queue
+from app.services.tts.registry import active_tts_provider
 
 router = APIRouter()
 
@@ -81,6 +83,8 @@ async def generate_briefing(
         from app.config import get_settings
 
         service = BriefingService(db)
+        provider = active_tts_provider()
+        cast_service = CastService(db)
         if request.cast_id:
             cast = await db.scalar(select(Cast).where(
                 Cast.id == request.cast_id,
@@ -89,6 +93,15 @@ async def generate_briefing(
             ))
             if cast is None:
                 raise HTTPException(404, "Cast not found in this profile")
+            try:
+                cast_service.ensure_usable(cast, provider)
+            except CastProviderMismatchError as error:
+                raise HTTPException(400, str(error))
+        else:
+            try:
+                await cast_service.get_default_cast(user.id, profile.id, provider)
+            except NoCastForProviderError as error:
+                raise HTTPException(400, str(error))
 
         duration = request.max_duration_minutes or get_settings().briefing_duration_minutes
         briefing = await service.create_briefing(

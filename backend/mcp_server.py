@@ -348,7 +348,7 @@ TOOL_DEFS: list[dict[str, Any]] = [
     },
     {
         "name": "list_casts",
-        "description": "List casts (host personalities) for the connected profile.",
+        "description": "List casts for the connected profile. Only casts for the active voice (TTS) provider are listed; each cast has tts_provider. Pass cast ids from this list.",
         "inputSchema": {"type": "object", "properties": {}},
         "annotations": READ,
         "method": "GET",

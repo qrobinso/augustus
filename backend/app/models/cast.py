@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Optional, TYPE_CHECKING
 
-from sqlalchemy import String, DateTime, ForeignKey, Integer, Boolean
+from sqlalchemy import String, DateTime, ForeignKey, Integer, Boolean, Index, text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -17,7 +17,7 @@ class Cast(Base):
     """Custom cast configuration for podcast hosts."""
     
     __tablename__ = "casts"
-    
+
     id: Mapped[str] = mapped_column(
         String(36),
         primary_key=True,
@@ -51,7 +51,28 @@ class Cast(Base):
         default=False,
         doc="Whether this is the default cast for the user",
     )
-    
+    tts_provider: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="gemini",
+        doc="TTS provider whose voices this cast uses (see services/tts/registry.py)",
+    )
+
+    __table_args__ = (
+        Index("ix_casts_scope_provider", "user_id", "profile_id", "tts_provider"),
+        # The database, not just the service, guarantees one default per provider.
+        # profile_id is nullable and SQLite treats NULLs as distinct in a plain unique
+        # index, so the expression coalesces it to '' to keep NULL-profile casts covered.
+        Index(
+            "uq_casts_one_default_per_provider",
+            user_id,
+            func.coalesce(profile_id, ""),
+            tts_provider,
+            unique=True,
+            sqlite_where=text("is_default = 1"),
+        ),
+    )
+
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
         DateTime,

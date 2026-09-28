@@ -61,18 +61,45 @@ class CastResponse(CastBase):
     id: str
     user_id: str
     is_default: bool
+    tts_provider: str
     members: list[CastMemberResponse]
     created_at: UTCDatetime
     updated_at: UTCDatetime
-    
+
     model_config = {
         "from_attributes": True,
     }
 
 
+class ProviderInfo(BaseModel):
+    id: str
+    label: str
+    allows_custom_voice: bool
+
+
 class CastListResponse(BaseModel):
-    """Schema for listing casts."""
+    """Casts plus the provider context the UI needs to explain them."""
     casts: list[CastResponse]
+    active_provider: str
+    providers: list[ProviderInfo]
+
+
+class VoiceOption(BaseModel):
+    id: str
+    name: str
+    description: Optional[str] = None
+
+
+class CastVoicesResponse(BaseModel):
+    provider: str
+    provider_label: str
+    voices: list[VoiceOption]
+    allows_custom: bool
+
+
+class CastSummaryResponse(BaseModel):
+    active_provider: str
+    counts: dict[str, int]
 
 
 

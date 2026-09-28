@@ -33,7 +33,7 @@ function renderQueue(briefings: Briefing[]) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   client.setQueryData(['briefings', 'queue', 'profile-1'], { briefings, total: briefings.length })
   client.setQueryData(['topics'], { topics: [] })
-  client.setQueryData(['casts'], { casts: [] })
+  client.setQueryData(['casts'], { casts: [], active_provider: 'gemini', providers: [] })
   return renderToStaticMarkup(
     createElement(StaticRouter, { location: '/profile/generate' },
       createElement(QueryClientProvider, { client }, createElement(DashboardGenerate)))

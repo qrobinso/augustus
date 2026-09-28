@@ -8,6 +8,8 @@ from app.models.briefing import Briefing
 from app.models.cast import Cast
 from app.models.topic import Topic
 from app.schemas.briefing import BreakoutGenerateRequest
+from app.services.cast import CastService, NoCastForProviderError, provider_mismatch_message
+from app.services.tts.registry import active_tts_provider
 
 
 def _clean_topic(value) -> str:
@@ -110,12 +112,24 @@ async def resolve_breakout_request(db, request: BreakoutGenerateRequest, user_id
         if isinstance(ids, list) and ids:
             topic_ids = list((await db.scalars(select(Topic.id).where(
                 Topic.id.in_(ids), Topic.user_id == user_id, Topic.profile_id == profile_id))).all())
+    provider = active_tts_provider()
     cast_id = request.cast_id or (parent.cast_id if parent else None)
     if cast_id:
         cast = await db.scalar(select(Cast).where(
             Cast.id == cast_id, Cast.user_id == user_id, Cast.profile_id == profile_id))
-        if cast is None:
+        usable = cast is not None and cast.tts_provider == provider
+        if not usable:
             if request.cast_id:
-                raise HTTPException(404, "Cast not found in this profile")
-            cast_id = None  # A removed parent cast falls back to the current default.
+                if cast is None:
+                    raise HTTPException(404, "Cast not found in this profile")
+                raise HTTPException(400, provider_mismatch_message(cast.name, cast.tts_provider, provider))
+            # A removed or other-provider parent cast falls back to the current default.
+            reason = "not found" if cast is None else f"belongs to {cast.tts_provider}"
+            print(f"[Breakout] Parent cast {cast_id} {reason}; using the {provider} default")
+            cast_id = None
+    if cast_id is None:
+        try:
+            await CastService(db).get_default_cast(user_id, profile_id, provider)
+        except NoCastForProviderError as error:
+            raise HTTPException(400, str(error))
     return metadata, topic_ids, cast_id

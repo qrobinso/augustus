@@ -18,7 +18,8 @@ import {
   Plug
 } from 'lucide-react'
 import clsx from 'clsx'
-import { settingsApi } from '../api/client'
+import { castsApi, settingsApi } from '../api/client'
+import { providerLabel } from './castProviders'
 import CodexSettings from '../components/CodexSettings'
 import ProfileManagement from '../components/ProfileManagement'
 import ContentSettings from '../components/settings/ContentSettings'
@@ -99,6 +100,9 @@ export default function Settings() {
     queryFn: () => settingsApi.getTimezones(),
   })
 
+  const { data: castSummary } = useQuery({ queryKey: ['casts', 'summary'], queryFn: () => castsApi.summary() })
+  const { data: castList } = useQuery({ queryKey: ['casts'], queryFn: () => castsApi.list() })
+
   // Update settings mutation
   const updateMutation = useMutation({
     mutationFn: settingsApi.update,
@@ -112,6 +116,11 @@ export default function Settings() {
         if ('resend_api_key' in variables) updated.resend_configured = true
         return updated
       })
+      // Casts are per provider: every cast list and picker must follow a provider switch.
+      if ('tts_provider' in variables) {
+        queryClient.invalidateQueries({ queryKey: ['casts'] })
+        queryClient.invalidateQueries({ queryKey: ['cast-voices'] })
+      }
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
     },
@@ -508,6 +517,9 @@ export default function Settings() {
               onGeminiModelChange={setGeminiModel}
               enableNonSpeechSounds={enableNonSpeechSounds}
               onEnableNonSpeechSoundsChange={setEnableNonSpeechSounds}
+              castCount={castSummary ? (castSummary.counts[ttsProvider] ?? 0) : undefined}
+              providerLabel={providerLabel(castList?.providers ?? [], ttsProvider)}
+              onOpenCasts={() => navigate('/casts')}
             />
           </SettingsGroup>
 
