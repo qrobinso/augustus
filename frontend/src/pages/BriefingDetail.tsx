@@ -16,7 +16,6 @@ import {
   Circle,
   Copy,
   ChevronDown,
-  ChevronUp,
   BookOpen,
   Cpu,
   FileAudio,
@@ -31,8 +30,9 @@ import {
   CornerUpRight
 } from 'lucide-react'
 import clsx from 'clsx'
-import { briefingsApi, settingsApi, castsApi, scheduledBriefingsApi, topicsApi, SegmentTiming } from '../api/client'
+import { briefingsApi, settingsApi, castsApi, topicsApi, SegmentTiming } from '../api/client'
 import { groupSourcesByHost } from './briefingSources'
+import { scheduleParamsFromBriefing } from './schedulePrefill'
 import StoryDevelopments from '../components/StoryDevelopments'
 import { useStore } from '../store/useStore'
 import type { QueueItem } from '../store/queue'
@@ -72,7 +72,6 @@ export default function BriefingDetail() {
   const [notesExpanded, setNotesExpanded] = useState(false)
   const [nerdStatsExpanded, setNerdStatsExpanded] = useState(false)
   const [audioFileSize, setAudioFileSize] = useState<number | null>(null)
-  const [showCreateScheduleModal, setShowCreateScheduleModal] = useState(false)
   // Follow transcript state - persisted to localStorage
   const [followTranscript, setFollowTranscript] = useState(() => {
     const saved = localStorage.getItem('followTranscript')
@@ -99,7 +98,7 @@ export default function BriefingDetail() {
   // Use user's timezone if available, fallback to UTC only if not set
   const timezone = (settings?.timezone && settings.timezone.trim()) || Intl.DateTimeFormat().resolvedOptions().timeZone
   
-  // Fetch topics for schedule name
+  // Fetch topics for the topic chips
   const { data: topicsData } = useQuery({
     queryKey: ['topics'],
     queryFn: () => topicsApi.list(),
@@ -157,43 +156,6 @@ export default function BriefingDetail() {
       }
       queryClient.invalidateQueries({ queryKey: ['briefings'] })
       navigate('/dashboard')
-    },
-  })
-  
-  // Mutation for creating schedule from briefing
-  const createScheduleMutation = useMutation({
-    mutationFn: (options: {
-      schedule_time: string
-      schedule_days: number[]
-    }) => {
-      const topicIds = (briefing?.extra_data?.topic_ids as string[]) || []
-      const maxDurationMinutes = briefing?.duration_seconds 
-        ? Math.ceil(briefing.duration_seconds / 60)
-        : 5
-      
-      // Create schedule name from topic names
-      const topicNames = topicIds
-        .map(id => topics.find(t => t.id === id)?.name)
-        .filter(Boolean) as string[]
-      
-      const scheduleName = topicNames.length > 0
-        ? topicNames.join(', ')
-        : briefing?.title || 'Daily Briefing'
-      
-      return scheduledBriefingsApi.create({
-        name: scheduleName,
-        topic_ids: topicIds,
-        schedule_time: options.schedule_time,
-        schedule_days: options.schedule_days,
-        notification_methods: [],
-        is_active: true,
-        max_duration_minutes: maxDurationMinutes,
-        cast_id: briefing?.cast_id,
-      })
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['scheduled-briefings'] })
-      setShowCreateScheduleModal(false)
     },
   })
   
@@ -1064,7 +1026,7 @@ export default function BriefingDetail() {
             </button>
             
             <button
-              onClick={() => setShowCreateScheduleModal(true)}
+              onClick={() => navigate(`/schedules/create?${scheduleParamsFromBriefing(briefing).toString()}`)}
               className="btn btn-ghost flex items-center gap-2 text-sm"
               title="Create Schedule"
             >
@@ -1565,199 +1527,6 @@ export default function BriefingDetail() {
           )}
         </div>
       )}
-      
-      {/* Create Schedule Modal */}
-      {showCreateScheduleModal && (
-        <CreateScheduleModal
-          isOpen={showCreateScheduleModal}
-          onClose={() => setShowCreateScheduleModal(false)}
-          onConfirm={(scheduleTime, scheduleDays) => {
-            createScheduleMutation.mutate({
-              schedule_time: scheduleTime,
-              schedule_days: scheduleDays,
-            })
-          }}
-          isLoading={createScheduleMutation.isPending}
-          timezone={timezone}
-        />
-      )}
     </div>
-  )
-}
-
-// Create Schedule Modal Component
-interface CreateScheduleModalProps {
-  isOpen: boolean
-  onClose: () => void
-  onConfirm: (scheduleTime: string, scheduleDays: number[]) => void
-  isLoading: boolean
-  timezone: string
-}
-
-function CreateScheduleModal({
-  isOpen,
-  onClose,
-  onConfirm,
-  isLoading,
-  timezone,
-}: CreateScheduleModalProps) {
-  const [hours, setHours] = useState(8)
-  const [minutes, setMinutes] = useState(0)
-  const [selectedDays, setSelectedDays] = useState<number[]>([0, 1, 2, 3, 4]) // Mon-Fri by default
-  
-  const DAYS_OF_WEEK = [
-    { value: 0, label: 'Mon', fullLabel: 'Monday' },
-    { value: 1, label: 'Tue', fullLabel: 'Tuesday' },
-    { value: 2, label: 'Wed', fullLabel: 'Wednesday' },
-    { value: 3, label: 'Thu', fullLabel: 'Thursday' },
-    { value: 4, label: 'Fri', fullLabel: 'Friday' },
-    { value: 5, label: 'Sat', fullLabel: 'Saturday' },
-    { value: 6, label: 'Sun', fullLabel: 'Sunday' },
-  ]
-  
-  const handleDayToggle = (day: number) => {
-    setSelectedDays(prev => 
-      prev.includes(day) 
-        ? prev.filter(d => d !== day)
-        : [...prev, day]
-    )
-  }
-  
-  const handleConfirm = () => {
-    const scheduleTime = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`
-    onConfirm(scheduleTime, selectedDays)
-  }
-  
-  if (!isOpen) return null
-  
-  return (
-    <>
-      <div 
-        className="fixed inset-0 bg-black/50 z-[200]" 
-        onClick={onClose}
-      />
-      <div className="fixed inset-0 z-[201] flex items-center justify-center p-4">
-        <div 
-          className="bg-augustus-900 border border-augustus-700 rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="p-6 sm:p-8">
-            <h2 className="text-xl sm:text-2xl font-semibold text-white mb-6">
-              Create Schedule
-            </h2>
-            
-            {/* Time Selection with Big Numbers */}
-            <div className="mb-8">
-              <label className="block text-sm font-medium text-augustus-300 mb-4">
-                Schedule Time ({timezone})
-              </label>
-              <div className="flex items-center justify-center gap-4 sm:gap-8">
-                {/* Hours */}
-                <div className="flex flex-col items-center">
-                  <label className="text-xs text-augustus-400 mb-2 uppercase tracking-wide">Hours</label>
-                  <div className="flex flex-col gap-2">
-                    <button
-                      onClick={() => setHours(prev => Math.min(23, prev + 1))}
-                      className="btn btn-ghost p-2 text-augustus-400 hover:text-white"
-                      disabled={isLoading}
-                    >
-                      <ChevronUp className="w-4 h-4" />
-                    </button>
-                    <div className="text-6xl sm:text-8xl font-bold text-white tabular-nums min-w-[80px] sm:min-w-[120px] text-center">
-                      {hours.toString().padStart(2, '0')}
-                    </div>
-                    <button
-                      onClick={() => setHours(prev => Math.max(0, prev - 1))}
-                      className="btn btn-ghost p-2 text-augustus-400 hover:text-white"
-                      disabled={isLoading}
-                    >
-                      <ChevronDown className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-                
-                {/* Separator */}
-                <div className="text-6xl sm:text-8xl font-bold text-augustus-600 pb-8">
-                  :
-                </div>
-                
-                {/* Minutes */}
-                <div className="flex flex-col items-center">
-                  <label className="text-xs text-augustus-400 mb-2 uppercase tracking-wide">Minutes</label>
-                  <div className="flex flex-col gap-2">
-                    <button
-                      onClick={() => setMinutes(prev => Math.min(59, prev + 1))}
-                      className="btn btn-ghost p-2 text-augustus-400 hover:text-white"
-                      disabled={isLoading}
-                    >
-                      <ChevronUp className="w-4 h-4" />
-                    </button>
-                    <div className="text-6xl sm:text-8xl font-bold text-white tabular-nums min-w-[80px] sm:min-w-[120px] text-center">
-                      {minutes.toString().padStart(2, '0')}
-                    </div>
-                    <button
-                      onClick={() => setMinutes(prev => Math.max(0, prev - 1))}
-                      className="btn btn-ghost p-2 text-augustus-400 hover:text-white"
-                      disabled={isLoading}
-                    >
-                      <ChevronDown className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-            
-            {/* Days Selection */}
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-augustus-300 mb-4">
-                Days of Week
-              </label>
-              <div className="flex flex-wrap gap-2">
-                {DAYS_OF_WEEK.map(day => (
-                  <button
-                    key={day.value}
-                    onClick={() => handleDayToggle(day.value)}
-                    disabled={isLoading}
-                    className={clsx(
-                      'px-4 py-2 rounded-lg text-sm font-medium transition-colors',
-                      selectedDays.includes(day.value)
-                        ? 'bg-accent text-white'
-                        : 'bg-augustus-800 text-augustus-300 hover:bg-augustus-700'
-                    )}
-                  >
-                    {day.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            
-            {/* Actions */}
-            <div className="flex items-center justify-end gap-3 pt-4 border-t border-augustus-700">
-              <button
-                onClick={onClose}
-                disabled={isLoading}
-                className="btn btn-ghost"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleConfirm}
-                disabled={isLoading || selectedDays.length === 0}
-                className="btn btn-primary"
-              >
-                {isLoading ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                    Creating...
-                  </>
-                ) : (
-                  'Create Schedule'
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </>
   )
 }

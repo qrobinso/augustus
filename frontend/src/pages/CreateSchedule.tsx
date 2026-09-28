@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Clock, Mail, Webhook, Loader2, Calendar } from 'lucide-react'
 import clsx from 'clsx'
 import { scheduledBriefingsApi, topicsApi, settingsApi, castsApi } from '../api/client'
+import { parseSchedulePrefill } from './schedulePrefill'
 
 const DAYS_OF_WEEK = [
   { value: 0, label: 'Mon', fullLabel: 'Monday' },
@@ -24,14 +25,9 @@ export default function CreateSchedule() {
   
   const isEditing = Boolean(id)
   
-  // Get initial values from URL params (for creating from Dashboard)
-  const initialTopicIds = useMemo(() => {
-    const topicIds = searchParams.get('topicIds')
-    return topicIds ? topicIds.split(',') : []
-  }, [searchParams])
-  
-  const initialCastId = searchParams.get('castId') || undefined
-  
+  // Initial values from URL params (for creating from the Dashboard or a briefing)
+  const prefill = useMemo(() => parseSchedulePrefill(searchParams), [searchParams])
+
   const [name, setName] = useState('')
   const [selectedTopicIds, setSelectedTopicIds] = useState<string[]>([])
   const [scheduleTime, setScheduleTime] = useState('08:00')
@@ -90,12 +86,13 @@ export default function CreateSchedule() {
       setIsInitialized(true)
     } else if (!isEditing && settings) {
       // Initialize with URL params and settings for new schedule
-      setSelectedTopicIds(initialTopicIds)
-      setSelectedCastId(initialCastId)
-      setMaxDurationMinutes(settings.briefing_duration_minutes || 5)
+      setName(prefill.name || '')
+      setSelectedTopicIds(prefill.topicIds)
+      setSelectedCastId(prefill.castId)
+      setMaxDurationMinutes(prefill.durationMinutes || settings.briefing_duration_minutes || 5)
       setIsInitialized(true)
     }
-  }, [isEditing, existingSchedule, settings, initialTopicIds, initialCastId, isInitialized])
+  }, [isEditing, existingSchedule, settings, prefill, isInitialized])
   
   const toggleDay = (day: number) => {
     setScheduleDays((prev) =>

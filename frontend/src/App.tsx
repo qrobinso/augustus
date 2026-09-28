@@ -7,7 +7,6 @@ import { slugify } from './utils/profileSlug'
 import Layout from './components/Layout'
 import DashboardLayout from './pages/DashboardLayout'
 import DashboardBriefs from './pages/DashboardBriefs'
-import DashboardGenerate from './pages/DashboardGenerate'
 import DashboardSchedules from './pages/DashboardSchedules'
 import BriefingDetail from './pages/BriefingDetail'
 import Topics from './pages/Topics'
@@ -159,7 +158,6 @@ function App() {
             <Route path="dashboard" element={<DashboardLayout />}>
               <Route index element={<Navigate to="briefs" replace />} />
               <Route path="briefs" element={<DashboardBriefs />} />
-              <Route path="generate" element={<DashboardGenerate />} />
               <Route path="schedules" element={<DashboardSchedules />} />
             </Route>
             <Route path="briefing/:id" element={<BriefingDetail />} />
