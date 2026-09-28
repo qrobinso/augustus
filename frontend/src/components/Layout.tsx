@@ -1,11 +1,9 @@
-import { useState, useEffect, useMemo } from 'react'
-import { Outlet, NavLink, useLocation, Link, useNavigate } from 'react-router-dom'
+import { useMemo } from 'react'
+import { Outlet, NavLink, Link, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard,
   Tag,
   Settings,
-  Menu,
-  X,
   Users,
   ChevronRight,
   Plug
@@ -44,27 +42,10 @@ const baseMobileNavItems = [
 export default function Layout() {
   const currentAudio = useStore((s) => s.currentAudio)
   const currentProfile = useStore((s) => s.currentProfile)
-  const [sidebarOpen, setSidebarOpen] = useState(false)
-  const location = useLocation()
   const navigate = useNavigate()
   const profileSlug = useProfileSlug()
-  
-  // Close sidebar when route changes
-  useEffect(() => {
-    setSidebarOpen(false)
-  }, [location.pathname])
-  
-  // Prevent body scroll when sidebar is open
-  useEffect(() => {
-    if (sidebarOpen) {
-      document.body.style.overflow = 'hidden'
-    } else {
-      document.body.style.overflow = ''
-    }
-    return () => {
-      document.body.style.overflow = ''
-    }
-  }, [sidebarOpen])
+  const profileInitials = currentProfile?.name ? getInitials(currentProfile.name) : '?'
+  const profileColor = currentProfile?.color || '#e85d04'
   
   // Filter nav items based on admin status and prefix with profile slug
   const isAdmin = currentProfile?.is_admin ?? false
@@ -89,46 +70,23 @@ export default function Layout() {
           <img src="/augustus-logo.png" alt="Augustus" className="h-[1.15rem]" />
         </Link>
         <button
-          onClick={() => setSidebarOpen(true)}
-          className="btn-icon btn btn-ghost"
-          aria-label="Open menu"
+          onClick={() => navigate('/profiles')}
+          className="w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold text-white shadow-md hover:opacity-80 active:scale-95 transition-all"
+          style={{ backgroundColor: profileColor }}
+          aria-label={currentProfile?.name ? `Switch profile (${currentProfile.name})` : 'Select profile'}
+          title={currentProfile?.name ? `${currentProfile.name} — switch profile` : 'Select profile'}
         >
-          <Menu className="w-6 h-6" />
+          {profileInitials}
         </button>
       </header>
       
-      {/* Mobile Sidebar Overlay */}
-      {sidebarOpen && (
-        <div 
-          className="md:hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
-      
-      {/* Sidebar - Desktop: always visible, Mobile: slide-in drawer */}
-      <aside 
-        className={clsx(
-          'bg-augustus-900/95 backdrop-blur-xl border-r border-augustus-800/50 flex flex-col flex-shrink-0 z-50',
-          // Desktop styles
-          'md:w-64 md:relative md:translate-x-0',
-          // Mobile styles - slide-in from left
-          'fixed inset-y-0 left-0 w-72 transform transition-transform duration-300 ease-out',
-          sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
-        )}
-      >
+      {/* Sidebar - desktop only */}
+      <aside className="hidden md:flex md:w-64 bg-augustus-900/95 backdrop-blur-xl border-r border-augustus-800/50 flex-col flex-shrink-0 relative z-50">
         {/* Logo */}
         <div className="px-6 pb-6 pt-6 border-b border-augustus-800/50 flex items-center justify-between" style={{ paddingTop: 'calc(1.5rem + env(safe-area-inset-top, 0px))' }}>
           <Link to={`/${profileSlug}/dashboard`} className="flex items-center cursor-pointer hover:opacity-80 transition-opacity flex-1 pt-4">
             <img src="/augustus-logo.png" alt="Augustus" className="h-[1.44rem]" />
           </Link>
-          {/* Close button - mobile only */}
-          <button
-            onClick={() => setSidebarOpen(false)}
-            className="md:hidden btn-icon btn btn-ghost"
-            aria-label="Close menu"
-          >
-            <X className="w-6 h-6" />
-          </button>
         </div>
         
         {/* Navigation */}
@@ -164,9 +122,9 @@ export default function Layout() {
           >
             <div 
               className="w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold text-white shadow-md"
-              style={{ backgroundColor: currentProfile?.color || '#e85d04' }}
+              style={{ backgroundColor: profileColor }}
             >
-              {currentProfile?.name ? getInitials(currentProfile.name) : '?'}
+              {profileInitials}
             </div>
             <div className="flex-1 text-left min-w-0">
               <p className="text-sm font-medium text-augustus-100 truncate">
