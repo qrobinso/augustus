@@ -97,7 +97,13 @@ class Settings(BaseSettings):
     
     # Non-speech sounds (for Gemini TTS - adds sighs, laughs, pauses, etc.)
     enable_non_speech_sounds: bool = True
-    
+
+    # Voicebox TTS (self-hosted; see services/tts/voicebox_client.py)
+    voicebox_url: Optional[str] = None  # e.g. http://localhost:17493
+    voicebox_model: str = ""  # empty = first downloaded TTS model the server reports
+    voicebox_concurrency: int = 2  # lines in flight; the server queues them on its GPU
+    voicebox_briefing_timeout_minutes: int = 60  # long episodes on one GPU outlast the global cap
+
     # Content Duration Settings (in minutes)
     briefing_duration_minutes: int = 5  # Daily briefing duration
 

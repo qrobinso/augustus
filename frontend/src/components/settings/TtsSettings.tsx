@@ -3,6 +3,7 @@ import clsx from 'clsx'
 import type { AppSettings } from '../../api/client'
 import { SecretInput, SettingsCheckbox } from './SettingsControls'
 import { castCountHint } from '../../pages/castProviders'
+import VoiceboxSettings from './VoiceboxSettings'
 
 interface TtsSettingsProps {
   settings: AppSettings | undefined
@@ -18,6 +19,10 @@ interface TtsSettingsProps {
   onGeminiKeyChange: (value: string) => void
   geminiModel: string
   onGeminiModelChange: (value: string) => void
+  voiceboxUrl: string
+  onVoiceboxUrlChange: (value: string) => void
+  voiceboxModel: string
+  onVoiceboxModelChange: (value: string) => void
   enableNonSpeechSounds: boolean
   onEnableNonSpeechSoundsChange: (value: boolean) => void
   /** Casts that exist for the selected provider; undefined while loading. */
@@ -44,7 +49,7 @@ function ProviderOption({
       type="button"
       onClick={onSelect}
       className={clsx(
-        'flex-1 p-3 sm:p-4 rounded-lg border-2 transition-all text-left',
+        'p-3 sm:p-4 rounded-lg border-2 transition-all text-left',
         selected
           ? 'border-accent bg-accent/10'
           : 'border-augustus-700 hover:border-augustus-600 active:bg-augustus-800'
@@ -80,6 +85,10 @@ export default function TtsSettings({
   onGeminiKeyChange,
   geminiModel,
   onGeminiModelChange,
+  voiceboxUrl,
+  onVoiceboxUrlChange,
+  voiceboxModel,
+  onVoiceboxModelChange,
   enableNonSpeechSounds,
   onEnableNonSpeechSoundsChange,
   castCount,
@@ -97,7 +106,7 @@ export default function TtsSettings({
       <div className="space-y-4">
         <div>
           <label className="label">Provider</label>
-          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
             <ProviderOption
               selected={provider === 'piper'}
               onSelect={() => onProviderChange('piper')}
@@ -117,6 +126,13 @@ export default function TtsSettings({
               name="Google Gemini"
               ready={settings?.gemini_configured}
               description="Native TTS, expressiveness"
+            />
+            <ProviderOption
+              selected={provider === 'voicebox'}
+              onSelect={() => onProviderChange('voicebox')}
+              name="Voicebox"
+              ready={settings?.voicebox_configured}
+              description="Self-hosted, your cloned voices"
             />
           </div>
           {castHint && (
@@ -215,6 +231,16 @@ export default function TtsSettings({
               />
             </div>
           </>
+        )}
+
+        {provider === 'voicebox' && (
+          <VoiceboxSettings
+            url={voiceboxUrl}
+            savedUrl={settings?.voicebox_url}
+            onUrlChange={onVoiceboxUrlChange}
+            model={voiceboxModel}
+            onModelChange={onVoiceboxModelChange}
+          />
         )}
       </div>
     </div>

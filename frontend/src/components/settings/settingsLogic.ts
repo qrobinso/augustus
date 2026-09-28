@@ -1,3 +1,4 @@
+import axios from 'axios'
 import type { ModelOption } from '../../api/client'
 
 /** Page sections reachable from the Settings jump bar, in display order. */
@@ -76,4 +77,44 @@ export function groupModelsByProvider(models: ModelOption[]): Record<string, Mod
     groups[model.provider].push(model)
   }
   return groups
+}
+
+export function isServerUrl(url: string): boolean {
+  return /^https?:\/\/\S+$/.test(url.trim())
+}
+
+/** Provider to save, or null when nothing should be sent yet. */
+export function ttsProviderUpdate(selected: string, saved: string, voiceboxUrl: string): string | null {
+  if (selected === saved) return null
+  if (selected === 'voicebox' && !isServerUrl(voiceboxUrl)) return null
+  return selected
+}
+
+/**
+ * Voicebox URL to save, or null when nothing should be sent. A cleared URL is held back
+ * while Voicebox is still the selected provider, because the API rejects that combination.
+ */
+export function voiceboxUrlUpdate(url: string, savedUrl: string | null | undefined, selectedProvider: string): string | null {
+  const next = url.trim()
+  if (next === (savedUrl || '')) return null
+  if (next === '') return selectedProvider === 'voicebox' ? null : ''
+  return isServerUrl(next) ? next : null
+}
+
+/** The API's own explanation when it gave one, else the error's message. */
+export function apiErrorMessage(error: unknown): string {
+  if (axios.isAxiosError(error) && typeof error.response?.data?.detail === 'string') {
+    return error.response.data.detail
+  }
+  return error instanceof Error ? error.message : 'Something went wrong. Try again.'
+}
+
+/** Run a debounced auto-save now (e.g. before leaving the page) instead of later. */
+export function flushPendingSave(
+  timerRef: { current?: ReturnType<typeof setTimeout> },
+  save: () => void,
+): void {
+  if (timerRef.current) clearTimeout(timerRef.current)
+  timerRef.current = undefined
+  save()
 }

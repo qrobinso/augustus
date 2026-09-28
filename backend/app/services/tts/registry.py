@@ -18,18 +18,28 @@ class ProviderSpec:
     label: str
     # The built-in catalogs for these providers are partial, so casts may use raw IDs.
     allows_custom_voice: bool
+    # Whether [sigh]-style sound tags may reach this provider; if not, the
+    # writer never asks for them and any that slip through are stripped.
+    supports_sound_tags: bool = True
 
 
 TTS_PROVIDERS: dict[str, ProviderSpec] = {
     "piper": ProviderSpec("piper", "Piper", allows_custom_voice=True),
     "elevenlabs": ProviderSpec("elevenlabs", "ElevenLabs", allows_custom_voice=True),
     "gemini": ProviderSpec("gemini", "Google Gemini", allows_custom_voice=False),
+    "voicebox": ProviderSpec("voicebox", "Voicebox", allows_custom_voice=False,
+                             supports_sound_tags=False),
 }
 
 
 def provider_label(provider: str) -> str:
     spec = TTS_PROVIDERS.get(provider)
     return spec.label if spec else provider
+
+
+def supports_sound_tags(provider: str) -> bool:
+    spec = TTS_PROVIDERS.get(provider)
+    return spec.supports_sound_tags if spec else True
 
 
 def active_tts_provider() -> str:
@@ -77,9 +87,34 @@ async def list_provider_voices(provider: str) -> list[Voice]:
     elif provider == "piper":
         from app.services.tts.piper import PiperProvider
         voices = list(PiperProvider.VOICES.values())
+    elif provider == "voicebox":
+        from app.services.tts.voicebox_client import VoiceboxClient
+        url = get_settings().voicebox_url
+        if not url:
+            raise ValueError("Add your Voicebox server URL in Settings first.")
+        client = VoiceboxClient(url)
+        try:
+            profiles = await client.list_profiles()
+        finally:
+            await client.close()
+        voices = [
+            Voice(id=p.id, name=p.name.strip(),
+                  description="Preset voice" if p.voice_type == "preset" else "Cloned voice",
+                  language=p.language)
+            for p in profiles
+        ]
     else:
         raise ValueError(f"Unknown TTS provider: {provider}")
     unique: dict[str, Voice] = {}
     for voice in voices:
         unique.setdefault(voice.id, voice)
     return list(unique.values())
+
+
+def briefing_timeout_minutes(provider: str) -> int:
+    """Overall generation budget; slow self-hosted providers get a larger one."""
+    settings = get_settings()
+    minutes = settings.briefing_timeout_minutes
+    if provider == "voicebox":
+        minutes = max(minutes, settings.voicebox_briefing_timeout_minutes)
+    return minutes

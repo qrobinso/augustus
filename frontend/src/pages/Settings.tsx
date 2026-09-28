@@ -33,7 +33,15 @@ import {
   SettingsJumpBar,
   SettingsLinkCard,
 } from '../components/settings/SettingsControls'
-import { SETTINGS_GROUPS, durationToSlider, sliderToDuration } from '../components/settings/settingsLogic'
+import {
+  SETTINGS_GROUPS,
+  apiErrorMessage,
+  durationToSlider,
+  flushPendingSave,
+  sliderToDuration,
+  ttsProviderUpdate,
+  voiceboxUrlUpdate,
+} from '../components/settings/settingsLogic'
 import { useProfileNavigate } from '../utils/profileSlug'
 
 type SettingsTab = 'general' | 'profiles'
@@ -63,6 +71,8 @@ export default function Settings() {
   const [elevenlabsModel, setElevenlabsModel] = useState('eleven_turbo_v2_5')
   const [geminiKey, setGeminiKey] = useState('')
   const [geminiModel, setGeminiModel] = useState('gemini-2.5-flash-preview-tts')
+  const [voiceboxUrl, setVoiceboxUrl] = useState('')
+  const [voiceboxModel, setVoiceboxModel] = useState('')
   const [enableNonSpeechSounds, setEnableNonSpeechSounds] = useState(false)
   // Duration slider values (1=Short/3min, 2=Medium/7min, 3=Long/25min)
   const [briefingDurationSlider, setBriefingDurationSlider] = useState(2)
@@ -75,6 +85,7 @@ export default function Settings() {
 
   // UI state
   const [saved, setSaved] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [providerSaving, setProviderSaving] = useState(false)
   const [providerSaveError, setProviderSaveError] = useState<string | null>(null)
   const [showMobileMenu, setShowMobileMenu] = useState(false)
@@ -106,6 +117,8 @@ export default function Settings() {
   // Update settings mutation
   const updateMutation = useMutation({
     mutationFn: settingsApi.update,
+    onMutate: () => setSaveError(null),
+    onError: (error) => setSaveError(apiErrorMessage(error)),
     onSuccess: (_data, variables) => {
       queryClient.setQueryData(['settings'], (old: any) => {
         if (!old) return old
@@ -114,6 +127,7 @@ export default function Settings() {
         if ('elevenlabs_api_key' in variables) updated.elevenlabs_configured = true
         if ('gemini_api_key' in variables) updated.gemini_configured = true
         if ('resend_api_key' in variables) updated.resend_configured = true
+        if ('voicebox_url' in variables) updated.voicebox_configured = !!variables.voicebox_url
         return updated
       })
       // Casts are per provider: every cast list and picker must follow a provider switch.
@@ -190,11 +204,15 @@ export default function Settings() {
       if (!providerHydratedRef.current) {
         setLlmProvider(settings.llm_provider || 'openrouter')
         setCodexModel(settings.codex_model || '')
+        // The TTS provider can be held back until a Voicebox URL exists, so a later
+        // cache merge must not reset the unsaved choice either.
+        setTtsProvider(settings.tts_provider)
+        setVoiceboxUrl(settings.voicebox_url || '')
+        setVoiceboxModel(settings.voicebox_model || '')
         providerHydratedRef.current = true
       }
       setOpenrouterModel(settings.openrouter_model)
       setOpenrouterWriterModel(settings.openrouter_writer_model || '')
-      setTtsProvider(settings.tts_provider)
       setPiperUrl(settings.piper_url || '')
       setElevenlabsModel(settings.elevenlabs_model || 'eleven_turbo_v2_5')
       setGeminiModel(settings.gemini_model || 'gemini-2.5-flash-preview-tts')
@@ -249,10 +267,14 @@ export default function Settings() {
     if ((resendFromEmail || '') !== (settings.resend_from_email || '')) updates.resend_from_email = resendFromEmail || ''
     if (openrouterModel !== settings.openrouter_model) updates.openrouter_model = openrouterModel
     if ((openrouterWriterModel || '') !== (settings.openrouter_writer_model || '')) updates.openrouter_writer_model = openrouterWriterModel || ''
-    if (ttsProvider !== settings.tts_provider) updates.tts_provider = ttsProvider
     if ((piperUrl || '') !== (settings.piper_url || '')) updates.piper_url = piperUrl
     if ((elevenlabsModel || '') !== (settings.elevenlabs_model || '')) updates.elevenlabs_model = elevenlabsModel
     if ((geminiModel || '') !== (settings.gemini_model || '')) updates.gemini_model = geminiModel
+    const voiceboxUrlChange = voiceboxUrlUpdate(voiceboxUrl, settings.voicebox_url, ttsProvider)
+    if (voiceboxUrlChange !== null) updates.voicebox_url = voiceboxUrlChange
+    if ((voiceboxModel || '') !== (settings.voicebox_model || '')) updates.voicebox_model = voiceboxModel
+    const providerUpdate = ttsProviderUpdate(ttsProvider, settings.tts_provider, voiceboxUrl)
+    if (providerUpdate) updates.tts_provider = providerUpdate
     if (enableNonSpeechSounds !== (settings.enable_non_speech_sounds || false)) updates.enable_non_speech_sounds = enableNonSpeechSounds
     const briefingDuration = sliderToDuration(briefingDurationSlider)
     if (briefingDuration !== settings.briefing_duration_minutes) updates.briefing_duration_minutes = briefingDuration
@@ -263,7 +285,7 @@ export default function Settings() {
     if (Object.keys(updates).length > 0) {
       updateMutation.mutate(updates)
     }
-  }, [settings, openrouterKey, openrouterModel, openrouterWriterModel, ttsProvider, piperUrl, elevenlabsKey, elevenlabsModel, geminiKey, geminiModel, enableNonSpeechSounds, briefingDurationSlider, conversationComplexity, timezone, newsApiKey, resendApiKey, resendFromEmail, autoPlayNext, updateMutation])
+  }, [settings, openrouterKey, openrouterModel, openrouterWriterModel, ttsProvider, piperUrl, elevenlabsKey, elevenlabsModel, geminiKey, geminiModel, voiceboxUrl, voiceboxModel, enableNonSpeechSounds, briefingDurationSlider, conversationComplexity, timezone, newsApiKey, resendApiKey, resendFromEmail, autoPlayNext, updateMutation])
 
   // Auto-save: debounce all form value changes
   useEffect(() => {
@@ -332,6 +354,12 @@ export default function Settings() {
                 <span className="inline-flex items-center gap-1 text-xs text-augustus-500">
                   <Loader2 className="w-3 h-3 animate-spin" />
                   Saving...
+                </span>
+              )}
+              {saveError && !updateMutation.isPending && (
+                <span className="inline-flex items-center gap-1 text-xs text-red-400">
+                  <AlertCircle className="w-3 h-3" />
+                  {saveError}
                 </span>
               )}
               {saved && !updateMutation.isPending && (
@@ -515,11 +543,19 @@ export default function Settings() {
               onGeminiKeyChange={setGeminiKey}
               geminiModel={geminiModel}
               onGeminiModelChange={setGeminiModel}
+              voiceboxUrl={voiceboxUrl}
+              onVoiceboxUrlChange={setVoiceboxUrl}
+              voiceboxModel={voiceboxModel}
+              onVoiceboxModelChange={setVoiceboxModel}
               enableNonSpeechSounds={enableNonSpeechSounds}
               onEnableNonSpeechSoundsChange={setEnableNonSpeechSounds}
               castCount={castSummary ? (castSummary.counts[ttsProvider] ?? 0) : undefined}
               providerLabel={providerLabel(castList?.providers ?? [], ttsProvider)}
-              onOpenCasts={() => navigate('/casts')}
+              onOpenCasts={() => {
+                // Save a just-changed provider first so the Casts page shows its casts.
+                flushPendingSave(debounceRef, handleSave)
+                navigate('/casts')
+              }}
             />
           </SettingsGroup>
 

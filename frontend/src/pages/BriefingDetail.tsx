@@ -1425,6 +1425,14 @@ export default function BriefingDetail() {
                             </span>
                           </div>
                         )}
+                        {settings.tts_provider === 'voicebox' && (
+                          <div className="flex justify-between">
+                            <span className="text-augustus-400">Voicebox Model:</span>
+                            <span className="text-white font-mono text-xs break-all text-right ml-2">
+                              {settings.voicebox_model || 'first available model'}
+                            </span>
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}

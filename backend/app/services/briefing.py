@@ -19,7 +19,9 @@ from app.models.user import User
 from app.models.cast import Cast
 from app.models.article import Article
 from app.services.cast import CastService
-from app.services.tts.registry import active_tts_provider
+from app.services.tts.registry import (
+    active_tts_provider, briefing_timeout_minutes, supports_sound_tags,
+)
 from app.services.llm.openrouter import get_llm_provider
 from app.services.llm.agents.orchestrator import BriefingOrchestrator
 from app.services.tts.factory import TTSFactory
@@ -237,8 +239,10 @@ class BriefingService:
         
         print(f"[Briefing] Target duration: {max_duration_minutes} minutes")
         
-        # Get timeout from settings
-        timeout_minutes = get_settings().briefing_timeout_minutes
+        # Read the provider once: the timeout, cast, audio and cost record must
+        # all use the same one even if Settings change while this briefing runs.
+        tts_provider = active_tts_provider()
+        timeout_minutes = briefing_timeout_minutes(tts_provider)
         timeout_seconds = timeout_minutes * 60
         
         try:
@@ -250,6 +254,7 @@ class BriefingService:
                     topic_ids=topic_ids,
                     max_duration_minutes=max_duration_minutes,
                     profile_name=profile_name,
+                    tts_provider=tts_provider,
                 ),
                 timeout=timeout_seconds,
             )
@@ -286,6 +291,7 @@ class BriefingService:
         topic_ids: Optional[list[str]],
         max_duration_minutes: int,
         profile_name: Optional[str] = None,
+        tts_provider: Optional[str] = None,
     ) -> Briefing:
         """Internal method that performs the actual briefing generation.
         
@@ -297,6 +303,7 @@ class BriefingService:
             topic_ids: List of topic IDs to include
             max_duration_minutes: Target duration in minutes
             profile_name: Profile name for personalized greetings
+            tts_provider: The provider read once by the caller (defaults to the active one)
         """
         # Register cancellation event for this briefing
         cancel_register(briefing_id)
@@ -561,9 +568,8 @@ class BriefingService:
             # Step 5: Load cast for this briefing (needed by per-host research below)
             await update_progress(5, "Loading cast configuration", 60)
             cast_service = CastService(self.db)
-            # Read the provider once: the cast and the audio must use the same one
-            # even if Settings change while this briefing generates.
-            tts_provider = active_tts_provider()
+            if tts_provider is None:
+                tts_provider = active_tts_provider()
             cast = await cast_service.resolve_for_generation(
                 briefing.user_id, briefing.profile_id, briefing.cast_id, tts_provider,
             )
@@ -648,7 +654,10 @@ class BriefingService:
             # If no profile name is available, use None (will result in generic greeting)
             user_name = profile_name if profile_name else None
             complexity = get_settings().conversation_complexity
-            enable_non_speech_sounds = get_settings().enable_non_speech_sounds
+            # Never ask for sound tags a provider would read aloud (e.g. Voicebox).
+            enable_non_speech_sounds = (
+                get_settings().enable_non_speech_sounds and supports_sound_tags(tts_provider)
+            )
             
             # Use orchestrator to write the briefing script
             response = await self.orchestrator.write_briefing_script(
@@ -798,7 +807,7 @@ class BriefingService:
             
             # Calculate TTS cost
             tts_cost = self._calculate_tts_cost(
-                tts_provider=settings.tts_provider,
+                tts_provider=tts_provider,
                 script=segments,
                 duration_seconds=tts_result.duration_seconds,
             )

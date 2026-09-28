@@ -7,8 +7,12 @@ from typing import Literal, Optional
 from urllib.parse import urlsplit
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from pydantic import BaseModel, Field, field_validator
+
+from app.routers.auth import get_current_user
+from app.services.tts.registry import TTS_PROVIDERS
+from app.services.tts.voicebox_client import MIN_TESTED_VERSION, VoiceboxClient, VoiceboxError, parse_version
 
 router = APIRouter()
 
@@ -30,6 +34,9 @@ class SettingsResponse(BaseModel):
     # TTS
     tts_provider: str = "piper"
     piper_url: Optional[str] = None
+    voicebox_url: Optional[str] = None
+    voicebox_model: str = ""
+    voicebox_configured: bool = False
     elevenlabs_api_key: Optional[str] = None
     elevenlabs_model: str = "eleven_turbo_v2_5"
     gemini_api_key: Optional[str] = None
@@ -79,6 +86,8 @@ class SettingsUpdate(BaseModel):
     openrouter_writer_model: Optional[str] = None
     tts_provider: Optional[str] = None
     piper_url: Optional[str] = None
+    voicebox_url: Optional[str] = Field(default=None, max_length=300, pattern=r"^(https?://[^\s]+)?$")
+    voicebox_model: Optional[str] = Field(default=None, max_length=80, pattern=r"^[a-zA-Z0-9._-]*$")
     elevenlabs_api_key: Optional[str] = None
     elevenlabs_model: Optional[str] = None
     gemini_api_key: Optional[str] = None
@@ -95,6 +104,13 @@ class SettingsUpdate(BaseModel):
     auto_play_next: Optional[bool] = None
     onboarding_completed: Optional[bool] = None
     onboarding_skipped: Optional[bool] = None
+
+    @field_validator("tts_provider")
+    @classmethod
+    def _known_tts_provider(cls, value):
+        if value is not None and value not in TTS_PROVIDERS:
+            raise ValueError(f"Unknown TTS provider: {value}")
+        return value
 
 
 class ValidateApiKeyRequest(BaseModel):
@@ -208,6 +224,8 @@ def get_current_settings() -> dict:
         "openrouter_writer_model": os.environ.get("OPENROUTER_WRITER_MODEL") or env_vars.get("OPENROUTER_WRITER_MODEL"),
         "tts_provider": os.environ.get("TTS_PROVIDER") or env_vars.get("TTS_PROVIDER", "piper"),
         "piper_url": os.environ.get("PIPER_URL") or env_vars.get("PIPER_URL"),
+        "voicebox_url": os.environ.get("VOICEBOX_URL") or env_vars.get("VOICEBOX_URL") or None,
+        "voicebox_model": os.environ.get("VOICEBOX_MODEL") or env_vars.get("VOICEBOX_MODEL", ""),
         "elevenlabs_api_key": os.environ.get("ELEVENLABS_API_KEY") or env_vars.get("ELEVENLABS_API_KEY"),
         "elevenlabs_model": os.environ.get("ELEVENLABS_MODEL") or env_vars.get("ELEVENLABS_MODEL", "eleven_turbo_v2_5"),
         "gemini_api_key": os.environ.get("GEMINI_API_KEY") or env_vars.get("GEMINI_API_KEY"),
@@ -242,6 +260,9 @@ async def get_settings_endpoint():
         openrouter_writer_model=settings.get("openrouter_writer_model"),
         tts_provider=settings["tts_provider"],
         piper_url=settings.get("piper_url"),
+        voicebox_url=settings["voicebox_url"],
+        voicebox_model=settings["voicebox_model"],
+        voicebox_configured=bool(settings["voicebox_url"]),
         elevenlabs_api_key=mask_api_key(settings["elevenlabs_api_key"]),
         elevenlabs_model=settings["elevenlabs_model"],
         gemini_api_key=mask_api_key(settings["gemini_api_key"]),
@@ -270,6 +291,15 @@ async def get_settings_endpoint():
 async def update_settings(updates: SettingsUpdate):
     """Update application settings and save to .env file."""
     print(f"[Settings] Received updates: {updates.model_dump(exclude_unset=True)}")
+    current = get_current_settings()
+    url_after = current["voicebox_url"] if updates.voicebox_url is None else updates.voicebox_url
+    provider_after = updates.tts_provider or current["tts_provider"]
+    if provider_after == "voicebox" and not url_after:
+        raise HTTPException(
+            status_code=400,
+            detail="Add your Voicebox server URL before choosing Voicebox"
+            if updates.tts_provider else "Choose another voice provider before removing the Voicebox URL",
+        )
     try:
         env_updates = {}
         
@@ -299,7 +329,13 @@ async def update_settings(updates: SettingsUpdate):
         if updates.piper_url is not None:
             env_updates["PIPER_URL"] = updates.piper_url
             os.environ["PIPER_URL"] = updates.piper_url
-        
+
+        for field in ("voicebox_url", "voicebox_model"):
+            value = getattr(updates, field)
+            if value is not None:
+                env_updates[field.upper()] = value
+                os.environ[field.upper()] = value
+
         if updates.elevenlabs_api_key is not None:
             env_updates["ELEVENLABS_API_KEY"] = updates.elevenlabs_api_key
             os.environ["ELEVENLABS_API_KEY"] = updates.elevenlabs_api_key
@@ -529,6 +565,51 @@ async def get_available_timezones():
     }
     
     return {"timezones": timezones}
+
+
+class VoiceboxUrlRequest(BaseModel):
+    url: str = Field(..., max_length=300, pattern=r"^https?://[^\s]+$")
+
+
+@router.post("/validate/voicebox")
+async def validate_voicebox(request: VoiceboxUrlRequest, user=Depends(get_current_user)):
+    """Check a Voicebox server: reachable, API version, and how many voices it has."""
+    client = VoiceboxClient(request.url)
+    try:
+        version = await client.version()
+        voices = await client.list_profiles(max_age=0)
+    except VoiceboxError as error:
+        return {"valid": False, "message": str(error), "version": None, "voice_count": 0, "warning": None}
+    finally:
+        await client.close()
+    warning = None
+    if version and parse_version(version) < MIN_TESTED_VERSION:
+        warning = (f"Voicebox {version} is older than the tested "
+                   f"{'.'.join(map(str, MIN_TESTED_VERSION))}; some features may not work.")
+    return {
+        "valid": True,
+        "message": (f"Connected to Voicebox {version or '(version unknown)'} · "
+                    f"{len(voices)} voice{'s' if len(voices) != 1 else ''}"),
+        "version": version or None,
+        "voice_count": len(voices),
+        "warning": warning,
+    }
+
+
+@router.get("/voicebox/models")
+async def voicebox_models(
+    url: str = Query(..., max_length=300, pattern=r"^https?://[^\s]+$"),
+    user=Depends(get_current_user),
+):
+    """Downloaded TTS models on a Voicebox server that Augustus knows how to use."""
+    client = VoiceboxClient(url)
+    try:
+        models = await client.list_tts_models()
+    except VoiceboxError as error:
+        raise HTTPException(status_code=502, detail=str(error))
+    finally:
+        await client.close()
+    return {"models": [{"name": m.name, "display_name": m.display_name} for m in models]}
 
 
 @router.post("/validate/openrouter")

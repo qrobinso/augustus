@@ -4,6 +4,7 @@ import {
   castCountHint,
   castPickerValue,
   isCastReadOnly,
+  missingVoiceWarning,
   providerLabel,
   savedCastUnavailable,
   splitCastsByProvider,
@@ -74,5 +75,14 @@ describe('castProviders', () => {
     expect(isCastReadOnly(cast('a', 'gemini'), '')).toBe(true)
     expect(isCastReadOnly(cast('a', 'elevenlabs'), 'gemini')).toBe(true)
     expect(isCastReadOnly(cast('a', 'gemini'), 'gemini')).toBe(false)
+  })
+
+  it('warns about a missing voice only once the voices have loaded', () => {
+    const loaded = { provider: 'voicebox', provider_label: 'Voicebox', voices, allows_custom: false }
+    expect(missingVoiceWarning('Zephyr', undefined, true)).toBeNull()
+    expect(missingVoiceWarning('Zephyr', undefined, false)).toBeNull()
+    expect(missingVoiceWarning('Zephyr', loaded, true)).toBeNull()
+    expect(missingVoiceWarning('vb-1', loaded, false)).toBeNull()
+    expect(missingVoiceWarning('Zephyr', loaded, false)).toBe("“Zephyr” isn't a Voicebox voice. Choose one from the list.")
   })
 })

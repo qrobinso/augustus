@@ -260,6 +260,8 @@ export interface AppSettings {
   elevenlabs_model: string
   gemini_api_key?: string
   gemini_model: string
+  voicebox_url?: string | null
+  voicebox_model: string
   enable_non_speech_sounds: boolean
   briefing_duration_minutes: number
   conversation_complexity: number
@@ -277,6 +279,7 @@ export interface AppSettings {
   news_api_configured: boolean
   resend_configured: boolean
   gemini_configured: boolean
+  voicebox_configured: boolean
 }
 
 export interface TimezoneOption {
@@ -601,6 +604,8 @@ export const settingsApi = {
     elevenlabs_model: string
     gemini_api_key: string
     gemini_model: string
+    voicebox_url: string
+    voicebox_model: string
     enable_non_speech_sounds: boolean
     briefing_duration_minutes: number
     conversation_complexity: number
@@ -620,6 +625,18 @@ export const settingsApi = {
   
   getModels: async () => {
     const { data } = await api.get<{ models: ModelOption[] }>('/api/settings/models')
+    return data.models
+  },
+
+  validateVoicebox: async (url: string) => {
+    const { data } = await api.post<{ valid: boolean; message: string; version: string | null; voice_count: number; warning: string | null }>(
+      '/api/settings/validate/voicebox', { url })
+    return data
+  },
+
+  getVoiceboxModels: async (url: string) => {
+    const { data } = await api.get<{ models: Array<{ name: string; display_name: string }> }>(
+      '/api/settings/voicebox/models', { params: { url } })
     return data.models
   },
 

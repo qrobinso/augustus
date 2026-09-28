@@ -8,6 +8,7 @@ from app.services.tts.base import TTSProvider, TTSResult
 from app.services.tts.piper import PiperProvider
 from app.services.tts.elevenlabs import ElevenLabsProvider
 from app.services.tts.gemini import GeminiProvider
+from app.services.tts.voicebox import VoiceboxProvider
 
 
 class TTSFactory:
@@ -18,7 +19,7 @@ class TTSFactory:
         """Get a TTS provider by name.
         
         Args:
-            provider_name: 'piper' or 'elevenlabs'. Defaults to settings.
+            provider_name: 'piper', 'elevenlabs', 'gemini' or 'voicebox'. Defaults to settings.
             
         Returns:
             TTSProvider instance
@@ -36,6 +37,10 @@ class TTSFactory:
             if not settings.gemini_api_key:
                 raise ValueError("Gemini API key required")
             return GeminiProvider()
+        elif provider_name == "voicebox":
+            if not settings.voicebox_url:
+                raise ValueError("Voicebox server URL required")
+            return VoiceboxProvider()
         else:
             raise ValueError(f"Unknown TTS provider: {provider_name}")
     

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { CastVoices } from '../api/client'
-import { CUSTOM_VOICE, voiceChoice } from '../pages/castProviders'
+import { CUSTOM_VOICE, missingVoiceWarning, voiceChoice } from '../pages/castProviders'
 
 interface VoicePickerProps {
   id: string
@@ -19,6 +19,7 @@ export default function VoicePicker({ id, value, onChange, voices, loading, erro
   const choice = voiceChoice(value, list, allowsCustom)
   const [customOpen, setCustomOpen] = useState(choice.kind === 'custom')
   const showCustom = allowsCustom && (customOpen || choice.kind === 'custom')
+  const missingWarning = missingVoiceWarning(value, voices, loading)
 
   if (error) {
     return <p className="text-sm text-red-400">{error}</p>
@@ -62,11 +63,7 @@ export default function VoicePicker({ id, value, onChange, voices, loading, erro
           disabled={disabled}
         />
       )}
-      {choice.kind === 'missing' && (
-        <p className="text-xs text-yellow-400">
-          “{value}” isn't a {voices?.provider_label} voice. Choose one from the list.
-        </p>
-      )}
+      {missingWarning && <p className="text-xs text-yellow-400">{missingWarning}</p>}
     </div>
   )
 }

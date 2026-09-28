@@ -55,7 +55,7 @@ async def test_concurrent_workers_generate_mixed_jobs_once_in_fifo_order(queue_d
     calls = []
     entered, release = asyncio.Event(), asyncio.Event()
 
-    async def generate(service, briefing_id, briefing, topic_ids, max_duration_minutes, profile_name):
+    async def generate(service, briefing_id, briefing, topic_ids, max_duration_minutes, profile_name, **kwargs):
         calls.append((briefing_id, topic_ids, max_duration_minutes, profile_name))
         if briefing_id == 'job-0':
             entered.set()

@@ -1,4 +1,4 @@
-import type { Cast, ProviderInfo, VoiceOption } from '../api/client'
+import type { Cast, CastVoices, ProviderInfo, VoiceOption } from '../api/client'
 
 /** Select value that reveals the free-text voice ID input. */
 export const CUSTOM_VOICE = '__custom__'
@@ -26,6 +26,13 @@ export function voiceChoice(voiceId: string, voices: VoiceOption[], allowsCustom
   const voice = voices.find(v => v.id === voiceId)
   if (voice) return { kind: 'listed', voice }
   return allowsCustom ? { kind: 'custom' } : { kind: 'missing' }
+}
+
+/** Warning for a member voice the provider doesn't list; null until the voices have loaded. */
+export function missingVoiceWarning(voiceId: string, voices: CastVoices | undefined, loading: boolean): string | null {
+  if (loading || !voices) return null
+  if (voiceChoice(voiceId, voices.voices, voices.allows_custom).kind !== 'missing') return null
+  return `“${voiceId}” isn't a ${voices.provider_label} voice. Choose one from the list.`
 }
 
 export function voiceName(voiceId: string, voices: VoiceOption[]): string {
