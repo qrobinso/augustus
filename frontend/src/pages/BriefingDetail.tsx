@@ -34,6 +34,7 @@ import { briefingsApi, settingsApi, castsApi, topicsApi, SegmentTiming } from '.
 import { groupSourcesByHost } from './briefingSources'
 import { scheduleParamsFromBriefing } from './schedulePrefill'
 import StoryDevelopments from '../components/StoryDevelopments'
+import OverflowMenu from '../components/OverflowMenu'
 import { useStore } from '../store/useStore'
 import type { QueueItem } from '../store/queue'
 import { formatFullDate } from '../utils/timezone'
@@ -752,6 +753,20 @@ export default function BriefingDetail() {
     return formatted
   }
   
+  const handleDelete = () => {
+    if (!briefing) return
+    const statusText = briefing.status === 'cancelled' ? 'cancelled ' :
+                       briefing.status === 'failed' ? 'failed ' :
+                       briefing.error_message ? 'errored ' : ''
+    if (confirm(`Are you sure you want to delete this ${statusText}briefing?`)) {
+      deleteMutation.mutate()
+    }
+  }
+
+  const hasPlayableContent = briefing?.status === 'completed' &&
+    Boolean(briefing.transcript || segmentTimings.length > 0 || briefing.audio_url)
+  const isErrored = briefing?.status === 'failed' || briefing?.status === 'cancelled' || Boolean(briefing?.error_message)
+
   if (isLoading) {
     return (
       <div className="page-container flex items-center justify-center min-h-[50vh]">
@@ -916,81 +931,17 @@ export default function BriefingDetail() {
         </div>
       </div>
       
-      {/* Action Bar for failed, cancelled, or errored briefings - just delete */}
-      {(briefing.status === 'failed' || briefing.status === 'cancelled' || briefing.error_message) && (
-        <div className="card mb-4 sm:mb-6">
+      {/* Action Bar: primary listening actions up front, everything else in the overflow menu */}
+      {(hasPlayableContent || isErrored) && (
+        <div className="card mb-4 sm:mb-6 relative z-20">
           <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-            <button
-              onClick={() => {
-                const statusText = briefing.status === 'cancelled' ? 'cancelled' : 
-                                 briefing.status === 'failed' ? 'failed' : 
-                                 briefing.error_message ? 'errored' : 'briefing'
-                if (confirm(`Are you sure you want to delete this ${statusText} briefing?`)) {
-                  deleteMutation.mutate()
-                }
-              }}
-              disabled={deleteMutation.isPending}
-              className="btn btn-ghost flex items-center gap-2 text-sm text-red-400 hover:text-red-300"
-              title="Delete briefing"
-            >
-              {deleteMutation.isPending ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Trash2 className="w-4 h-4" />
-              )}
-              <span>Delete Briefing</span>
-            </button>
-          </div>
-        </div>
-      )}
-      
-      {/* Action Bar */}
-      {briefing.status === 'completed' && (briefing.transcript || segmentTimings.length > 0 || briefing.audio_url) && (
-        <div className="card mb-4 sm:mb-6">
-          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-            <button
-              onClick={() => favoriteMutation.mutate({ favorite: !briefing.favorite })}
-              disabled={favoriteMutation.isPending}
-              className={clsx(
-                'btn btn-ghost flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed',
-                briefing.favorite && 'text-red-500 hover:text-red-400'
-              )}
-              title={briefing.favorite ? 'Remove from favorites' : 'Add to favorites'}
-            >
-              {favoriteMutation.isPending ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Heart className={clsx('w-4 h-4', briefing.favorite && 'fill-current')} />
-              )}
-              <span className="hidden sm:inline">Favorite</span>
-            </button>
-            
-            <button
-              onClick={handleCopyTranscript}
-              disabled={!briefing.transcript && segmentTimings.length === 0}
-              className="btn btn-ghost flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Copy transcript"
-            >
-              <Copy className="w-4 h-4" />
-              <span className="hidden sm:inline">Copy</span>
-            </button>
-            
-            <button
-              onClick={handleDownload}
-              disabled={!briefing.audio_url}
-              className="btn btn-ghost flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Download audio file"
-            >
-              <Download className="w-4 h-4" />
-              <span className="hidden sm:inline">Download</span>
-            </button>
-
-            {briefing.status === 'completed' && briefing.audio_url && (
+            {hasPlayableContent && briefing.audio_url && (
               <>
                 <button
                   onClick={() => playNext(toQueueItem(briefing))}
                   className="btn btn-ghost flex items-center gap-2 text-sm"
                   title="Play next"
+                  aria-label="Play next"
                 >
                   <CornerUpRight className="w-4 h-4" />
                   <span className="hidden sm:inline">Play Next</span>
@@ -1000,6 +951,7 @@ export default function BriefingDetail() {
                   onClick={() => addToQueue(toQueueItem(briefing))}
                   className="btn btn-ghost flex items-center gap-2 text-sm"
                   title="Add to queue"
+                  aria-label="Add to queue"
                 >
                   <ListPlus className="w-4 h-4" />
                   <span className="hidden sm:inline">Add to Queue</span>
@@ -1007,46 +959,86 @@ export default function BriefingDetail() {
               </>
             )}
 
-            <button
-              onClick={() => listenedMutation.mutate({ listened: !briefing.listened })}
-              disabled={listenedMutation.isPending}
-              className="btn btn-ghost flex items-center gap-2 text-sm"
-              title={briefing.listened ? 'Mark as Not Listened' : 'Mark as Listened'}
-            >
-              {listenedMutation.isPending ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : briefing.listened ? (
-                <CheckCircle className="w-4 h-4" />
-              ) : (
-                <Circle className="w-4 h-4" />
-              )}
-              <span className="hidden sm:inline">
-                {briefing.listened ? 'Not Listened' : 'Listened'}
-              </span>
-            </button>
-            
-            <button
-              onClick={() => navigate(`/schedules/create?${scheduleParamsFromBriefing(briefing).toString()}`)}
-              className="btn btn-ghost flex items-center gap-2 text-sm"
-              title="Create Schedule"
-            >
-              <CalendarClock className="w-4 h-4" />
-              <span className="hidden sm:inline">Schedule</span>
-            </button>
-            
-            <button
-              onClick={() => deleteMutation.mutate()}
-              disabled={deleteMutation.isPending}
-              className="btn btn-ghost flex items-center gap-2 text-sm text-red-400 hover:text-red-300"
-              title="Delete briefing"
-            >
-              {deleteMutation.isPending ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Trash2 className="w-4 h-4" />
-              )}
-              <span className="hidden sm:inline">Delete</span>
-            </button>
+            {hasPlayableContent && (
+              <button
+                onClick={() => favoriteMutation.mutate({ favorite: !briefing.favorite })}
+                disabled={favoriteMutation.isPending}
+                className={clsx(
+                  'btn btn-ghost btn-icon text-sm disabled:opacity-50 disabled:cursor-not-allowed',
+                  briefing.favorite && 'text-red-500 hover:text-red-400'
+                )}
+                title={briefing.favorite ? 'Remove from favorites' : 'Add to favorites'}
+                aria-label="Favorite"
+                aria-pressed={Boolean(briefing.favorite)}
+              >
+                {favoriteMutation.isPending ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Heart className={clsx('w-4 h-4', briefing.favorite && 'fill-current')} />
+                )}
+              </button>
+            )}
+
+            {hasPlayableContent ? (
+              <OverflowMenu
+                className="ml-auto"
+                label="More actions"
+                busy={deleteMutation.isPending || listenedMutation.isPending}
+                items={[
+                  {
+                    key: 'copy',
+                    label: 'Copy transcript',
+                    icon: <Copy />,
+                    onSelect: handleCopyTranscript,
+                    disabled: !briefing.transcript && segmentTimings.length === 0,
+                  },
+                  {
+                    key: 'download',
+                    label: 'Download audio',
+                    icon: <Download />,
+                    onSelect: handleDownload,
+                    disabled: !briefing.audio_url,
+                  },
+                  {
+                    key: 'listened',
+                    label: briefing.listened ? 'Mark as not listened' : 'Mark as listened',
+                    icon: briefing.listened ? <Circle /> : <CheckCircle />,
+                    onSelect: () => listenedMutation.mutate({ listened: !briefing.listened }),
+                    disabled: listenedMutation.isPending,
+                  },
+                  {
+                    key: 'schedule',
+                    label: 'Schedule this briefing',
+                    icon: <CalendarClock />,
+                    onSelect: () => navigate(`/schedules/create?${scheduleParamsFromBriefing(briefing).toString()}`),
+                  },
+                  {
+                    key: 'delete',
+                    label: 'Delete briefing',
+                    icon: <Trash2 />,
+                    onSelect: handleDelete,
+                    disabled: deleteMutation.isPending,
+                    destructive: true,
+                    separatorBefore: true,
+                  },
+                ]}
+              />
+            ) : (
+              // Failed / cancelled / errored: delete is the only action, so keep it visible.
+              <button
+                onClick={handleDelete}
+                disabled={deleteMutation.isPending}
+                className="btn btn-ghost flex items-center gap-2 text-sm text-red-400 hover:text-red-300"
+                title="Delete briefing"
+              >
+                {deleteMutation.isPending ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Trash2 className="w-4 h-4" />
+                )}
+                <span>Delete Briefing</span>
+              </button>
+            )}
           </div>
         </div>
       )}
