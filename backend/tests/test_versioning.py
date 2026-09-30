@@ -34,7 +34,7 @@ def repo(tmp_path):
         if (ROOT / name).exists():
             (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(ROOT / name, tmp_path / name)
-    git(tmp_path, "init", "-b", "main")
+    git(tmp_path, "init", "-b", "master")
     git(tmp_path, "config", "user.email", "test@example.com")
     git(tmp_path, "config", "user.name", "Version Test")
     git(tmp_path, "config", "commit.gpgsign", "false")
@@ -57,7 +57,7 @@ def assert_version(repo, expected):
     assert namespace["__version__"] == expected
 
 
-def test_main_commit_bumps_and_stages_all_versions(repo):
+def test_master_commit_bumps_and_stages_all_versions(repo):
     git(repo, "commit", "-m", "feat: example")
     assert_version(repo, "0.1.1")
     assert git(repo, "status", "--porcelain").stdout == ""

@@ -25,7 +25,7 @@ After cloning, enable the repository hooks (Python 3 must be on your PATH):
 git config core.hooksPath .githooks
 ```
 
-Each nonempty commit on `main` automatically increments the patch version and
+Each nonempty commit on `master` automatically increments the patch version and
 includes synchronized changes to `frontend/package.json`, its lockfile, and
 `backend/app/__init__.py`. The sidebar and API use those values. Other branches
 do not bump automatically. Stage or stash edits to these files before committing;
@@ -40,7 +40,7 @@ python3 scripts/version.py --check
 ```
 
 The hook preserves that staged increase. Hooks are local to each clone and can
-be bypassed by Git; keep them enabled when working directly on `main`.
+be bypassed by Git; keep them enabled when working directly on `master`.
 
 ### Backend Development
 

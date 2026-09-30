@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Synchronize app versions and bump main commits without extra dependencies."""
+"""Synchronize app versions and bump master commits without extra dependencies."""
 
 import argparse
 import json
@@ -58,18 +58,21 @@ def bump(part):
     print(f"Augustus {version} → {new_version}")
 
 
+RELEASE_BRANCH = "master"
+
+
 def pre_commit():
-    if git("rev-parse", "--abbrev-ref", "HEAD") != "main":
+    if git("rev-parse", "--abbrev-ref", "HEAD") != RELEASE_BRANCH:
         return
     if not git("diff", "--cached", "--name-only"):
         return
     # Never absorb unrelated, unstaged package or backend edits into a commit.
     if git("diff", "--name-only", "--", *FILES):
-        raise ValueError("Stage or stash edits to the version files before committing on main")
+        raise ValueError("Stage or stash edits to the version files before committing on master")
     version, _, _, _ = load_versions()
     previous = json.loads(git("show", f"HEAD:{FILES[0]}"))["version"]
     if parse_version(version) < parse_version(previous):
-        raise ValueError("App version cannot decrease on main")
+        raise ValueError("App version cannot decrease on master")
     if version == previous:
         bump("patch")
         git("add", "--", *FILES)

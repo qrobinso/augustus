@@ -1,9 +1,9 @@
 # Repository workflow
 
-Make changes directly on `main` unless the user requests a different branch.
+Make changes directly on `master` unless the user requests a different branch.
 
 Keep automatic version updates enabled: `git config core.hooksPath .githooks`.
-The pre-commit hook bumps the patch version for each nonempty commit on `main`
+The pre-commit hook bumps the patch version for each nonempty commit on `master`
 and stages the synchronized frontend, lockfile, and backend versions. It requires
 Python 3 and refuses to absorb unstaged edits to those files.
 
